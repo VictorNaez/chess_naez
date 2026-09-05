@@ -28,6 +28,7 @@ const MODES: { id: AppMode; icon: IoniconName; label: string; available: boolean
   { id: 'puzzles', icon: 'extension-puzzle-outline', label: 'Modo puzles',       available: true  },
   { id: 'rush',    icon: 'flash-outline',            label: 'Modo rush',         available: false },
   { id: 'clock',   icon: 'timer-outline',            label: 'Modo contrarreloj', available: true  },
+  { id: 'survival', icon: 'skull-outline',           label: 'Supervivencia',     available: true  },
 ];
 
 // Acciones de análisis: no son modos, no cambian la sesión. Cuando construyas

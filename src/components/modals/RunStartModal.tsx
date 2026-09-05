@@ -3,54 +3,75 @@ import * as SQLite from 'expo-sqlite';
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
-import { getClockRecords } from '../../data/clockRuns';
-import { CLOCK_DURATIONS, DEFAULT_CLOCK_DURATION_MS } from '../../lib/clock';
 import { hapticImpact } from '../../lib/haptics';
-import type { ClockRecords } from '../../types/clock';
+import type { RunKind, RunRecords } from '../../types/run';
+import { getRunRecords } from '../../types/runs';
 import { PALETTE } from '../colors';
 
-interface ClockStartModalProps {
-  visible: boolean;
-  db: SQLite.SQLiteDatabase | null;
-  onClose: () => void;
-  onStart: (durationMs: number) => void;
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+export interface RunOption {
+  id: string;
+  label: string;
+  ms: number;
 }
 
-const EMPTY: ClockRecords = { bestAllTime: 0, bestThisWeek: 0, total: 0 };
+interface RunStartModalProps {
+  visible: boolean;
+  db: SQLite.SQLiteDatabase | null;
+  kind: RunKind;
+  icon: IoniconName;
+  title: string;
+  subtitle: string;
+  options: readonly RunOption[];
+  defaultMs: number;
+  // Etiqueta bajo el número de récord. Contrarreloj compara partidas de la misma
+  // duración; supervivencia, partidas con el mismo tiempo por puzle.
+  optionsLabel?: string;
+  onClose: () => void;
+  onStart: (ms: number) => void;
+}
 
-export const ClockStartModal = React.memo(({ visible, db, onClose, onStart }: ClockStartModalProps) => {
-  const [selected, setSelected] = useState<number>(DEFAULT_CLOCK_DURATION_MS);
-  const [records, setRecords] = useState<ClockRecords>(EMPTY);
+const EMPTY: RunRecords = { bestAllTime: 0, bestThisWeek: 0, total: 0 };
 
-  // Los récords son por duración: 8 puzles en 1 min no compiten con 8 en 5 min.
+// A nivel de módulo: definido dentro del render, React lo remontaría en cada
+// pasada y el FadeIn/FadeOut se dispararía sin motivo.
+const RecordValue = React.memo(({ value }: { value: number }) => (
+  <View style={styles.recordValueSlot}>
+    <Animated.Text
+      key={value}
+      entering={FadeIn.duration(260)}
+      exiting={FadeOut.duration(220)}
+      style={styles.recordValue}
+    >
+      {value}
+    </Animated.Text>
+  </View>
+));
+
+export const RunStartModal = React.memo(({
+  visible, db, kind, icon, title, subtitle, options, defaultMs, optionsLabel, onClose, onStart,
+}: RunStartModalProps) => {
+  const [selected, setSelected] = useState<number>(defaultMs);
+  const [records, setRecords] = useState<RunRecords>(EMPTY);
+
+  // Los récords van por "cubo": 8 puzles en 1 min no compiten con 8 en 5 min,
+  // ni 8 supervivientes a 15 s con 8 a 60 s.
   useEffect(() => {
     if (!visible || !db) return;
     let cancelled = false;
 
     (async () => {
       try {
-        const r = await getClockRecords(db, selected);
+        const r = await getRunRecords(db, kind, selected);
         if (!cancelled) setRecords(r);
       } catch (e) {
-        console.error('Error leyendo récords de contrarreloj:', e);
+        console.error('Error leyendo récords de la partida:', e);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [visible, db, selected]);
-
-    const RecordValue = React.memo(({ value }: { value: number }) => (
-    <View style={styles.recordValueSlot}>
-      <Animated.Text
-        key={value}
-        entering={FadeIn.duration(260)}
-        exiting={FadeOut.duration(220)}
-        style={styles.recordValue}
-      >
-        {value}
-      </Animated.Text>
-    </View>
-  ));
+  }, [visible, db, kind, selected]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -58,21 +79,21 @@ export const ClockStartModal = React.memo(({ visible, db, onClose, onStart }: Cl
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
         <View style={styles.card}>
-          <Ionicons name="timer-outline" size={34} color={PALETTE.secondary} />
-          <Text style={styles.title}>CONTRARRELOJ</Text>
-          <Text style={styles.subtitle}>
-            Empiezas fácil. Cada acierto sube el nivel. Un fallo no te baja, pero te cuesta tiempo.
-          </Text>
+          <Ionicons name={icon} size={34} color={PALETTE.secondary} />
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
 
-          <View style={styles.durationRow}>
-            {CLOCK_DURATIONS.map(d => (
+          {!!optionsLabel && <Text style={styles.optionsLabel}>{optionsLabel}</Text>}
+
+          <View style={[styles.durationRow, !optionsLabel && styles.durationRowSpaced]}>
+            {options.map(o => (
               <TouchableOpacity
-                key={d.id}
-                style={[styles.durationChip, selected === d.ms && styles.durationChipActive]}
-                onPress={() => { hapticImpact('light'); setSelected(d.ms); }}
+                key={o.id}
+                style={[styles.durationChip, selected === o.ms && styles.durationChipActive]}
+                onPress={() => { hapticImpact('light'); setSelected(o.ms); }}
               >
-                <Text style={[styles.durationText, selected === d.ms && styles.durationTextActive]}>
-                  {d.label}
+                <Text style={[styles.durationText, selected === o.ms && styles.durationTextActive]}>
+                  {o.label}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -119,7 +140,9 @@ const styles = StyleSheet.create({
   },
   title: { color: PALETTE.primary, fontSize: 20, fontWeight: '900', letterSpacing: 2, marginTop: 10 },
   subtitle: { color: PALETTE.chipText, fontSize: 12, textAlign: 'center', marginTop: 8, lineHeight: 18 },
-  durationRow: { flexDirection: 'row', gap: 8, marginTop: 22, width: '100%' },
+  optionsLabel: { color: PALETTE.chipText, fontSize: 9, fontWeight: '800', letterSpacing: 1.5, marginTop: 20, marginBottom: 8 },
+  durationRow: { flexDirection: 'row', gap: 8, width: '100%' },
+  durationRowSpaced: { marginTop: 22 },
   durationChip: {
     flex: 1, minWidth: 0, paddingVertical: 12, alignItems: 'center',
     backgroundColor: PALETTE.chipBg, borderRadius: 12,

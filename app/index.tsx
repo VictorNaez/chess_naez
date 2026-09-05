@@ -1,7 +1,8 @@
 import { PALETTE } from '@/src/components/colors';
 import { StreakBadge } from '@/src/components/header/StreakBadge';
 import { PromotionModal } from '@/src/components/modals/PromotionModal';
-import { CLOCK_TIMING, getLadderRange } from '@/src/lib/clock';
+import { CLOCK_DURATIONS, CLOCK_TIMING, DEFAULT_CLOCK_DURATION_MS, getLadderRange } from '@/src/lib/clock';
+import { DEFAULT_SURVIVAL_MS, SURVIVAL_SPEEDS, survivalDangerMs, survivalWarnMs } from '@/src/lib/survival';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Chess, Square } from "chess.js";
@@ -19,11 +20,11 @@ import { CountdownTimer } from '../src/components/clock/CountdownTimer';
 import { EloBadge } from '../src/components/header/EloBadge';
 import { PuzzleTimer } from '../src/components/header/PuzzleTimer';
 import { SessionEloSparkline } from '../src/components/header/SessionEloSparkline';
-import { ClockResultModal } from '../src/components/modals/ClockResultModal';
-import { ClockStartModal } from '../src/components/modals/ClockStartModal';
 import { FilterModal } from '../src/components/modals/FilterModal';
 import { HistoryModal } from '../src/components/modals/HistoryModal';
 import { MainMenuModal } from '../src/components/modals/MainMenuModal';
+import { RunResultModal } from '../src/components/modals/RunResultModal';
+import { RunStartModal } from '../src/components/modals/RunStartModal';
 import { SettingsModal } from '../src/components/modals/SettingsModal';
 import { SupportModal } from '../src/components/modals/SupportModal';
 import { BoardControls } from '../src/components/puzzle/BoardControls';
@@ -37,10 +38,12 @@ import { useEloHistory } from '../src/hooks/useEloHistory';
 import { userProgress } from "../src/hooks/userProgress";
 import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
 import { useSounds } from '../src/hooks/useSounds';
+import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
 import type { AppMode } from '../src/types/mode';
+import { isRunModeId } from '../src/types/mode';
 import type { Puzzle } from '../src/types/puzzle';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -81,6 +84,10 @@ function App() {
   const [message, setMessage] = useState("");
   const [puzzleSolved, setPuzzleSolved] = useState(false);
   const [firstMoveDone, setFirstMoveDone] = useState(false);
+  // Sube uno cada vez que un puzle queda listo para jugar. A diferencia del id
+  // del puzle, es único por presentación: es lo que usa supervivencia para no
+  // rearmar el reloj de un puzle que ya has contestado.
+  const [runPuzzleToken, setRunPuzzleToken] = useState(0);
   const [solutionStep, setSolutionStep] = useState(0);
   const [fenHistory, setFenHistory] = useState<string[]>([]);
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
@@ -101,7 +108,20 @@ function App() {
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const donations = useDonations();
   const clock = useClockMode(db);
+
+  // El temporizador por puzle vive dentro de useSurvivalMode, pero quien sabe
+  // reaccionar (feedback + cargar el siguiente puzle) es esta pantalla. La ref
+  // se rellena más abajo, cuando swapRunPuzzle ya existe.
+  const survivalTimeoutRef = useRef<(o: { nextRange: [number, number]; gameOver: boolean }) => void>(() => {});
+  const survival = useSurvivalMode(db, survivalTimeoutRef);
+
   const isClockMode = appMode === 'clock';
+  const isSurvivalMode = appMode === 'survival';
+  // Todo lo que comparten contrarreloj y supervivencia: sin filtros, sin
+  // historial, sin ELO, tablero que se sustituye solo, animaciones rápidas.
+  const isRunMode = isRunModeId(appMode);
+  const runPhaseRef = isSurvivalMode ? survival.phaseRef : clock.phaseRef;
+  const runPhase = isSurvivalMode ? survival.phase : clock.phase;
   const [isRecommendedMode, setIsRecommendedMode] = useState(false);
   const [isHistoryMode, setIsHistoryMode] = useState<boolean>(false);
   const [sessionEloHistory, setSessionEloHistory] = useState<number[]>([]);
@@ -322,6 +342,7 @@ const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false
 
     setSolutionStep(1);
     setFirstMoveDone(true);
+    setRunPuzzleToken(t => t + 1);
     setLoading(false); 
     startTimer(); // el usuario ya puede mover, empieza a contar
   }, firstMoveDelayMs);
@@ -378,7 +399,7 @@ const loadSinglePuzzle = async (
     p = await queryPuzzle(databaseToUse, currentRange, themesToUse);
     // En contrarreloj, si la ventana está vacía la ensanchamos
     if (!p && isFast) {
-      console.warn('[CLOCK] ventana vacía', currentRange, '→ ampliando');
+      console.warn('[RUN] ventana vacía', currentRange, '→ ampliando');
       p = await queryPuzzle(databaseToUse, [Math.max(0, currentRange[0] - 400), currentRange[1] + 400], themesToUse);
     }
   }
@@ -767,8 +788,13 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             if (isClockMode) {
               // Contrarreloj: no toca el ELO global, alimenta la escalera de la partida
               const { nextRange, timeUp } = clock.registerResult(true, currentPuzzle.id, currentPuzzle.rating, solveMs);
-              if (!timeUp) swapClockPuzzle(nextRange, CLOCK_TIMING.afterSolve);
-              
+              if (!timeUp) swapRunPuzzle(nextRange, CLOCK_TIMING.afterSolve);
+
+            } else if (isSurvivalMode) {
+              // Supervivencia: acierto -> sube escalón, las vidas no se tocan
+              const { nextRange, gameOver, ignored } = survival.registerResult(true, currentPuzzle.id, currentPuzzle.rating, solveMs);
+              if (!ignored && !gameOver) swapRunPuzzle(nextRange, CLOCK_TIMING.afterSolve);
+
             } else if (!isHistoryMode && !isRetryMode) {
               const temasArray = currentPuzzle.themes.split(' ');
               const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true, currentPuzzle.rating, solveMs);
@@ -782,7 +808,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             setMessage("✅"); 
             setPuzzleSolved(true); 
             setIsBoardLocked(false);
-          }, isClockMode ? 80 : 250);
+          }, isRunMode ? 80 : 250);
         } else {
           // MOVIMIENTO CORRECTO (pero el puzzle sigue): Vibración de movimiento
           if (isCapture) {
@@ -826,7 +852,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             });
 
             setIsBoardLocked(false); 
-          }, isClockMode ? CLOCK_TIMING.machineReply : 450);
+          }, isRunMode ? CLOCK_TIMING.machineReply : 450);
         }
       } else {
         // MOVIMIENTO INCORRECTO: Vibración de error
@@ -842,7 +868,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         setErrorSquare(to);
         // En contrarreloj no hay footer ni retry: el puzzle se sustituye solo,
         // así que el tablero debe seguir bloqueado hasta que cargue el siguiente.
-        if (!isClockMode) {
+        if (!isRunMode) {
           setTimeout(() => {
             setMessage("❌");
             setIsBoardLocked(false);
@@ -853,7 +879,13 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           if (isClockMode) {
             // Fallo: NO baja de nivel, pero cambia de puzle al mismo rango
             const { nextRange, timeUp } = clock.registerResult(false, currentPuzzle.id, currentPuzzle.rating, solveMs);
-            if (!timeUp) swapClockPuzzle(nextRange, CLOCK_TIMING.afterFail);
+            if (!timeUp) swapRunPuzzle(nextRange, CLOCK_TIMING.afterFail);
+
+          } else if (isSurvivalMode) {
+            // Fallo: NO baja de nivel, pero cuesta una vida. A cero, se acabó y
+            // no cargamos nada: el modal de resultado lo abre el propio hook.
+            const { nextRange, gameOver, ignored } = survival.registerResult(false, currentPuzzle.id, currentPuzzle.rating, solveMs);
+            if (!ignored && !gameOver) swapRunPuzzle(nextRange, CLOCK_TIMING.afterFail);
 
           } else if (!isHistoryMode && !isRetryMode) {
             const temasArray = currentPuzzle.themes.split(' ');
@@ -1032,8 +1064,9 @@ useEffect(() => {
 
 // Efecto para bloquear el tablero si estamos viendo un movimiento anterior o si el puzzle ya fue resuelto
 useEffect(() => {
-  // Contrarreloj terminado: el tablero queda muerto pase lo que pase
-  if (isClockMode && clock.phase === 'finished') {
+  // Partida terminada (contrarreloj o supervivencia): el tablero queda muerto
+  // pase lo que pase.
+  if (isRunMode && runPhase === 'finished') {
     setIsBoardLocked(true);
     return;
   }
@@ -1042,7 +1075,7 @@ useEffect(() => {
   } else {
     setIsBoardLocked(true);
   }
-}, [viewIndex, fenHistory.length, puzzleSolved, isClockMode, clock.phase]);
+}, [viewIndex, fenHistory.length, puzzleSolved, isRunMode, runPhase]);
 
 // Efecto para ajustar el rango de ELO recomendado cuando se active el modo recomendado o cambie el ELO global del usuario
 useEffect(() => {
@@ -1086,10 +1119,10 @@ useEffect(() => {
 
 
 const eloRowAnimatedStyle = useAnimatedStyle(() => ({
-  height: (isClockMode ? CLOCK_ROW_HEIGHT : ELO_ROW_HEIGHT + STREAK_SLOT_HEIGHT) * eloRowProgress.value,
+  height: (isRunMode ? CLOCK_ROW_HEIGHT : ELO_ROW_HEIGHT + STREAK_SLOT_HEIGHT) * eloRowProgress.value,
   opacity: eloRowProgress.value,
   marginBottom: 12 * eloRowProgress.value,
-}), [isClockMode]);
+}), [isRunMode]);
 
 // --- TRANSICIÓN DE TABLERO EN CONTRARRELOJ ---
 const BOARD_SLIDE_OUT = 180;
@@ -1152,8 +1185,9 @@ const slidePuzzle = useCallback((load: () => void, delayMs = 0) => {
   isSwappingRef.current = true;
 
   setTimeout(() => {
-    // En contrarreloj el reloj pudo agotarse durante la pausa
-    if (isClockMode && clock.phaseRef.current !== 'running') {
+    // La partida pudo terminar durante la pausa: reloj agotado en contrarreloj,
+    // última vida perdida en supervivencia.
+    if (isRunMode && runPhaseRef.current !== 'running') {
       isSwappingRef.current = false;
       return;
     }
@@ -1161,15 +1195,31 @@ const slidePuzzle = useCallback((load: () => void, delayMs = 0) => {
 
     setTimeout(() => {
       isSwappingRef.current = false;
-      if (isClockMode && clock.phaseRef.current !== 'running') return;
+      if (isRunMode && runPhaseRef.current !== 'running') return;
       load();
     }, BOARD_SLIDE_OUT);
   }, delayMs);
-}, [isClockMode]);
+}, [isRunMode, runPhaseRef]);
 
-const swapClockPuzzle = useCallback((nextRange: number[], delayMs: number) => {
+const swapRunPuzzle = useCallback((nextRange: number[], delayMs: number) => {
   slidePuzzle(() => loadSinglePuzzle(db, nextRange, [], { fast: true }), delayMs);
 }, [db, slidePuzzle]);
+
+// --- SE ACABÓ EL TIEMPO DE UN PUZLE (solo supervivencia) ---
+// El hook ya ha descontado la vida y anotado el intento. Aquí solo queda el
+// feedback y, si la partida sigue viva, traer el siguiente puzle.
+const handleSurvivalTimeout = useCallback(({ nextRange, gameOver }: { nextRange: [number, number]; gameOver: boolean }) => {
+  stopTimer(false);
+  hapticError();
+  playSound('error');
+  setIsBoardLocked(true);
+  clearSelection();
+  setHintSquare(null);
+  setHintMove(null);
+  if (!gameOver) swapRunPuzzle(nextRange, CLOCK_TIMING.afterFail);
+}, [swapRunPuzzle, stopTimer, playSound]);
+
+useEffect(() => { survivalTimeoutRef.current = handleSurvivalTimeout; }, [handleSurvivalTimeout]);
 
 // Modo puzles: Next y Skip
 const handleNextPuzzle = useCallback(() => {
@@ -1283,8 +1333,24 @@ useEffect(() => {
   }
 }, [clock.phase, firstMoveDone, loading]);
 
+// Supervivencia: aquí no hay un reloj de partida sino uno POR PUZLE, así que
+// este efecto se dispara en cada puzle nuevo, no solo en el primero. El tiempo
+// muerto entre puzles (deslizamiento + SQL + jugada de la máquina) queda fuera
+// de la cuenta a propósito. startPuzzleClock es idempotente por id: si el
+// efecto se repite sin cambiar de puzle, no rearma nada.
 useEffect(() => {
-  if (firstMoveDone && db && !isClockMode) {
+  if (!isSurvivalMode || !currentPuzzle) return;
+  if (!firstMoveDone || loading) return;
+
+  if (survival.phase === 'arming') {
+    survival.beginRun(runPuzzleToken, currentPuzzle.id, currentPuzzle.rating);
+  } else if (survival.phase === 'running') {
+    survival.startPuzzleClock(runPuzzleToken, currentPuzzle.id, currentPuzzle.rating);
+  }
+}, [isSurvivalMode, survival.phase, firstMoveDone, loading, runPuzzleToken]);
+
+useEffect(() => {
+  if (firstMoveDone && db && !isRunMode) {
     prefetchNext(eloRange, selectedThemes);
   }
 }, [firstMoveDone]);
@@ -1294,17 +1360,20 @@ useEffect(() => {
 // muerto es la ventana perfecta para tener el puzle listo antes de tocar
 // EMPEZAR.
 useEffect(() => {
-  if (!clock.isStartVisible || !db) return;
+  const isAnyStartVisible = clock.isStartVisible || survival.isStartVisible;
+  if (!isAnyStartVisible || !db) return;
+  // Ambos modos arrancan en el escalón 0, así que el puzle precargado sirve
+  // para los dos.
   const range = getLadderRange(0);
   clockPrefetchRef.current = null; // por si quedó algo de una sesión anterior
   (async () => {
     const p = await queryPuzzle(db, range, []);
     if (p) clockPrefetchRef.current = { range, puzzle: p };
   })();
-}, [clock.isStartVisible, db]);
+}, [clock.isStartVisible, survival.isStartVisible, db]);
 
-const handleStartClockRun = useCallback((ms: number) => {
-  const range = clock.armRun(ms);
+// Carga el primer puzle de una partida, usando el precargado si el rango coincide.
+const startRunWithRange = useCallback((range: [number, number]) => {
   const cached = clockPrefetchRef.current;
 
   if (cached && cached.range[0] === range[0] && cached.range[1] === range[1]) {
@@ -1316,8 +1385,17 @@ const handleStartClockRun = useCallback((ms: number) => {
   }
 }, [db]);
 
-const handleExitClock = useCallback(() => {
+const handleStartClockRun = useCallback((ms: number) => {
+  startRunWithRange(clock.armRun(ms));
+}, [startRunWithRange]);
+
+const handleStartSurvivalRun = useCallback((ms: number) => {
+  startRunWithRange(survival.armRun(ms));
+}, [startRunWithRange]);
+
+const handleExitRun = useCallback(() => {
   clock.abortRun();
+  survival.abortRun();
   setAppMode('puzzles');
   loadSinglePuzzle(db);
 }, [db]);
@@ -1326,10 +1404,17 @@ const handleSelectMode = useCallback((mode: AppMode) => {
   setIsMenuVisible(false);
   if (mode === appMode) return;
   setAppMode(mode);
+
+  // 220ms: abrir un modal mientras el drawer se cierra parpadea en Android
   if (mode === 'clock') {
-    setTimeout(() => clock.openStart(), 220); // evita el parpadeo de modales en Android
+    survival.abortRun();
+    setTimeout(() => clock.openStart(), 220);
+  } else if (mode === 'survival') {
+    clock.abortRun();
+    setTimeout(() => survival.openStart(), 220);
   } else {
     clock.abortRun();
+    survival.abortRun();
     loadSinglePuzzle(db);
   }
 }, [appMode, db]);
@@ -1406,7 +1491,7 @@ return (
         <View style={styles.headerSpacer} />
 
         {/* BOTÓN FILTROS */}
-        {!isClockMode && (
+        {!isRunMode && (
           <TouchableOpacity style={styles.openFiltersBtn} onPress={() => setIsFilterModalVisible(true)}>
             <View style={styles.filterLeftGroup}>
               <Ionicons name="options-outline" size={16} color={PALETTE.primary} />
@@ -1422,7 +1507,7 @@ return (
         )}
 
         {/* BOTÓN HISTORIAL */}
-        {!isClockMode && (
+        {!isRunMode && (
           <TouchableOpacity style={styles.openFiltersBtn} onPress={() => openHistory()}>
             <View style={styles.filterLeftGroup}>
               <Ionicons name="stats-chart-outline" size={16} color={PALETTE.primary} />
@@ -1435,8 +1520,8 @@ return (
 
       {/* ELO Global + evolución de la sesión (se colapsa en modo análisis) */}
       <Animated.View style={[styles.eloSessionRowOuter, eloRowAnimatedStyle]}>
-        {isClockMode ? (
-          <ClockProgressGrid attempts={clock.attempts} />
+        {isRunMode ? (
+          <ClockProgressGrid attempts={isSurvivalMode ? survival.attempts : clock.attempts} />
         ) : (
           <>
             <View style={styles.eloSessionRow}>
@@ -1471,6 +1556,16 @@ return (
                 endsAt={clock.endsAt}
                 durationMs={clock.durationMs}
                 isFinished={clock.phase === 'finished'}
+              />
+            ) : isSurvivalMode ? (
+              // Mismo componente, pero el deadline se rearma en cada puzle y los
+              // umbrales de aviso son proporcionales al tiempo disponible.
+              <CountdownTimer
+                endsAt={survival.puzzleEndsAt}
+                durationMs={survival.perPuzzleMs}
+                isFinished={survival.phase === 'finished'}
+                warnMs={survivalWarnMs(survival.perPuzzleMs)}
+                dangerMs={survivalDangerMs(survival.perPuzzleMs)}
               />
             ) : (
               settings.isSettingsLoaded && settings.showTimer && (
@@ -1526,7 +1621,7 @@ return (
                 centipawnScore={analysisEngine.centiPawnScore}
                 mateInMoves={analysisEngine.mateInMoves}
                 showLegalMoves={settings.showLegalMoves}
-                moveDurationMs={isClockMode ? CLOCK_TIMING.pieceMove : undefined}
+                moveDurationMs={isRunMode ? CLOCK_TIMING.pieceMove : undefined}
               />
             </Animated.View>
           </View>
@@ -1556,10 +1651,15 @@ return (
 
             {/* 4. ÁREA DINÁMICA: HISTORIAL SAN o MULTI-PV */}
             <Animated.View style={[styles.moveListWrapper, analysisEngine.isAnalysisMode && styles.multiPvWrapper, moveListWrapperAnimatedStyle]}>
-              {isClockMode ? (
+              {isRunMode ? (
                 // Sin entering/exiting: el modo no cambia a mitad de partida y una animación
                 // anidada bloquearía el exiting del padre
-                <ClockScoreBar solved={clock.solved} failed={clock.failed} />
+                <ClockScoreBar
+                  solved={isSurvivalMode ? survival.solved : clock.solved}
+                  failed={isSurvivalMode ? survival.failed : clock.failed}
+                  lives={isSurvivalMode ? survival.lives : undefined}
+                  maxLives={survival.maxLives}
+                />
               ) : !analysisEngine.isAnalysisMode ? (
                 <Animated.View key="move-history" entering={FadeIn.duration(200).delay(120)} exiting={FadeOut.duration(120)} style={{ flex: 1, justifyContent: 'center' }}>
                   <MoveList moveHistory={moveHistory} viewIndex={viewIndex} onMovePress={handleMovePress} />
@@ -1577,7 +1677,7 @@ return (
 
         </View>
 
-        {isClockMode ? (
+        {isRunMode ? (
           <View style={styles.clockFooterSpacer} />
         ) : (
           <BoardControls
@@ -1671,19 +1771,49 @@ return (
       onDonate={donations.donate}
     />
 
-      <ClockStartModal
-        visible={clock.isStartVisible}
-        db={db}
-        onClose={() => { clock.closeStart(); if (clock.phase === 'idle') setAppMode('puzzles'); }}
-        onStart={handleStartClockRun}
-      />
+    <RunStartModal
+      visible={clock.isStartVisible}
+      db={db}
+      kind="clock"
+      icon="timer-outline"
+      title="CONTRARRELOJ"
+      subtitle="Empiezas fácil. Cada acierto sube el nivel. Un fallo no te baja, pero te cuesta tiempo."
+      options={CLOCK_DURATIONS}
+      defaultMs={DEFAULT_CLOCK_DURATION_MS}
+      onClose={() => { clock.closeStart(); if (clock.phase === 'idle') setAppMode('puzzles'); }}
+      onStart={handleStartClockRun}
+    />
 
-    <ClockResultModal
+    <RunResultModal
       visible={clock.isResultVisible}
+      kind="clock"
       summary={clock.summary}
       ranking={clock.ranking}
       onPlayAgain={() => { clock.closeResult(); handleStartClockRun(clock.durationMs); }}
-      onExit={() => { clock.closeResult(); handleExitClock(); }}
+      onExit={() => { clock.closeResult(); handleExitRun(); }}
+    />
+
+    <RunStartModal
+      visible={survival.isStartVisible}
+      db={db}
+      kind="survival"
+      icon="skull-outline"
+      title="SUPERVIVENCIA"
+      subtitle="Tres vidas. Cada puzle tiene el mismo tiempo y cada acierto sube el nivel. Fallar o quedarte sin tiempo cuesta una vida."
+      options={SURVIVAL_SPEEDS}
+      defaultMs={DEFAULT_SURVIVAL_MS}
+      optionsLabel="TIEMPO POR PUZLE"
+      onClose={() => { survival.closeStart(); if (survival.phase === 'idle') setAppMode('puzzles'); }}
+      onStart={handleStartSurvivalRun}
+    />
+
+    <RunResultModal
+      visible={survival.isResultVisible}
+      kind="survival"
+      summary={survival.summary}
+      ranking={survival.ranking}
+      onPlayAgain={() => { survival.closeResult(); handleStartSurvivalRun(survival.perPuzzleMs); }}
+      onExit={() => { survival.closeResult(); handleExitRun(); }}
     />
 
     {analysisEngine.isAnalysisMode && (

@@ -2,13 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { formatDuration } from '../../lib/time';
-import type { ClockRanking, ClockRunSummary } from '../../types/clock';
+import type { RunKind, RunRanking, RunSummary } from '../../types/run';
 import { PALETTE } from '../colors';
 
-interface ClockResultModalProps {
+interface RunResultModalProps {
   visible: boolean;
-  summary: ClockRunSummary | null;
-  ranking: ClockRanking | null;
+  kind: RunKind;
+  summary: RunSummary | null;
+  ranking: RunRanking | null;
   onPlayAgain: () => void;
   onExit: () => void;
 }
@@ -21,13 +22,15 @@ const StatCell = React.memo(({ label, value }: { label: string; value: string })
   </View>
 ));
 
-export const ClockResultModal = React.memo(({
-  visible, summary, ranking, onPlayAgain, onExit,
-}: ClockResultModalProps) => {
+export const RunResultModal = React.memo(({
+  visible, kind, summary, ranking, onPlayAgain, onExit,
+}: RunResultModalProps) => {
   if (!summary) return null;
 
+  const isSurvival = kind === 'survival';
   const accuracyPct = Math.round(summary.accuracy * 100);
   const isRecord = ranking?.isPersonalBest ?? false;
+  const survivedMs = Math.max(0, summary.endedAt - summary.startedAt);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onExit}>
@@ -41,7 +44,9 @@ export const ClockResultModal = React.memo(({
             </View>
           )}
 
-          <Text style={styles.title}>SE ACABÓ EL TIEMPO</Text>
+          <Text style={styles.title}>
+            {isSurvival ? 'TE QUEDASTE SIN VIDAS' : 'SE ACABÓ EL TIEMPO'}
+          </Text>
 
           <Text style={styles.bigNumber}>{summary.solved}</Text>
           <Text style={styles.bigLabel}>PUZLES RESUELTOS</Text>
@@ -52,7 +57,11 @@ export const ClockResultModal = React.memo(({
             <StatCell label="ELO MEDIO" value={summary.avgSolvedRating > 0 ? String(summary.avgSolvedRating) : '—'} />
             <StatCell label="ELO MÁX" value={summary.maxSolvedRating > 0 ? String(summary.maxSolvedRating) : '—'} />
             <StatCell label="T. MEDIO" value={summary.avgSolveMs > 0 ? formatDuration(summary.avgSolveMs) : '—'} />
-            <StatCell label="FALLOS" value={String(summary.failed)} />
+            {/* En supervivencia los fallos siempre son 3 (las vidas): lo que
+                de verdad informa es cuánto aguantaste. */}
+            {isSurvival
+              ? <StatCell label="AGUANTASTE" value={formatDuration(survivedMs)} />
+              : <StatCell label="FALLOS" value={String(summary.failed)} />}
           </View>
 
           {ranking && (

@@ -9,12 +9,20 @@ interface CountdownTimerProps {
   endsAt: number | null;   // null = aún no ha arrancado
   durationMs: number;
   isFinished: boolean;
+  // Umbrales de aviso. Los valores por defecto son los del contrarreloj; en
+  // supervivencia se pasan proporcionales al tiempo por puzle, porque con 15 s
+  // un umbral fijo de 30 s dejaría el reloj siempre en rojo.
+  warnMs?: number;
+  dangerMs?: number;
 }
 
-const WARN_MS = 30_000;
-const DANGER_MS = 10_000;
+const DEFAULT_WARN_MS = 30_000;
+const DEFAULT_DANGER_MS = 10_000;
 
-export const CountdownTimer = React.memo(({ endsAt, durationMs, isFinished }: CountdownTimerProps) => {
+export const CountdownTimer = React.memo(({
+  endsAt, durationMs, isFinished,
+  warnMs = DEFAULT_WARN_MS, dangerMs = DEFAULT_DANGER_MS,
+}: CountdownTimerProps) => {
   const [remaining, setRemaining] = useState(durationMs);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulse = useSharedValue(1);
@@ -32,7 +40,7 @@ export const CountdownTimer = React.memo(({ endsAt, durationMs, isFinished }: Co
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); intervalRef.current = null; };
   }, [endsAt, durationMs, isFinished]);
 
-  const isDanger = remaining <= DANGER_MS && remaining > 0 && endsAt !== null;
+  const isDanger = remaining <= dangerMs && remaining > 0 && endsAt !== null;
 
   useEffect(() => {
     if (isDanger) {
@@ -47,8 +55,8 @@ export const CountdownTimer = React.memo(({ endsAt, durationMs, isFinished }: Co
 
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
 
-  const color = remaining <= DANGER_MS ? PALETTE.error
-    : remaining <= WARN_MS ? PALETTE.warning
+  const color = remaining <= dangerMs ? PALETTE.error
+    : remaining <= warnMs ? PALETTE.warning
     : PALETTE.accent;
 
   return (
