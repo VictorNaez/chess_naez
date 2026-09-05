@@ -1117,7 +1117,6 @@ const runBoardEntry = useCallback(() => {
   }));
 }, []);
 
-// 1) Puzle nuevo: aparcamos el tablero a la derecha y esperamos. Aquí NO se anima.
 useEffect(() => {
   if (!currentPuzzle) return;
 
@@ -1129,18 +1128,17 @@ useEffect(() => {
   }
 
   boardSlideX.value = SCREEN_WIDTH;
-  pendingEntryRef.current = true;
 
-  // Red de seguridad: si la solución viene vacía, firstMoveDone nunca se pone
-  // a true y el tablero se quedaría fuera de pantalla para siempre.
-  if (entryFallbackRef.current) clearTimeout(entryFallbackRef.current);
-  entryFallbackRef.current = setTimeout(runBoardEntry, 1800);
-}, [currentPuzzle?.id, runBoardEntry]);
-
-// Entra en cuanto hay piezas; la máquina mueve ya en pantalla
-useEffect(() => {
-  if (pieces.length > 0) runBoardEntry();
-}, [pieces.length, runBoardEntry]);
+  // Dos frames: el primero cierra el commit de React (pieces ya están en el
+  // estado), el segundo asegura que las vistas nativas de las piezas ya
+  // existen antes de empezar a mover nada.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    boardSlideX.value = withDelay(
+      BOARD_GAP,
+      withTiming(0, { duration: BOARD_SLIDE_IN, easing: Easing.out(Easing.cubic) })
+    );
+  }));
+}, [currentPuzzle?.id]);
 
 useEffect(() => () => { if (entryFallbackRef.current) clearTimeout(entryFallbackRef.current); }, []);
 
