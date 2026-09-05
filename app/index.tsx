@@ -42,6 +42,9 @@ import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, 
 import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
 import type { AppMode } from '../src/types/mode';
 import type { Puzzle } from '../src/types/puzzle';
+ 
+// ESTO ES UNA PRUEBA ESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBA
+// ESTO ES UNA PRUEB
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
