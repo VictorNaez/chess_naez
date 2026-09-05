@@ -1,36 +1,83 @@
 import { PALETTE } from '@/src/components/colors';
+import { StreakBadge } from '@/src/components/header/StreakBadge';
+import { PromotionModal } from '@/src/components/modals/PromotionModal';
+import { CLOCK_TIMING } from '@/src/lib/clock';
 import { Ionicons } from '@expo/vector-icons';
-import MultiSlider from '@ptomasroos/react-native-multi-slider';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Chess, Square } from "chess.js";
-import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as NavigationBar from 'expo-navigation-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import * as SQLite from 'expo-sqlite';
-import React, { useEffect, useState } from "react";
-import { Dimensions, Image, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { Pressable } from 'react-native-gesture-handler';
-import { CHESS_THEMES } from '../src/components/chess_themes';
-import ChessBoard, { pieceImages } from "../src/components/ChessBoard";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Dimensions, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { GestureHandlerRootView, Pressable } from 'react-native-gesture-handler';
+import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import { AnalysisLines } from '../src/components/analysis/AnalysisLines';
+import ChessBoard, { PieceItem, pieceImages } from "../src/components/ChessBoard";
+import { ClockProgressGrid } from '../src/components/clock/ClockProgressGrid';
+import { ClockScoreBar } from '../src/components/clock/ClockScoreBar';
+import { CountdownTimer } from '../src/components/clock/CountdownTimer';
+import { EloBadge } from '../src/components/header/EloBadge';
+import { PuzzleTimer } from '../src/components/header/PuzzleTimer';
+import { SessionEloSparkline } from '../src/components/header/SessionEloSparkline';
+import { ClockResultModal } from '../src/components/modals/ClockResultModal';
+import { ClockStartModal } from '../src/components/modals/ClockStartModal';
+import { FilterModal } from '../src/components/modals/FilterModal';
+import { HistoryModal } from '../src/components/modals/HistoryModal';
+import { MainMenuModal } from '../src/components/modals/MainMenuModal';
+import { SettingsModal } from '../src/components/modals/SettingsModal';
+import { SupportModal } from '../src/components/modals/SupportModal';
+import { BoardControls } from '../src/components/puzzle/BoardControls';
+import { MoveList } from '../src/components/puzzle/MoveList';
+import { Skeleton } from '../src/components/ui/Skeleton';
+import { openPuzzleDatabase } from '../src/data/puzzleDatabase';
+import { useAnalysisEngine } from '../src/hooks/useAnalysisEngine';
+import { useClockMode } from '../src/hooks/useClockMode';
+import { useDonations } from '../src/hooks/useDonations';
+import { useEloHistory } from '../src/hooks/useEloHistory';
+import { userProgress } from "../src/hooks/userProgress";
+import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
+import { useSounds } from '../src/hooks/useSounds';
+import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
+import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
+import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
+import type { AppMode } from '../src/types/mode';
+import type { Puzzle } from '../src/types/puzzle';
 
-let pieceIdentityMap: Record<string, string> = {};
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-interface Puzzle {
-  id: string; fen: string; solution: string[]; rating: number; themes: string;
+// El provider tiene que envolver a App desde fuera: los hooks que consumen los
+// ajustes (useSounds, useAnalysisEngine, la propia App) viven dentro de App.
+export default function AppRoot() {
+  return (
+    <SettingsProvider>
+      <App />
+    </SettingsProvider>
+  );
 }
 
-export default function App() {
+function App() {
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
   const [currentPuzzle, setCurrentPuzzle] = useState<Puzzle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [availableCount, setAvailableCount] = useState(0);
-  const [eloRange, setEloRange] = useState([1400, 1800]);
-
+  const [eloRange, setEloRange] = useState<[number, number]>([1400, 1800]);
+  const {userRatings, updateElo, resetLock, currentStreak } = userProgress(db);
+  const [eloFeedback, setEloFeedback] = useState<{ value: number } | null>(null);
+  const settings = useSettings();
+  const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
+  const playSound = useSounds();
   const [game, setGame] = useState(new Chess());
+  const boardStatus = useMemo(() => ({ inCheck: game.inCheck(), isMate: game.isCheckmate(), turn: game.turn(),  fen: game.fen(), }), [game]);
+  const analysisEngine = useAnalysisEngine(boardStatus.fen);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [legalMoves, setLegalMoves] = useState<string[]>([]);
+  const [lastMoveFrom, setLastMoveFrom] = useState<string | null>(null);
+  const [lastMoveTo, setLastMoveTo] = useState<string | null>(null);
   const [hintSquare, setHintSquare] = useState<string | null>(null);
+  const [hintMove, setHintMove] = useState<string | null>(null);
+  const [successSquare, setSuccessSquare] = useState<string | null>(null);
+  const [errorSquare, setErrorSquare] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [puzzleSolved, setPuzzleSolved] = useState(false);
   const [firstMoveDone, setFirstMoveDone] = useState(false);
@@ -39,471 +86,522 @@ export default function App() {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [playerColor, setPlayerColor] = useState<'w' | 'b'>('w');
   const [isShowingSolution, setIsShowingSolution] = useState(false);
+  const [solutionRevealed, setSolutionRevealed] = useState(false);
   const [promotionModalVisible, setPromotionModalVisible] = useState(false);
   const [pendingMove, setPendingMove] = useState<{ from: string, to: string } | null>(null);
   const [isBoardLocked, setIsBoardLocked] = useState(false);
   const [viewIndex, setViewIndex] = useState(0); // Qué movimiento del historial estamos viendo
   const [isReviewMode, setIsReviewMode] = useState(false); // Si estamos viendo el pasado o el presente
-
+  const [isRetryMode, setIsRetryMode] = useState(false);
   const [pieces, setPieces] = useState<PieceItem[]>([]);
   const [selectedThemes, setSelectedThemes] = useState<string[]>([]);
-
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
-  const [tempEloRange, setTempEloRange] = useState(eloRange);
-  const [tempSelectedThemes, setTempSelectedThemes] = useState(selectedThemes);
-  const [tempAvailableCount, setTempAvailableCount] = useState(0);
-  const handleOpenFilters = () => {setTempEloRange(eloRange); setTempSelectedThemes(selectedThemes); setIsFilterModalVisible(true); };
-  const applyFilters = () => {setEloRange(tempEloRange); setSelectedThemes(tempSelectedThemes); setIsFilterModalVisible(false);};
-
-  const [isAnalysisMode, setIsAnalysisMode] = useState(false);
-
-  const clearSelection = () => {setSelectedSquare(null); setLegalMoves([]);};
+  const [isSupportModalVisible, setIsSupportModalVisible] = useState(false);
+  const [appMode, setAppMode] = useState<AppMode>('puzzles');
+  const [isMenuVisible, setIsMenuVisible] = useState(false);
+  const donations = useDonations();
+  const clock = useClockMode(db);
+  const isClockMode = appMode === 'clock';
+  const [isRecommendedMode, setIsRecommendedMode] = useState(false);
+  const [isHistoryMode, setIsHistoryMode] = useState<boolean>(false);
+  const [sessionEloHistory, setSessionEloHistory] = useState<number[]>([]);
+  const hasSeededSessionElo = useRef(false);
+  const MOVE_LIST_HEIGHT = 40;   // altura en modo puzzle (historial SAN)
+  const MULTI_PV_HEIGHT = settings.engineMultiPV * 32 + (settings.engineMultiPV - 1) + 20;   // 32px por fila (styles.analysisLineRow) + 1px de gap + 20px de paddingVertical del multiPvWrapper. Antes era 118 fijo, válido solo para 3 líneas.
+  const moveListHeight = useSharedValue(MOVE_LIST_HEIGHT);
+  const clearSelection = () => {setSelectedSquare(null); setLegalMoves([]); setHintMove(null);};
   const [isNextDisabled, setIsNextDisabled] = useState(false);
-  const updateAvailableCount = async (activeDb: SQLite.SQLiteDatabase, range: number[]) => {
-  const res = await activeDb.getFirstAsync<{ total: number }>(
-      `SELECT COUNT(*) as total FROM puzzles WHERE rating BETWEEN ? AND ? ${getThemeCondition()}`, [range[0], range[1]]
-    );
-  setAvailableCount(res?.total || 0);
-  };
+  const isAtLastMove = viewIndex === fenHistory.length - 1;
+  const nextPuzzleRef = useRef<{ key: string; puzzle: Puzzle } | null>(null);
+  const prefetchingRef = useRef(false);
 
-  // Definimos el tipo de pieza (para animaciones, tenemos que saber qué pieza es individualmente)
-  interface PieceItem {
-    id: string;      // ID único (ej: 'wP1')
-    type: string;    // 'p', 'n', etc.
-    color: 'w' | 'b';
-    square: string;  // 'e4', 'd4', etc.
+  // --- ARRANQUE: true una sola vez, cuando ya hay datos reales que pintar ---
+  const [hasBooted, setHasBooted] = useState(false);
+  const hasBootedRef = useRef(false);
+
+  useEffect(() => {
+    if (hasBootedRef.current) return;
+    const eloReady = userRatings['global'] !== undefined;
+    const boardReady = (currentPuzzle !== null && firstMoveDone) || (!loading && currentPuzzle === null);
+    if (eloReady && boardReady) {
+      hasBootedRef.current = true;
+      setHasBooted(true);
+    }
+  }, [userRatings, currentPuzzle, firstMoveDone, loading]);
+
+  const splashHiddenRef = useRef(false);
+  const onRootLayout = useCallback(() => {
+    if (splashHiddenRef.current) return;
+    splashHiddenRef.current = true;
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
+
+  // --- CRONÓMETRO DEL PUZZLE ---
+  const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null);
+  const [solveElapsedMs, setSolveElapsedMs] = useState<number | null>(null);
+  const [timerResult, setTimerResult] = useState<boolean | null>(null);
+  // Ref paralelo al estado: necesitamos leer el tiempo dentro de executeMove sin esperar a React
+  const timerStartRef = useRef<number | null>(null);
+
+  const resetTimer = useCallback(() => {
+    timerStartRef.current = null;
+    setTimerStartedAt(null);
+    setSolveElapsedMs(null);
+    setTimerResult(null);
+  }, []);
+
+  const startTimer = useCallback(() => {
+    const now = Date.now();
+    timerStartRef.current = now;
+    setTimerStartedAt(now);
+    setSolveElapsedMs(null);
+    setTimerResult(null);
+  }, []);
+
+  // Congela el crono y devuelve los ms empleados (0 si nunca llegó a arrancar)
+  const stopTimer = useCallback((wasSuccess: boolean | null = null) => {
+    if (timerStartRef.current === null) return 0;
+    const elapsed = Date.now() - timerStartRef.current;
+    timerStartRef.current = null;
+    setSolveElapsedMs(elapsed);
+    setTimerResult(wasSuccess);
+    return elapsed;
+  }, []);
+
+const puzzleKey = (range: number[], themes: string[]) =>
+  `${range[0]}-${range[1]}-${themes.join(',')}`;
+
+// Extrae el cuerpo de la query de loadSinglePuzzle a una función pura
+const queryPuzzle = useCallback(async (
+  database: SQLite.SQLiteDatabase, range: number[], themes: string[]
+): Promise<Puzzle | null> => {
+  const rows = await database.getAllAsync<any>(
+    `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${buildThemeCondition(themes)} ORDER BY RANDOM() LIMIT 1`,
+    [range[0], range[1]]
+  );
+  if (!rows?.length) return null;
+  const r = rows[0];
+  return {
+    id: String(r.ID ?? r.id),
+    fen: r.FEN ?? r.fen,
+    solution: (r.SOLUTION ?? r.solution).split(' '),
+    rating: Number(r.RATING ?? r.rating),
+    themes: r.themes ?? "",
+  };
+}, []);
+
+const prefetchNext = useCallback(async (range: number[], themes: string[]) => {
+  if (prefetchingRef.current) return;
+  const key = puzzleKey(range, themes);
+  if (nextPuzzleRef.current?.key === key) return;
+  prefetchingRef.current = true;
+  try {
+    const p = await queryPuzzle(db!, range, themes);
+    if (p) nextPuzzleRef.current = { key, puzzle: p };
+  } finally {
+    prefetchingRef.current = false;
+  }
+}, [db, queryPuzzle]);
+
+// Función para sincronizar las piezas con el tablero de chess.js
+const syncPiecesFromGame = (chessGame: Chess) => {
+  setPieces(buildPieceItems(chessGame));
+};
+
+
+// Función para reiniciar el estado del puzzle, usada tanto al cargar un nuevo puzzle como al hacer Retry después de resolverlo
+// isRetry: true SOLO cuando se reinicia un puzzle que el usuario ya intentó.
+// Determina si el puzzle otorga ELO o no. Es explícito a propósito:
+const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false, isHistory = false, firstMoveDelayMs = 1000) => {
+  if (!puzzle) return;
+  
+  setIsRetryMode(isRetry);
+  setIsHistoryMode(isHistory);
+
+  const newGame = new Chess(puzzle.fen);
+
+  const localSolution = [...puzzle.solution];
+  const initialFen = puzzle.fen;
+
+  // --- LIMPIEZA DE UI ---
+  setLegalMoves([]);      
+  setSelectedSquare(null); 
+  setMessage("");         
+  analysisEngine.exitAnalysisMode();
+  setSuccessSquare(null);
+  setErrorSquare(null);
+  setLastMoveFrom(null);
+  setLastMoveTo(null);
+  setHintSquare(null);
+  setHintMove(null); 
+  resetTimer();  
+
+  seedIdentityMap(newGame);
+  setGame(newGame);
+  syncPiecesFromGame(newGame);
+  
+  setTimeout(() => syncPiecesFromGame(newGame), 10);
+  setFenHistory([newGame.fen()]);
+  setViewIndex(0);
+  setIsReviewMode(false);
+  setMessage("");
+  setPuzzleSolved(false);
+  setFirstMoveDone(false);
+  setSolutionStep(0);
+
+  const turnInFen = newGame.turn(); 
+  const pColor = turnInFen === 'w' ? 'b' : 'w'; 
+  setPlayerColor(pColor); 
+
+  // SI ES CARGA INICIAL AL ABRIR LA APP, DETENEMOS AQUÍ EL FLUJO Y NO MOVEMOS LA MÁQUINA
+  if (isInitialLoad) {
+    // 1. En lugar de dar por hecho los movimientos guardados, reiniciamos el juego
+    // al estado inicial del puzle (antes de que la máquina mueva en esta sesión)
+    const initialChess = new Chess(puzzle.fen);
+    setGame(initialChess);
+    
+    // 2. Reseteamos los historiales para que empiecen desde cero
+    setFenHistory([puzzle.fen]);
+    setMoveHistory([]);
+    setViewIndex(0);
+    
+    // 3. Forzamos a que el tablero empiece bloqueado y que falte el primer movimiento
+    setFirstMoveDone(false);
+    setIsBoardLocked(true);
+    setLoading(false);
+
   }
 
-  // Función para sincronizar las piezas con el tablero de chess.js
-  const syncPiecesFromGame = (chessGame: Chess) => {
-    const board = chessGame.board();
-    const newPieces: PieceItem[] = [];
+  // Movimiento normal retrasado de la máquina para puzles nuevos o del historial
+  setTimeout(() => {
+    if (!localSolution || localSolution.length === 0) return;
+    
+    const firstMove = localSolution[0];
+    const from = firstMove.slice(0, 2) as Square;
+    const to = firstMove.slice(2, 4) as Square;
 
-    board.forEach((row, rowIndex) => {
-      row.forEach((cell, colIndex) => {
-        if (cell) {
-          const square = String.fromCharCode(97 + colIndex) + (8 - rowIndex);
-          
-          // Si por alguna razón la pieza no está en el mapa (ej. coronación), le damos uno
-          if (!pieceIdentityMap[square]) {
-            pieceIdentityMap[square] = `${cell.type}-${cell.color}-${Math.random().toString(36).substring(2, 11)}`;
-          }
+    setLastMoveFrom(from);
+    setLastMoveTo(to);
 
-          newPieces.push({
-            id: pieceIdentityMap[square], // ID persistente
-            type: cell.type,
-            color: cell.color,
-            square: square
-          });
+    const m0 = newGame.move({ from, to, promotion: 'q' });
+
+    if (m0) {
+      applyMoveIdentity(m0);
+      setMoveHistory([m0.san]);
+    }
+
+    const nextFen = newGame.fen();
+    setGame(new Chess(nextFen));
+    syncPiecesFromGame(newGame);
+
+    setFenHistory(prev => [...prev, newGame.fen()]);
+
+    const firstMoveFen = newGame.fen();
+    setFenHistory([initialFen, firstMoveFen]); 
+    setViewIndex(1);
+    setIsReviewMode(false);
+
+    setSolutionStep(1);
+    setFirstMoveDone(true);
+    setLoading(false); 
+    startTimer(); // el usuario ya puede mover, empieza a contar
+  }, firstMoveDelayMs);
+};
+
+// Función para cargar un nuevo puzzle aleatorio desde la DB, con opciones de rango de ELO y temas, y reseteo completo del estado del tablero y UI
+// options.fast: modo contrarreloj. Recorta los tiempos muertos (bloqueo del
+// botón y retardo del primer movimiento), que en 3 minutos son ~20 segundos.
+const loadSinglePuzzle = async (
+  activeDb?: SQLite.SQLiteDatabase | null,
+  overrideRange?: number[],
+  overrideThemes?: string[],
+  options?: { fast?: boolean }
+) => {
+  const isFast = options?.fast === true;
+  if (isNextDisabled && !isFast) return;
+  setIsNextDisabled(true);
+
+  setSolutionRevealed(false);
+  setIsRetryMode(false);
+  resetLock();
+  setHintSquare(null);
+  setIsBoardLocked(false);
+  setIsReviewMode(false);
+  analysisEngine.exitAnalysisMode();
+  setEloFeedback(null);
+  resetTimer(); 
+
+  setMoveHistory([]);
+
+  const databaseToUse = activeDb || db;
+  if (!databaseToUse) return;
+
+  setLoading(true);
+  setMessage("");
+
+  let currentRange = overrideRange || eloRange;
+  // En contrarreloj manda la escalera: ni filtros ni modo recomendado.
+  if (!isFast && isRecommendedMode) {
+    const globalElo = userRatings['global'] || 1200;
+    currentRange = getRecommendedRange(globalElo);
+  }
+
+  const themesToUse = isFast ? [] : (overrideThemes || selectedThemes);
+
+  // Intenta usar el puzzle precargado; si no coincide, va a la BD
+  const cacheKey = puzzleKey(currentRange, themesToUse);
+  let p: Puzzle | null = null;
+
+  if (!isFast && nextPuzzleRef.current?.key === cacheKey) {
+    p = nextPuzzleRef.current.puzzle;
+    nextPuzzleRef.current = null;
+  } else {
+    p = await queryPuzzle(databaseToUse, currentRange, themesToUse);
+    // En contrarreloj, si la ventana está vacía la ensanchamos
+    if (!p && isFast) {
+      console.warn('[CLOCK] ventana vacía', currentRange, '→ ampliando');
+      p = await queryPuzzle(databaseToUse, [Math.max(0, currentRange[0] - 400), currentRange[1] + 400], themesToUse);
+    }
+  }
+
+  if (p) {
+    setCurrentPuzzle(p);
+    resetPuzzleState(p, false, false, false, isFast ? CLOCK_TIMING.firstMove : 1000);
+   // Precarga el siguiente mientras el usuario resuelve este
+    if (!isFast) prefetchNext(currentRange, themesToUse);
+  } else {
+    setMessage("No puzzles, adjust filters");
+    setLoading(false);
+    setCurrentPuzzle(null);
+  }
+
+  setTimeout(() => {
+    setIsNextDisabled(false);
+  }, isFast ? 150 : 500);
+}
+
+// Aplica un puzzle del historial al tablero principal, sin otorgar/quitar ELO.
+const openHistoryPuzzleOnBoard = useCallback((puzzle: Puzzle) => {
+  resetPuzzleState(puzzle, false, false, true); // isHistory = true
+  setCurrentPuzzle(puzzle);
+}, [resetPuzzleState]);
+
+const {
+  isHistoryModalVisible,
+  eloHistoryData,
+  isHistoryListReady,
+  recentPuzzles,
+  selectedHistoryItem,
+  openHistory,
+  closeHistory,
+  selectHistoryPuzzle,
+} = useEloHistory(db, openHistoryPuzzleOnBoard);
+
+// Función para rebobinar el puzzle paso a paso (usada en el botón Retry)
+const handleRetry = async () => {
+  // Si estamos mostrando la solución o no hay historia para deshacer, cancelamos
+  if (fenHistory.length < 2 || isShowingSolution) return;
+
+  setIsRetryMode(true);
+// Si el puzzle ya fue resuelto (por Show Solution), se hace un reseteo directo
+  if (puzzleSolved && currentPuzzle) {
+    setMessage("");
+    setIsBoardLocked(false);
+    setHintSquare(null);
+    setPuzzleSolved(false);
+    setErrorSquare(null);
+    setSuccessSquare(null);
+    setLastMoveFrom(null);
+    setLastMoveTo(null);
+    
+    // Cargamos el FEN original directamente
+    resetPuzzleState(currentPuzzle, false, true);   // isRetry = true: no otorga ELO
+    
+    setMoveHistory([]);
+    clearSelection();
+    return; // Salimos de la función sin ejecutar el bucle while de rebobinado
+  }
+
+  setHintSquare(null);
+  setHintMove(null);
+  setIsBoardLocked(false);
+  setIsShowingSolution(true); // Bloqueamos interacciones durante el rebobinado
+  setErrorSquare(null);
+  setSuccessSquare(null);
+  setLastMoveFrom(null);
+  setLastMoveTo(null);
+  //setMessage("⏪ REBOBINANDO...");
+
+  // Copiamos el historial para manipularlo
+  const history = fenHistory.slice(0, viewIndex + 1);
+  
+  // Queremos volver hasta el índice 1 (la posición después del primer movimiento de la máquina)
+  // Mientras el historial sea más largo que 2 (Inicio, PrimerMovMaquina)...
+  while (history.length > 2) {
+    const currentFen = history.pop(); // Sacamos el FEN actual (donde estamos)
+    const targetFen = history[history.length - 1]; // El FEN al que queremos volver
+    
+    if (!currentFen || !targetFen) break;
+
+    const gameCurrent = new Chess(currentFen);
+    const gameTarget = new Chess(targetFen);
+
+    // Identificamos qué pieza se movió comparando los dos estados
+    let fromSq = ""; // Donde terminó la pieza (en el error)
+    let toSq = "";   // De donde vino originalmente (el origen real)
+
+    gameTarget.board().forEach((row, r) => {
+      row.forEach((cell, c) => {
+        const sq = String.fromCharCode(97 + c) + (8 - r);
+        const pTarget = gameTarget.get(sq as any);
+        const pCurrent = gameCurrent.get(sq as any);
+
+        // Si en el destino (Target) había una pieza que ahora no está en Current
+        // significa que esa casilla es el origen del movimiento que estamos deshaciendo
+        if (pTarget && !pCurrent) toSq = sq;
+        
+        // Si en Current hay una pieza que no estaba en Target (o era distinta)
+        // esa es la casilla desde la que rebobinamos
+        if (pCurrent && JSON.stringify(pCurrent) !== JSON.stringify(pTarget)) {
+          fromSq = sq;
         }
       });
     });
-    setPieces(newPieces);
-  };
 
-  // Función vital para mover la "etiqueta" de la pieza en nuestro mapa
-  const moveIdentity = (from: string, to: string) => {
-    const id = pieceIdentityMap[from];
-    if (id) {
-    // Si hay una pieza en el destino (captura), eliminamos su ID antiguo
-    delete pieceIdentityMap[to]; 
-    // Movemos el ID de la pieza que se mueve a la nueva casilla
-    pieceIdentityMap[to] = id;
-    // Limpiamos la casilla de origen
-    delete pieceIdentityMap[from];
-    }
-  };
+    if (fromSq && toSq) {
+      const pieceId = getIdentityAt(fromSq);
+      if (pieceId) {
+        // 1. Mover la identidad visual hacia ATRÁS (misma lógica que un movimiento normal)
+        moveIdentity(fromSq, toSq);
 
-  const getThemeCondition = () => {
-    if (selectedThemes.length === 0) return "";
-
-    // Generamos una cadena tipo: (themes LIKE '%,1,%' OR themes LIKE '%,5,%')
-    // Nota: Es un truco común concatenar comas al buscar para evitar confusiones entre "1" y "11"
-    const themeConditions = selectedThemes
-      .map(id => `(' ' || themes || ' ') LIKE '% ${id} %'`)
-      .join(" AND ");
-
-    return `AND (${themeConditions})`;
-  };
-
-  // Función para añadir/quitar temas
-  const toggleTheme = (id: string) => {
-    setSelectedThemes(prev => 
-      prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
-    );
-  };
-
-  const getThemeNames = (themeIdsString: string) => {
-    if (!themeIdsString) return "";
-    
-    // Dividimos el string de la DB "1 22" en un array ["1", "22"]
-    const ids = themeIdsString.split(" ");
-    
-    // Buscamos los nombres en tu constante CHESS_THEMES
-    return ids
-      .map(id => CHESS_THEMES.find(t => t.id === id)?.name)
-      .filter(Boolean) // Eliminamos los que no encuentre
-      .join(", ");     // Lo unimos con comas: "Fork, Pin"
-  };
-
-  const loadSinglePuzzle = async (activeDb?: SQLite.SQLiteDatabase | null) => {
-    // Si el botón está bloqueado, no hacemos nada
-    if (isNextDisabled) return;
-    // Bloqueamos el botón inmediatamente
-    setIsNextDisabled(true);
-    setHintSquare(null);
-    setIsBoardLocked(false);
-    setIsReviewMode(false);
-    setIsAnalysisMode(false);
-    
-    setMoveHistory([]);
-    setMoveHistory(prev => prev.slice(0, 1));
-
-    // Vaciamos el mapa de identidades para que el nuevo puzzle 
-    // empiece con "identidades" limpias y las piezas hagan FadeIn.
-    pieceIdentityMap = {};
-
-    const databaseToUse = activeDb || db;
-    if (!databaseToUse) return;
-
-    setLoading(true);
-    setMessage("");
-
-    const result = await databaseToUse.getAllAsync<any>(
-      `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${getThemeCondition()} ORDER BY RANDOM() LIMIT 1`, [eloRange[0], eloRange[1]]
-    );
-
-    if (result?.length > 0) {
-      const row = result[0];
-      const p = { id: String(row.ID ?? row.id), fen: row.FEN ?? row.fen, solution: (row.SOLUTION ?? row.solution).split(' '), rating: Number(row.RATING ?? row.rating), themes: row.themes ?? "" };
-      setCurrentPuzzle(p);
-      resetPuzzleState(p);
-    }
-
-    if (result.length === 0) {
-    setMessage("No puzzles, adjust filters");
-    setLoading(false);
-    setCurrentPuzzle(null); // Limpia el tablero
-    } 
-    // Volvemos a habilitar el botón después de un pequeño delay
-    setTimeout(() => {
-      setIsNextDisabled(false);
-    }, 800);
-  };
-
-  const resetPuzzleState = (puzzle: Puzzle) => {
-    const newGame = new Chess(puzzle.fen);
-
-    // --- LIMPIEZA DE UI ---
-    setLegalMoves([]);      // Borra los puntitos de movimientos legales
-    setSelectedSquare(null); // Quita el color de selección de la casilla
-    setMessage("");         // Borra "Correcto/Incorrecto"
-    setIsAnalysisMode(false);
-    // ----------------------
-
-    // Limpiamos y generamos IDs basados en la posición inicial
-      pieceIdentityMap = {};
-      newGame.board().forEach((row, rIdx) => {
-        row.forEach((cell, cIdx) => {
-          if (cell) {
-            const sq = String.fromCharCode(97 + cIdx) + (8 - rIdx);
-            pieceIdentityMap[sq] = `${cell.type}-${cell.color}-${sq}`;
-          }
-        });
-      });
-
-    // Sincronizamos las piezas inmediatamente para que el primer render tenga datos
-    setGame(newGame);
-    syncPiecesFromGame(newGame);
-    //setPieces([]);
-    setTimeout(() => syncPiecesFromGame(newGame), 10);
-    setFenHistory([newGame.fen()]);
-    setMessage("");
-    setPuzzleSolved(false);
-    setFirstMoveDone(false);
-    setSolutionStep(0);
-
-    // El color del jugador es el OPUESTO al que le toca mover en el FEN inicial,
-    // porque la primera jugada de la solución la hace la máquina.
-    const turnInFen = newGame.turn(); 
-    const pColor = turnInFen === 'w' ? 'b' : 'w'; 
-    setPlayerColor(pColor); // <--- Esto fija el texto para todo el puzzle
-
-    // El pequeño delay para el primer movimiento de la máquina 
-    // ahora se verá sobre el tablero ya cargado.
-    setTimeout(() => {
-      const firstMove = puzzle.solution[0];
-      const from = firstMove.slice(0, 2) as Square;
-      const to = firstMove.slice(2, 4) as Square;
-
-      moveIdentity(from, to);
-
-      const m0 = newGame.move({ from, to, promotion: 'q' });
-
-      // guardamos el primer movimiento en formato san
-      if (m0) {
-        setMoveHistory([m0.san]); 
+        // Actualizamos las piezas para disparar la animación de Reanimated
+        setPieces(current => 
+          current.map(p => p.id === pieceId ? { ...p, square: toSq } : p)
+        );
       }
-
-      const nextFen = newGame.fen();
-      setGame(new Chess(nextFen));
-      syncPiecesFromGame(newGame);
-
-      setFenHistory(prev => [...prev, newGame.fen()]);
-
-      const firstMoveFen = newGame.fen();
-      setFenHistory([puzzle.fen, firstMoveFen]); // Aquí no hace falta 'prev' porque reiniciamos el array
-      setViewIndex(1);
-      setIsReviewMode(false);
-
-      setSolutionStep(1);
-      setFirstMoveDone(true);
-      setLoading(false); // Solo se usa al cargar la DB o un puzzle nuevo
-    }, 1000);
-  };
-
-  const showSolution = async () => {
-    if (!currentPuzzle || isShowingSolution) return;
-    
-    setIsShowingSolution(true);
-    clearSelection();
-    setHintSquare(null);
-
-    // 1. DESHACER EL ERROR DEL JUGADOR
-    // El historial tiene: [Inicio, Máquina, Jugador(Error)]
-    // Queremos volver al índice 1 (después del primer movimiento de la máquina)
-    const historyClean = [...fenHistory];
-    if (message.includes('❌') && historyClean.length > 2) {
-      historyClean.pop(); // Quitamos el error
     }
-    
-    const lastValidFen = historyClean[historyClean.length - 1];
-    const playbackGame = new Chess(lastValidFen);
+    // 2. Actualizamos el motor de ajedrez al estado anterior
+    setGame(new Chess(targetFen));
+    syncPiecesFromGame(gameTarget);
 
-    // Actualizamos el tablero para que la pieza "vuelva" a su sitio
-    setGame(new Chess(lastValidFen));
-    syncPiecesFromGame(playbackGame);
-    setFenHistory(historyClean);
-    setViewIndex(historyClean.length - 1);
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
 
-    // 2. PAUSA DE ESPERA (800ms)
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    // 3. COMPLETAR LA SOLUCIÓN DESDE DONDE ESTABA
-    // Usamos 'solutionStep' para saber por qué movimiento iba el puzzle
-    for (let i = solutionStep; i < currentPuzzle.solution.length; i++) {
-      const moveStr = currentPuzzle.solution[i];
-      
-      // Antes de mover, movemos la identidad para la animación
-      moveIdentity(moveStr.slice(0, 2), moveStr.slice(2, 4));
-
-      playbackGame.move({
-        from: moveStr.slice(0, 2) as Square,
-        to: moveStr.slice(2, 4) as Square,
-        promotion: 'q'
-      });
-
-      // Actualizamos el estado visual
-      setGame(new Chess(playbackGame.fen()));
-      syncPiecesFromGame(playbackGame);
-      
-      // Guardamos en el historial para que el modo análisis funcione después
-      setFenHistory(prev => [...prev, playbackGame.fen()]);
-
-      // Pausa entre movimientos de la solución
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-
-    setPuzzleSolved(true);
-    setIsShowingSolution(false);
-    setMessage("✅ SOLUCIÓN COMPLETADA");
-  };
-
-  const handleRetry = async () => {
-    // Si estamos mostrando la solución o no hay historia para deshacer, cancelamos
-    if (fenHistory.length < 2 || isShowingSolution) return;
-
-    setHintSquare(null);
-    setIsBoardLocked(false);
-    setIsShowingSolution(true); // Bloqueamos interacciones durante el rebobinado
-    //setMessage("⏪ REBOBINANDO...");
-
-    // Copiamos el historial para manipularlo
-    const history = fenHistory.slice(0, viewIndex + 1);
-    
-    // Queremos volver hasta el índice 1 (la posición después del primer movimiento de la máquina)
-    // Mientras el historial sea más largo que 2 (Inicio, PrimerMovMaquina)...
-    while (history.length > 2) {
-      const currentFen = history.pop(); // Sacamos el FEN actual (donde estamos)
-      const targetFen = history[history.length - 1]; // El FEN al que queremos volver
-      
-      if (!currentFen || !targetFen) break;
-
-      const gameCurrent = new Chess(currentFen);
-      const gameTarget = new Chess(targetFen);
-
-      // Identificamos qué pieza se movió comparando los dos estados
-      let fromSq = ""; // Donde terminó la pieza (en el error)
-      let toSq = "";   // De donde vino originalmente (el origen real)
-
-      gameTarget.board().forEach((row, r) => {
-        row.forEach((cell, c) => {
-          const sq = String.fromCharCode(97 + c) + (8 - r);
-          const pTarget = gameTarget.get(sq as any);
-          const pCurrent = gameCurrent.get(sq as any);
-
-          // Si en el destino (Target) había una pieza que ahora no está en Current
-          // significa que esa casilla es el origen del movimiento que estamos deshaciendo
-          if (pTarget && !pCurrent) toSq = sq;
-          
-          // Si en Current hay una pieza que no estaba en Target (o era distinta)
-          // esa es la casilla desde la que rebobinamos
-          if (pCurrent && JSON.stringify(pCurrent) !== JSON.stringify(pTarget)) {
-            fromSq = sq;
-          }
-        });
-      });
-
-      if (fromSq && toSq) {
-        // 1. Mover la identidad visual hacia ATRÁS
-        const pieceId = pieceIdentityMap[fromSq];
-        if (pieceId) {
-          // Actualizamos el mapa de identidades
-          delete pieceIdentityMap[fromSq];
-          pieceIdentityMap[toSq] = pieceId;
-
-          // Actualizamos las piezas para disparar la animación de Reanimated
-          setPieces(current => 
-            current.map(p => p.id === pieceId ? { ...p, square: toSq } : p)
-          );
-        }
-      }
-
-      // 2. Actualizamos el motor de ajedrez al estado anterior
-      setGame(new Chess(targetFen));
-      syncPiecesFromGame(gameTarget);
-
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-
-    // Finalización del estado
-    setFenHistory([fenHistory[0], fenHistory[1]]);
-    setViewIndex(1);
-    setIsReviewMode(false);
-    setSolutionStep(1);
-    setPuzzleSolved(false);
-    setMessage("");
-    setIsShowingSolution(false); 
-    clearSelection();
-    //setMoveHistory([]);
-    setMoveHistory(prev => prev.slice(0, 1));
-  };
-
-// Reset cuando hemos acabado el puzzle correctamente y queremos repetirlo entero
-const handleRestartPuzzle = () => {
-  if (!currentPuzzle) return;
-  //setLoading(true); // Para que se vea la transición
-  setMessage("");
-  setIsBoardLocked(false);
-  setHintSquare(null);
+  // Finalización del estado
+  setFenHistory([fenHistory[0], fenHistory[1]]);
+  setViewIndex(1);
+  setIsReviewMode(false);
+  setSolutionStep(1);
   setPuzzleSolved(false);
-  resetPuzzleState(currentPuzzle); // Reutiliza la lógica de carga completa
-  setMoveHistory([]);
+  setMessage("");
+  setIsShowingSolution(false); 
+  clearSelection();
   setMoveHistory(prev => prev.slice(0, 1));
-  };
+  startTimer(); 
+};
 
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-        const hideNavBar = async () => {
-          try {
-            // Ocultar la barra
-            await NavigationBar.setVisibilityAsync("hidden");
-      
-            // Si prefieres forzar el que tú querías:
-            // await NavigationBar.setBehaviorAsync('sticky-swipe' as any);
-          } catch (e) {
-            console.log("Error configurando la NavigationBar", e);
-          }
-        };
-      hideNavBar();
-      StatusBar.setHidden(true); // Opcional: oculta también la de arriba
-    }
-
-    async function setup() {
-      const dbName = "puzzles_v2.db";
-      const dbUri = `${FileSystem.documentDirectory}SQLite/${dbName}`;
-      if (!(await FileSystem.getInfoAsync(dbUri)).exists) {
-        await FileSystem.makeDirectoryAsync(`${FileSystem.documentDirectory}SQLite`, { intermediates: true });
-        const asset = await Asset.fromModule(require('../assets/puzzles_v2.db')).downloadAsync();
-        if (asset.localUri) await FileSystem.copyAsync({ from: asset.localUri, to: dbUri });
-      }
-      const database = await SQLite.openDatabaseAsync(dbName);
-      setDb(database);
-      updateAvailableCount(database, eloRange);
-      loadSinglePuzzle(database);
-    }
-    setup();
-}, []);
-
-// Actualizar contador y cargar nuevo puzzle cuando cambien los temas
-useEffect(() => {
-  if (db) {
-    updateAvailableCount(db, eloRange);
-    loadSinglePuzzle(db);
+// Función para mostrar la solución paso a paso, con animaciones, desde el punto donde el jugador se quedó
+const showSolution = async () => {
+  if (!currentPuzzle || isShowingSolution) return;
+  
+  setIsShowingSolution(true);
+  setSolutionRevealed(true);
+  stopTimer(false);
+  clearSelection();
+  setHintSquare(null);
+  setHintMove(null);
+  setSuccessSquare(null);
+  setLastMoveFrom(null);
+  setLastMoveTo(null);
+  setErrorSquare(null);
+  // 1. DESHACER EL ERROR DEL JUGADOR
+  // El historial tiene: [Inicio, Máquina, Jugador(Error)]
+  // Queremos volver al índice 1 (después del primer movimiento de la máquina)
+  const historyClean = [...fenHistory];
+  if (message.includes('❌') && historyClean.length > 2) {
+    historyClean.pop(); // Quitamos el error
   }
-}, [eloRange, selectedThemes]);
+  
+  const lastValidFen = historyClean[historyClean.length - 1];
+  const playbackGame = new Chess(lastValidFen);
 
-  // Efecto para actualizar el contador dentro del modal en tiempo real
-useEffect(() => {
-  if (db && isFilterModalVisible) {
-    const updateTempCount = async () => {
-      // Usamos los estados "temp" para la consulta
-      const themeConditions = tempSelectedThemes.length === 0 ? "" : 
-        "AND (" + tempSelectedThemes.map(id => `(' ' || themes || ' ') LIKE '% ${id} %'`).join(" AND ") + ")";
-      
-      const res = await db.getFirstAsync<{ total: number }>(
-        `SELECT COUNT(*) as total FROM puzzles WHERE rating BETWEEN ? AND ? ${themeConditions}`, 
-        [tempEloRange[0], tempEloRange[1]]
-      );
-      setTempAvailableCount(res?.total || 0);
-    };
-    updateTempCount();
+  // Actualizamos el tablero para que la pieza "vuelva" a su sitio
+  setGame(new Chess(lastValidFen));
+  syncPiecesFromGame(playbackGame);
+  setFenHistory(historyClean);
+  setViewIndex(historyClean.length - 1);
+
+  // 2. PAUSA DE ESPERA (800ms)
+  await new Promise(resolve => setTimeout(resolve, 800));
+
+  // 3. COMPLETAR LA SOLUCIÓN DESDE DONDE ESTABA
+  // Usamos 'solutionStep' para saber por qué movimiento iba el puzzle
+  for (let i = solutionStep; i < currentPuzzle.solution.length; i++) {
+    const moveStr = currentPuzzle.solution[i];
+    
+    // Antes de mover, movemos la identidad para la animación
+    const solutionMove = playbackGame.move({
+      from: moveStr.slice(0, 2) as Square,
+      to: moveStr.slice(2, 4) as Square,
+      promotion: 'q'
+    });
+    if (solutionMove) applyMoveIdentity(solutionMove);
+
+    // Actualizamos el estado visual
+    setGame(new Chess(playbackGame.fen()));
+    syncPiecesFromGame(playbackGame);
+
+    setLastMoveFrom(moveStr.slice(0, 2))
+    setLastMoveTo(moveStr.slice(2, 4));
+    
+    // Guardamos en el historial para que el modo análisis funcione después
+    setFenHistory(prev => [...prev, playbackGame.fen()]);
+
+    // Pausa entre movimientos de la solución
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
-}, [tempEloRange, tempSelectedThemes, isFilterModalVisible, db]);
 
-function onSquarePress(square: string) {
-  // 1. BLOQUEOS DE SEGURIDAD
-  // No permitimos interactuar si:
-  // - No se ha hecho el primer movimiento de la máquina (firstMoveDone)
-  // - No hay puzzle cargado
-  // - El tablero está bloqueado por una animación o carga (isBoardLocked)
-  // - Estamos viendo el pasado en el historial (isReviewMode) Y no estamos en modo análisis
-  if (!firstMoveDone || !currentPuzzle || (isBoardLocked && !isAnalysisMode)) return;
-  if (isReviewMode && !isAnalysisMode) return;
+  setPuzzleSolved(true);
+  setIsShowingSolution(false);
+  //setMessage("✅ SOLUCIÓN COMPLETADA");
+};
+
+// Función central para manejar la interacción del usuario con el tablero
+function onSquarePress(square: string | null, isDraggingInteraction: boolean = false) {
+  if (!square) {
+    clearSelection();
+    return;
+  }
+
+  if (!firstMoveDone || !currentPuzzle || (isBoardLocked && !analysisEngine.isAnalysisMode)) return;
+  if (isReviewMode && !analysisEngine.isAnalysisMode) return;
 
   const targetPiece = game.get(square as any);
   
-  // 2. DETERMINAR QUÉ COLOR PUEDE MOVER
-  // En Puzzle: Solo el color asignado al jugador (playerColor)
-  // En Análisis: El color al que le toque mover según el estado actual del juego (game.turn())
   const turnColor = game.turn();
-  const isPlayerTurn = isAnalysisMode 
+  const isPlayerTurn = analysisEngine.isAnalysisMode 
     ? targetPiece?.color === turnColor 
     : targetPiece?.color === playerColor;
 
-  // 3. LÓGICA DE SELECCIÓN (Si toco una pieza que me pertenece)
+  // 1. Si el jugador interactúa con una pieza de su propio color
   if (isPlayerTurn) {
     if (selectedSquare === square) {
-      clearSelection();
+      // 🌟 CAMBIO CLAVE: Si ya está seleccionada pero la estamos ARRASTRANDO, NO la deseleccionamos.
+      // Solo la deseleccionamos si es un click normal (tap) sobre ella misma.
+      if (!isDraggingInteraction) {
+        clearSelection();
+      }
     } else {
+      // Si toca otra pieza de su color, cambia la selección normalmente
       setSelectedSquare(square);
       const moves = game.moves({ square: square as any, verbose: true });
-      setLegalMoves(moves.map(m => m.to));
+      const uniqueMoves = Array.from(new Set(moves.map(m => m.to)));
+      setLegalMoves(uniqueMoves);
     }
     return;
   }
 
-  // 4. LÓGICA DE MOVIMIENTO (Si ya hay una pieza seleccionada e intento moverla)
+  // 2. Si el jugador hace click o interactúa con una casilla vacía o del rival
   if (selectedSquare) {
     const movingPiece = game.get(selectedSquare as any);
     if (!movingPiece) {
@@ -516,32 +614,41 @@ function onSquarePress(square: string) {
     const moveAttempt = moves.find(m => m.to === square);
 
     if (moveAttempt) {
+      const fromSquare = selectedSquare; // Guardamos la casilla de origen temporalmente
+      
+      // Borramos instantáneamente los estados de selección y movimientos legales 
+      // ANTES de ejecutar el movimiento o abrir modales, quitando el retraso visual en clicks.
+      clearSelection(); 
+
       // Verificamos si es una coronación de peón
       const isPawn = movingPiece.type === 'p';
       const isPromotionRow = (movingPiece.color === 'w' && square[1] === '8') || 
                              (movingPiece.color === 'b' && square[1] === '1');
 
       if (isPawn && isPromotionRow) {
-        setPendingMove({ from: selectedSquare, to: square });
+        setPendingMove({ from: fromSquare, to: square }); // Usamos la variable guardada
         setPromotionModalVisible(true);
       } else {
-        // Ejecutamos movimiento normal (Dama por defecto si no es promoción manual)
-        executeMove(selectedSquare, square, 'q');
+        executeMove(fromSquare, square, 'q'); // Usamos la variable guardada
       }
     } else {
-      // Si el movimiento no es legal y no toqué otra pieza mía, limpio la selección
+      // Si el click fue en una casilla ilegal/vacía, limpiamos selección de inmediato
       clearSelection();
     }
+  } else {
+    clearSelection();
   }
 }
 
-const executeMove = (from: string, to: string, promotion: string) => {
-  if (!currentPuzzle || (isBoardLocked && !isAnalysisMode)) return;
+// Función central para ejecutar un movimiento, tanto en modo puzzle como análisis
+const executeMove = async (from: string, to: string, promotion: string = 'q') => {
+  if (!currentPuzzle || (isBoardLocked && !analysisEngine.isAnalysisMode)) return;
 
   // 1. Bloqueo de seguridad para evitar doble toque
-  if (!isAnalysisMode) {
+  if (!analysisEngine.isAnalysisMode) {
     setIsBoardLocked(true);
     setHintSquare(null);
+    setHintMove(null);
   }
 
   const moveStr = `${from}${to}`;
@@ -556,52 +663,117 @@ const executeMove = (from: string, to: string, promotion: string) => {
     });
 
     if (move) {
+      // Identificamos si el movimiento es una captura (chess.js incluye 'captured' si lo es)
+      const isCapture = 'captured' in move;
+
       // --- A. LÓGICA PARA MODO ANÁLISIS ---
-      if (isAnalysisMode) {
-        moveIdentity(move.from, move.to);
+      if (analysisEngine.isAnalysisMode) {
+        // Feedback táctil para modo análisis
+        if (isCapture) {
+          hapticImpact('heavy');
+          playSound('capture');
+        } else {
+          hapticImpact('medium');
+          playSound('move');
+        }
+
+        applyMoveIdentity(move);
         const nextFen = gameCopy.fen();
 
-        setGame(new Chess(nextFen));
+        setLastMoveFrom(move.from);
+        setLastMoveTo(move.to);
+
+        setGame(gameCopy);
         syncPiecesFromGame(gameCopy);
         
-        setMoveHistory(prev => [...prev, move.san]);
+        setMoveHistory(prev => {
+          const truncatedMoves = prev.slice(0, viewIndex);
+          return [...truncatedMoves, move.san];
+        });
+
         setFenHistory(prev => {
-          const newH = [...prev, nextFen];
+          const truncatedFens = prev.slice(0, viewIndex + 1);
+          const newH = [...truncatedFens, nextFen];
           setViewIndex(newH.length - 1);
           return newH;
         });
         clearSelection();
-        return; // Salimos, no evaluamos solución
+        setPromotionModalVisible(false);
+        setPendingMove(null);
+        return; 
       }
 
       // --- B. LÓGICA PARA MODO PUZZLE ---
       const expectedMove = currentPuzzle.solution[solutionStep];
-      const isCorrect = playerMoveWithPromotion === expectedMove || moveStr === expectedMove;
+      const matchesSolution = playerMoveWithPromotion === expectedMove || moveStr === expectedMove;
+
+      // La BD solo admite una línea por puzzle, pero hay posiciones con más de
+      // un mate posible. Si el movimiento da mate, la partida ha terminado y no
+      // hay nada que "fallar": lo damos por bueno.
+      const isMateNow = gameCopy.isCheckmate();
+      const isCorrect = matchesSolution || isMateNow;
 
       const playerSAN = move.san;
       setMoveHistory(prev => [...prev, playerSAN]);
-      moveIdentity(move.from, move.to);
+      applyMoveIdentity(move);
       
       const nextFen = gameCopy.fen();
-      setGame(new Chess(nextFen));
+      setGame(gameCopy);
       syncPiecesFromGame(gameCopy);
+
+      setLastMoveFrom(move.from);
+      setLastMoveTo(move.to);
 
       if (isCorrect) {
         const nextStep = solutionStep + 1;
 
-        if (nextStep === currentPuzzle.solution.length) {
-          // PUZZLE FINALIZADO CON ÉXITO
+        // Con mate el puzzle acaba aquí aunque a la solución de la BD le queden
+        // movimientos: la máquina no puede responder a un mate.
+        const isPuzzleFinished = isMateNow || nextStep === currentPuzzle.solution.length;
+
+        if (isPuzzleFinished) {
+          // PUZZLE FINALIZADO CON ÉXITO: Vibración de victoria
+          const solveMs = stopTimer(true);
+          hapticSuccess();
+          playSound('success');
+          
           setFenHistory(prev => {
             const newH = [...prev, nextFen];
             setViewIndex(newH.length - 1);
             return newH;
           });
+          setSuccessSquare(to);
+
+          if (currentPuzzle) {
+            if (isClockMode) {
+              // Contrarreloj: no toca el ELO global, alimenta la escalera de la partida
+              const { nextRange, timeUp } = clock.registerResult(true, currentPuzzle.id, currentPuzzle.rating, solveMs);
+              if (!timeUp) swapClockPuzzle(nextRange, CLOCK_TIMING.afterSolve);
+              
+            } else if (!isHistoryMode && !isRetryMode) {
+              const temasArray = currentPuzzle.themes.split(' ');
+              const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true, currentPuzzle.rating, solveMs);
+              if (puntosGanados !== 0) {
+                setEloFeedback({ value: puntosGanados });
+              }
+            }
+          }
+
           setTimeout(() => { 
-            setMessage("✅ CORRECTO"); 
+            setMessage("✅"); 
             setPuzzleSolved(true); 
             setIsBoardLocked(false);
-          }, 250);
+          }, isClockMode ? 80 : 250);
         } else {
+          // MOVIMIENTO CORRECTO (pero el puzzle sigue): Vibración de movimiento
+          if (isCapture) {
+            	hapticImpact('heavy');
+            playSound('capture');
+          } else {
+            	hapticImpact('medium');
+            playSound('move');
+          }
+
           // TURNO DE LA MÁQUINA (Respuesta automática)
           setSolutionStep(nextStep + 1);
           const resp = currentPuzzle.solution[nextStep];
@@ -611,16 +783,20 @@ const executeMove = (from: string, to: string, promotion: string) => {
             const mResp = gameAfterResp.move({ 
               from: resp.slice(0, 2) as Square, 
               to: resp.slice(2, 4) as Square, 
-              promotion: 'q' 
+              promotion: promotion
             });
             
             if (mResp) {
+              // Vibración ligera cuando la máquina te responde (opcional, pero da un gran feedback)
+              const machineCaptured = 'captured' in mResp;
+              hapticImpact(machineCaptured ? 'medium' : 'light');
+
               setMoveHistory(prev => [...prev, mResp.san]);
-              moveIdentity(mResp.from, mResp.to);
+              applyMoveIdentity(mResp);
             }
             
             const finalFen = gameAfterResp.fen();
-            setGame(new Chess(finalFen));
+            setGame(gameAfterResp);
             syncPiecesFromGame(gameAfterResp);
 
             setFenHistory(prevHistory => {
@@ -631,168 +807,146 @@ const executeMove = (from: string, to: string, promotion: string) => {
             });
 
             setIsBoardLocked(false); 
-          }, 450);
+          }, isClockMode ? CLOCK_TIMING.machineReply : 450);
         }
       } else {
-        // MOVIMIENTO INCORRECTO
+        // MOVIMIENTO INCORRECTO: Vibración de error
+        const solveMs = stopTimer(false);
+        hapticError();
+        playSound('error');
+
         setFenHistory(prev => {
           const newH = [...prev, nextFen];
           setViewIndex(newH.length - 1);
           return newH;
         });
-        setTimeout(() => { 
-          setMessage("❌ INCORRECTO"); 
-          setPuzzleSolved(false); 
-          // No desbloqueamos el tablero para forzar el uso de Retry o Solution
-        }, 250);
+        setErrorSquare(to);
+        // En contrarreloj no hay footer ni retry: el puzzle se sustituye solo,
+        // así que el tablero debe seguir bloqueado hasta que cargue el siguiente.
+        if (!isClockMode) {
+          setTimeout(() => {
+            setMessage("❌");
+            setIsBoardLocked(false);
+          }, 250);
+        }
+
+        if (currentPuzzle) {
+          if (isClockMode) {
+            // Fallo: NO baja de nivel, pero cambia de puzle al mismo rango
+            const { nextRange, timeUp } = clock.registerResult(false, currentPuzzle.id, currentPuzzle.rating, solveMs);
+            if (!timeUp) swapClockPuzzle(nextRange, CLOCK_TIMING.afterFail);
+
+          } else if (!isHistoryMode && !isRetryMode) {
+            const temasArray = currentPuzzle.themes.split(' ');
+            const puntosPerdidos = await updateElo(currentPuzzle.id, temasArray, false, currentPuzzle.rating, solveMs);
+            if (puntosPerdidos !== 0) {
+              setEloFeedback({ value: puntosPerdidos });
+            }
+          }
+        }
       }
     }
   } catch (e) {
-    // Movimiento ilegal según chess.js: no hacemos nada
     setIsBoardLocked(false);
   }
-  
   clearSelection();
   setPromotionModalVisible(false);
   setPendingMove(null);
 };
 
-const RenderMoveList = () => {
-  return (
-    <View style={styles.moveListWrapper}>
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.moveListContent}
-      >
-        {moveHistory.map((move, index) => {
-          const isWhite = index % 2 === 0;
-          const moveNumber = Math.floor(index / 2) + 1;
+const handleDragMove = (from: string, to: string) => {
+  // 1. Buscamos qué pieza se está moviendo
+  const movingPiece = game.get(from as any);
+  if (!movingPiece) return;
 
-          return (
-            <View key={index} style={styles.moveItem}>
-              {isWhite && (
-                <Text style={styles.moveNumberText}>{moveNumber}.</Text>
-              )}
-              <Text style={[
-                styles.moveText,
-                viewIndex === index + 1 && styles.activeMoveText // Resaltar si estamos navegando el historial
-              ]}>
-                {move}
-              </Text>
-            </View>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
+  // 2. Comprobamos si es un peón a punto de coronar
+  const isPawn = movingPiece.type === 'p';
+  const isPromotionRow = (movingPiece.color === 'w' && to[1] === '8') || 
+                         (movingPiece.color === 'b' && to[1] === '1');
+
+  // 3. DECISIÓN CLAVE:
+  if (isPawn && isPromotionRow) {
+    // Si es coronación, abrimos TU MODAL (que ya funciona perfecto)
+    setPendingMove({ from, to });
+    setPromotionModalVisible(true);
+    clearSelection();
+  } else {
+    // Si es un movimiento normal, que se ejecute del tirón
+    executeMove(from, to, 'q');
+  }
+};
+
+// Refs para callbacks estables: ChessBoard nunca ve identidades nuevas
+const handlersRef = useRef<{
+  onSquarePress: typeof onSquarePress;
+  handleDragMove: typeof handleDragMove;
+  clearSelection: typeof clearSelection;
+}>({ onSquarePress, handleDragMove, clearSelection });
+
+useEffect(() => {
+  handlersRef.current = { onSquarePress, handleDragMove, clearSelection };
+});
+
+const stableSquarePress = useCallback(
+  (sq: string | null, dragging?: boolean) =>
+    handlersRef.current.onSquarePress(sq, dragging),
+  []
+);
+const stableDragMove = useCallback(
+  (from: string, to: string) =>
+    handlersRef.current.handleDragMove(from, to),
+  []
+);
+const stableClearSelection = useCallback(
+  () => handlersRef.current.clearSelection(),
+  []
+);
+
+// Navegación única del historial: la usan tanto las flechas como la lista de
+// jugadas, para que ambas dejen exactamente el mismo estado.
+// (Antes handleMovePress no tocaba isReviewMode: si venías de pulsar la flecha
+// atrás, el tablero se quedaba en modo revisión para siempre.)
+const goToViewIndex = (targetIndex: number) => {
+  if (targetIndex === viewIndex) return;
+  if (targetIndex < 0 || targetIndex > fenHistory.length - 1) return;
+
+  setSuccessSquare(null);
+  setErrorSquare(null);
+  setSelectedSquare(null);
+  setLegalMoves([]);
+  analysisEngine.clearBestMove();
+
+  // Recorremos el historial de una posición a la CONTIGUA, nunca de un salto:
+  // así cada paso se resuelve como un movimiento exacto y solo se anima la
+  // pieza que de verdad se movió.
+  const step = targetIndex > viewIndex ? 1 : -1;
+  let targetGame = game;
+  for (let i = viewIndex; i !== targetIndex; i += step) {
+    targetGame = stepIdentityBetweenFens(fenHistory[i], fenHistory[i + step]);
+  }
+
+  // Resaltado de "última jugada" de la posición a la que llegamos
+  const lastMove = targetIndex > 0
+    ? getMoveBetweenFens(fenHistory[targetIndex - 1], fenHistory[targetIndex])
+    : null;
+  setLastMoveFrom(lastMove?.from ?? null);
+  setLastMoveTo(lastMove?.to ?? null);
+
+  setViewIndex(targetIndex);
+  setIsReviewMode(targetIndex !== fenHistory.length - 1);
+  setGame(targetGame);
+  syncPiecesFromGame(targetGame);
 };
 
 const navigateHistory = (direction: 'prev' | 'next') => {
-  setFenHistory(currentHistory => {
-    let newIndex = viewIndex;
-    if (direction === 'prev' && viewIndex > 0) newIndex = viewIndex - 1;
-    else if (direction === 'next' && viewIndex < currentHistory.length - 1) newIndex = viewIndex + 1;
-
-    if (newIndex !== viewIndex) {
-      const targetGame = new Chess(currentHistory[newIndex]);
-      const targetBoard = targetGame.board();
-      const nextMap: Record<string, string> = {};
-      
-      // 1. Mantenemos un registro de IDs del mapa anterior que ya hemos REUTILIZADO
-      // para no asignarle el mismo ID a dos piezas diferentes en el nuevo estado.
-      const usedOldKeys = new Set<string>();
-
-      // PASO A: Prioridad absoluta - Piezas que NO se han movido de su casilla
-      targetBoard.forEach((row, rIdx) => {
-        row.forEach((cell, cIdx) => {
-          if (cell) {
-            const sq = String.fromCharCode(97 + cIdx) + (8 - rIdx);
-            const oldId = pieceIdentityMap[sq];
-            const pieceTypeColor = `${cell.type}-${cell.color}`;
-
-            if (oldId && oldId.startsWith(pieceTypeColor)) {
-              nextMap[sq] = oldId;
-              usedOldKeys.add(sq);
-            }
-          }
-        });
-      });
-
-      // PASO B: Piezas que sí se han movido (Buscamos su ID en el mapa viejo)
-      targetBoard.forEach((row, rIdx) => {
-        row.forEach((cell, cIdx) => {
-          if (cell) {
-            const sq = String.fromCharCode(97 + cIdx) + (8 - rIdx);
-            if (nextMap[sq]) return; // Ya asignada en el Paso A
-
-            const pieceTypeColor = `${cell.type}-${cell.color}`;
-            
-            // Buscamos en el mapa viejo una pieza igual que NO haya sido reclamada aún
-            const originalSquare = Object.keys(pieceIdentityMap).find(oldSq => {
-              const id = pieceIdentityMap[oldSq];
-              return id.startsWith(pieceTypeColor) && !usedOldKeys.has(oldSq);
-            });
-
-            if (originalSquare) {
-              nextMap[sq] = pieceIdentityMap[originalSquare];
-              usedOldKeys.add(originalSquare);
-            } else {
-              // Si es una pieza totalmente nueva (ej: coronación), ID nuevo
-              nextMap[sq] = `${pieceTypeColor}-${Math.random().toString(36).substring(2, 9)}`;
-            }
-          }
-        });
-      });
-
-      pieceIdentityMap = nextMap;
-      setViewIndex(newIndex);
-      setIsReviewMode(newIndex !== currentHistory.length - 1);
-      setGame(targetGame);
-      syncPiecesFromGame(targetGame);
-    }
-    return currentHistory;
-  });
+  goToViewIndex(direction === 'prev' ? viewIndex - 1 : viewIndex + 1);
 };
 
 const handleMovePress = (targetIndex: number) => {
-
-  // Si pulsamos el mismo índice, no hacemos nada
-  if (viewIndex === targetIndex) return;
-  
-  // Obtenemos el FEN correspondiente del historial
-  const targetFen = fenHistory[targetIndex];
-  
-  if (targetFen) {
-    // Actualizamos el motor de ajedrez y el estado visual
-    const targetGame = new Chess(targetFen);
-    
-    // Al viajar al pasado, pieceIdentityMap puede no ser exacto,
-    // así que lo limpiamos para que las piezas "aparezcan"
-    pieceIdentityMap = {};
-    
-    setGame(targetGame);
-    syncPiecesFromGame(targetGame);
-    
-    // Actualizamos el índice de vista y activamos el modo revisión
-    setViewIndex(targetIndex);
-  }
+  goToViewIndex(targetIndex);
 };
 
-useEffect(() => {
-  // Verificamos si estamos en la última posición del historial
-  const isAtLastMove = viewIndex === fenHistory.length - 1;
-
-  if (isAtLastMove) {
-    // Si el puzzle ya fue resuelto, lo dejamos bloqueado de todas formas
-    // Si no ha sido resuelto y estamos al final, permitimos jugar
-    setIsBoardLocked(puzzleSolved ? true : false);
-  } else {
-    // Si estamos viendo cualquier movimiento anterior, bloqueamos el tablero
-    setIsBoardLocked(true);
-  }
-}, [viewIndex, fenHistory.length, puzzleSolved]);
-
+// Función para obtener la imagen de la pieza en la promoción, basada en el color del jugador
 const getPromotionPieceImage = (type: string) => {
   // Si el jugador es blanco ('w'), usamos mayúsculas para el diccionario ('Q', 'N'...)
   // Si es negro ('b'), usamos minúsculas ('q', 'n'...)
@@ -800,503 +954,754 @@ const getPromotionPieceImage = (type: string) => {
   return pieceImages[pieceKey];
 };
 
-const activeFiltersCount = selectedThemes.length
-
+// Función para mostrar pistas, actualmente solo ilumina la pieza a mover
 const handleHint = () => {
   if (!currentPuzzle || puzzleSolved || isBoardLocked) return;
-
+  
   const moveStr = currentPuzzle.solution[solutionStep];
   if (moveStr) {
     const fromSquare = moveStr.slice(0, 2);
-    console.log("Resaltando casilla:", fromSquare); // Debug
     
-    setHintSquare(fromSquare);
+    // Si la casilla ya estaba iluminada, es el SEGUNDO click
+    if (hintSquare === fromSquare) {
+      setHintMove(moveStr); // Guardamos el movimiento completo ('e2e4') para la flecha
+    } 
+    // Si no estaba iluminada, es el PRIMER click
+    else {
+      setLegalMoves([]);
+      setSelectedSquare(null);
+      setHintSquare(fromSquare);
+      setHintMove(null); // Nos aseguramos de ocultar la flecha si reiniciamos la pista
+    }
   }
 };
 
-const startAnalysis = () => { // Función para activar el análisis
-  setIsAnalysisMode(true);
+// Función para activar el modo análisis
+const startAnalysis = () => { 
+  analysisEngine.enterAnalysisMode();
   setIsBoardLocked(false);
   setIsReviewMode(false);
-  setMessage("🔬 MODO ANÁLISIS");
-  // Nos aseguramos de estar en el último movimiento del puzzle antes de analizar
-  setViewIndex(fenHistory.length - 1);
+  setErrorSquare(null);
+  setSuccessSquare(null);
+
+  const targetIndex = fenHistory.length - 1;
+  setViewIndex(targetIndex);
 };
 
-return (
-  <View style={styles.container}>
-    <StatusBar barStyle="light-content" />
+// Efecto para guardar el rango de ELO, temas seleccionados, modo recomendado y el puzzle 
+// actual de manera asinclrona para persistencia entre sesiones (abrir y cerrar app).
+useEffect(() => {
+    const savePersistentData = async () => {
+      try {
+        await AsyncStorage.setItem('@elo_range', JSON.stringify(eloRange));
+        await AsyncStorage.setItem('@selected_themes', JSON.stringify(selectedThemes));
+        await AsyncStorage.setItem('@is_recommended_mode', JSON.stringify(isRecommendedMode));
+        
+        // VOLVEMOS A DEJAR ESTA LÍNEA ACTIVA: Guardar el puzle activo al cambiar
+        if (currentPuzzle) {
+          await AsyncStorage.setItem('@current_puzzle', JSON.stringify(currentPuzzle));
+        }
+      } catch (error) {
+        console.error("Error al guardar los datos en AsyncStorage:", error);
+      }
+    };
+
+    if (!loading || db) {
+      savePersistentData();
+    }
+  }, [eloRange, selectedThemes, isRecommendedMode, currentPuzzle]);
+
+// Efecto para bloquear el tablero si estamos viendo un movimiento anterior o si el puzzle ya fue resuelto
+useEffect(() => {
+  // Contrarreloj terminado: el tablero queda muerto pase lo que pase
+  if (isClockMode && clock.phase === 'finished') {
+    setIsBoardLocked(true);
+    return;
+  }
+  if (isAtLastMove) {
+    setIsBoardLocked(puzzleSolved ? true : false);
+  } else {
+    setIsBoardLocked(true);
+  }
+}, [viewIndex, fenHistory.length, puzzleSolved, isClockMode, clock.phase]);
+
+// Efecto para ajustar el rango de ELO recomendado cuando se active el modo recomendado o cambie el ELO global del usuario
+useEffect(() => {
+  if (isRecommendedMode) {
+    setEloRange(getRecommendedRange(userRatings['global'] || 1200));
+  }
+}, [isRecommendedMode, userRatings['global'] || 1200]);
+
+useEffect(() => {
+  // Misma duración que la eval bar (350ms) para que ambas transiciones se sientan sincronizadas
+  moveListHeight.value = withTiming(
+    analysisEngine.isAnalysisMode ? MULTI_PV_HEIGHT : MOVE_LIST_HEIGHT,
+    { duration: 350 }
+  );
+}, [analysisEngine.isAnalysisMode, MULTI_PV_HEIGHT]);
+const moveListWrapperAnimatedStyle = useAnimatedStyle(() => ({ height: moveListHeight.value, }));
+
+// Sirve para el grafico de sesion actual (al lado del ELO)
+useEffect(() => {
+  const currentGlobalElo = userRatings['global'];
+  if (currentGlobalElo === undefined) return; // Aún no cargó desde SQLite
+
+  if (!hasSeededSessionElo.current) {
+    // Primera carga real: sembramos el punto de partida de la sesión, no lo tratamos como "cambio"
+    setSessionEloHistory([currentGlobalElo]);
+    hasSeededSessionElo.current = true;
+    return;
+  }
+  // El ELO global cambió (puzzle resuelto/fallado): añadimos el nuevo punto a la sesión
+  setSessionEloHistory(prev => [...prev, currentGlobalElo]);
+}, [userRatings['global']]);
+
+const eloRowProgress = useSharedValue(1);
+const ELO_ROW_HEIGHT = 76; // altura fija de la fila (badge + sparkline); ajusta si no encaja
+const STREAK_SLOT_HEIGHT = 42; // 8 margin + 12 padding + ~18 texto + 2 borde
+const CLOCK_ROW_HEIGHT = 136;// 3 filas de 34 + 2 gaps de 6 + 16 de padding + 2 de borde = 132; 136 deja holgura
+
+useEffect(() => {
+  eloRowProgress.value = withTiming(analysisEngine.isAnalysisMode ? 0 : 1, { duration: 350 });
+}, [analysisEngine.isAnalysisMode]);
+
+
+const eloRowAnimatedStyle = useAnimatedStyle(() => ({
+  height: (isClockMode ? CLOCK_ROW_HEIGHT : ELO_ROW_HEIGHT + STREAK_SLOT_HEIGHT) * eloRowProgress.value,
+  opacity: eloRowProgress.value,
+  marginBottom: 12 * eloRowProgress.value,
+}), [isClockMode]);
+
+// --- TRANSICIÓN DE TABLERO EN CONTRARRELOJ ---
+const BOARD_SLIDE_OUT = 70;
+const BOARD_SLIDE_IN = 100;
+const BOARD_GAP = 20; 
+const boardSlideX = useSharedValue(0);
+const boardSlideStyle = useAnimatedStyle(() => ({ transform: [{ translateX: boardSlideX.value }] }));
+
+const hasSlidOnceRef = useRef(false);
+const pendingEntryRef = useRef(false);
+const entryFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+const runBoardEntry = useCallback(() => {
+  if (!pendingEntryRef.current) return;
+  pendingEntryRef.current = false;
+  if (entryFallbackRef.current) { clearTimeout(entryFallbackRef.current); entryFallbackRef.current = null; }
+
+  // Dos frames: el primero cierra el commit de React, el segundo deja que las
+  // vistas nativas de las piezas se hayan creado antes de empezar a mover nada.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    boardSlideX.value = withDelay(
+      BOARD_GAP,
+      withTiming(0, { duration: BOARD_SLIDE_IN, easing: Easing.out(Easing.cubic) })
+    );
+  }));
+}, []);
+
+// 1) Puzle nuevo: aparcamos el tablero a la derecha y esperamos. Aquí NO se anima.
+useEffect(() => {
+  if (!currentPuzzle) return;
+
+  // El primer puzle de la sesión no viene de ningún sitio: aparece sin deslizar
+  if (!hasSlidOnceRef.current) {
+    hasSlidOnceRef.current = true;
+    boardSlideX.value = 0;
+    return;
+  }
+
+  boardSlideX.value = SCREEN_WIDTH;
+  pendingEntryRef.current = true;
+
+  // Red de seguridad: si la solución viene vacía, firstMoveDone nunca se pone
+  // a true y el tablero se quedaría fuera de pantalla para siempre.
+  if (entryFallbackRef.current) clearTimeout(entryFallbackRef.current);
+  entryFallbackRef.current = setTimeout(runBoardEntry, 1800);
+}, [currentPuzzle?.id, runBoardEntry]);
+
+// Entra en cuanto hay piezas; la máquina mueve ya en pantalla
+useEffect(() => {
+  if (pieces.length > 0) runBoardEntry();
+}, [pieces.length, runBoardEntry]);
+
+useEffect(() => () => { if (entryFallbackRef.current) clearTimeout(entryFallbackRef.current); }, []);
+
+// Evita que un doble toque encadene dos salidas: durante los BOARD_SLIDE_OUT ms
+// isNextDisabled todavía es false, porque loadSinglePuzzle aún no ha corrido.
+const isSwappingRef = useRef(false);
+
+// Salida por la izquierda -> carga -> la entrada la dispara el efecto de currentPuzzle.id
+const slidePuzzle = useCallback((load: () => void, delayMs = 0) => {
+  if (isSwappingRef.current) return;
+  isSwappingRef.current = true;
+
+  setTimeout(() => {
+    // En contrarreloj el reloj pudo agotarse durante la pausa
+    if (isClockMode && clock.phaseRef.current !== 'running') {
+      isSwappingRef.current = false;
+      return;
+    }
+    boardSlideX.value = withTiming(-SCREEN_WIDTH, { duration: BOARD_SLIDE_OUT, easing: Easing.in(Easing.cubic) });
+
+    setTimeout(() => {
+      isSwappingRef.current = false;
+      if (isClockMode && clock.phaseRef.current !== 'running') return;
+      load();
+    }, BOARD_SLIDE_OUT);
+  }, delayMs);
+}, [isClockMode]);
+
+const swapClockPuzzle = useCallback((nextRange: number[], delayMs: number) => {
+  slidePuzzle(() => loadSinglePuzzle(db, nextRange, [], { fast: true }), delayMs);
+}, [db, slidePuzzle]);
+
+// Modo puzles: Next y Skip
+const handleNextPuzzle = useCallback(() => {
+  if (isNextDisabled) return;
+  slidePuzzle(() => loadSinglePuzzle(db));
+}, [db, isNextDisabled, slidePuzzle]);
+
+const streakSlotAnimatedStyle = useAnimatedStyle(() => ({
+  height: STREAK_SLOT_HEIGHT * eloRowProgress.value,
+  opacity: eloRowProgress.value,
+}));
+
+const handleEngineSequencePress = async (moves: string[]) => {
+  if (!moves || moves.length === 0) return;
+
+  // Si ya hay una secuencia en curso, ignoramos el nuevo clic en vez de
+  // dejar que compita con la llamada anterior.
+  if (analysisEngine.isSequencePlayingRef.current) return;
+
+  // 0. Pausamos el motor mientras se reproduce la secuencia animada,
+  // para que no reposicione ni busque en cada posición intermedia.
+  analysisEngine.isSequencePlayingRef.current = true;
+  await analysisEngine.pauseSearch();
+
+  // 1. Creamos copias locales del tablero y el índice actual.
+  // Estas copias se irán actualizando en cada iteración del bucle,
+  // esquivando el problema de que el estado de React no se actualice a tiempo.
+  let localGame = new Chess(game.fen());
+  let localViewIndex = viewIndex;
+
+  for (let i = 0; i < moves.length; i++) {
+    const uciMove = moves[i];
+    if (!uciMove || uciMove.length < 4) continue;
     
-    {/* Fondo para deseleccionar piezas al tocar fuera */}
-    <Pressable style={StyleSheet.absoluteFill}  onPress={clearSelection} />
+    const from = uciMove.slice(0, 2) as Square;
+    const to = uciMove.slice(2, 4) as Square;
+    const promotion = uciMove.length === 5 ? uciMove[4] : 'q'; 
+    
+    // 2. Aplicamos el movimiento en nuestro motor local
+    const move = localGame.move({ from, to, promotion });
+    if (!move) continue; // Si es ilegal por algún motivo, saltamos
+    
+    const nextFen = localGame.fen();
+    const isCapture = 'captured' in move;
+
+    // 3. Feedback visual y sonoro (igual que en modo análisis)
+    if (isCapture) {
+      hapticImpact('heavy');
+      playSound('capture');
+    } else {
+      hapticImpact('medium');
+      playSound('move');
+    }
+
+    // 4. Movemos la identidad de la pieza para la animación (esto es síncrono)
+    applyMoveIdentity(move);
+
+    // 5. Actualizamos todos los estados de React basándonos en nuestras variables locales
+    setLastMoveFrom(from);
+    setLastMoveTo(to);
+    
+    setGame(new Chess(nextFen));
+    syncPiecesFromGame(localGame);
+
+    setMoveHistory(prev => {
+      const truncated = prev.slice(0, localViewIndex);
+      return [...truncated, move.san];
+    });
+
+    // Mantiene fenHistory en sincronía con viewIndex. Cortar en localViewIndex + 1
+    // descarta cualquier rama "futura": si vuelves a "c" y juegas otra cosa,
+    // "d" y "e" dejan de existir.
+    setFenHistory(prev => {
+      const truncated = prev.slice(0, localViewIndex + 1);
+      return [...truncated, nextFen];
+    });
+
+    // 6. Incrementamos el índice local para el siguiente ciclo del bucle
+    localViewIndex++;
+    setViewIndex(localViewIndex);
+
+    // 7. Pausa para dar tiempo a la animación de la pieza antes del siguiente movimiento
+    if (i < moves.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
+  }
+  
+  clearSelection();
+  setIsReviewMode(false);
+
+  // Reanudamos el análisis en la posición final (pausado en el paso 0), una sola vez
+  analysisEngine.isSequencePlayingRef.current = false;
+  
+  if (analysisEngine.isAnalysisMode) {
+    analysisEngine.restartSearch(localGame.fen());
+  }
+};
+
+// Abrir un modal justo cuando otro se está cerrando parpadea en Android.
+// Cerramos el menú y encolamos la apertura tras la animación de salida.
+const openFromMenu = useCallback((open: () => void) => {
+  setIsMenuVisible(false);
+  setTimeout(open, 220);
+}, []);
+
+// El reloj no arranca al pulsar EMPEZAR, sino cuando el primer puzle ya es
+// jugable: entre medias hay una consulta SQL y el movimiento de la máquina.
+useEffect(() => {
+  if (clock.phase === 'arming' && firstMoveDone && !loading) {
+    clock.beginCountdown();
+  }
+}, [clock.phase, firstMoveDone, loading]);
+
+useEffect(() => {
+  if (firstMoveDone && db && !isClockMode) {
+    prefetchNext(eloRange, selectedThemes);
+  }
+}, [firstMoveDone]);
+
+const handleStartClockRun = useCallback((ms: number) => {
+  const range = clock.armRun(ms);
+  loadSinglePuzzle(db, range, [], { fast: true });
+}, [db]);
+
+const handleExitClock = useCallback(() => {
+  clock.abortRun();
+  setAppMode('puzzles');
+  loadSinglePuzzle(db);
+}, [db]);
+
+const handleSelectMode = useCallback((mode: AppMode) => {
+  setIsMenuVisible(false);
+  if (mode === appMode) return;
+  setAppMode(mode);
+  if (mode === 'clock') {
+    setTimeout(() => clock.openStart(), 220); // evita el parpadeo de modales en Android
+  } else {
+    clock.abortRun();
+    loadSinglePuzzle(db);
+  }
+}, [appMode, db]);
+
+// Carga inicial de la base de datos y primer puzzle
+useEffect(() => {
+  async function setup() {
+    const database = await openPuzzleDatabase();
+    setDb(database);
+
+    let savedRange = eloRange;
+    let savedThemes = selectedThemes;
+    let restoredPuzzle: Puzzle | null = null;
+    
+    try {
+      const localRange = await AsyncStorage.getItem('@elo_range');
+      const localThemes = await AsyncStorage.getItem('@selected_themes');
+      const localRecommended = await AsyncStorage.getItem('@is_recommended_mode');
+      
+      // VOLVEMOS A LEER EL PUZLE GUARDADO DE LA SESIÓN ANTERIOR
+      const localPuzzle = await AsyncStorage.getItem('@current_puzzle');
+
+      if (localRange) {
+        const parsedRange = JSON.parse(localRange);
+        setEloRange(parsedRange);
+        savedRange = parsedRange; 
+      }
+      if (localThemes) {
+        const parsedThemes = JSON.parse(localThemes);
+        setSelectedThemes(parsedThemes);
+        savedThemes = parsedThemes;
+      }
+      if (localRecommended) {
+        setIsRecommendedMode(JSON.parse(localRecommended));
+      }
+      if (localPuzzle) {
+        restoredPuzzle = JSON.parse(localPuzzle);
+      }
+    } catch (error) {
+      console.error("Error al cargar los datos desde AsyncStorage:", error);
+    }
+
+    // EVALUAMOS: ¿Tenía un puzle guardado?
+    if (restoredPuzzle) {
+      // Inicializamos el estado visual sin forzar el movimiento automático corrupto
+      resetPuzzleState(restoredPuzzle, true); 
+      setCurrentPuzzle(restoredPuzzle);
+      setSolutionRevealed(false);
+    } else {
+      // Si no tenía ningún puzle guardado de antes, traemos uno nuevo de forma normal
+      loadSinglePuzzle(database, savedRange, savedThemes); 
+    }
+  }
+  setup();
+}, []);
+
+
+return (
+  <GestureHandlerRootView style={{ flex: 1 }}>
+    <View style={styles.container} onLayout={onRootLayout}>
+      <StatusBar barStyle="light-content" />
+
+      {/* Fondo para deseleccionar piezas al tocar fuera */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={stableClearSelection} />
 
       <View style={styles.mainWrapper}>
-        
-        {/* 1. BOTÓN FILTROS (ARRIBA IZQUIERDA) */}
-        <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.openFiltersBtn} onPress={handleOpenFilters}>
-            {/* NUEVO: Agrupamos icono y texto a la izquierda */}
+          
+      <View style={styles.headerRow}>
+        {/* BOTÓN MENÚ (modos + análisis + ajustes) */}
+        <TouchableOpacity style={styles.menuBtn} onPress={() => setIsMenuVisible(true)}>
+          <Ionicons name="menu" size={34} color={PALETTE.primary} />
+        </TouchableOpacity>
+
+        <View style={styles.headerSpacer} />
+
+        {/* BOTÓN FILTROS */}
+        {!isClockMode && (
+          <TouchableOpacity style={styles.openFiltersBtn} onPress={() => setIsFilterModalVisible(true)}>
             <View style={styles.filterLeftGroup}>
               <Ionicons name="options-outline" size={16} color={PALETTE.primary} />
               <Text style={styles.openFiltersText}>FILTERS</Text>
             </View>
 
-            {/* El badge se mantiene a la derecha, separado orgánicamente */}
-            {activeFiltersCount > 0 && (
+            {selectedThemes.length > 0 && (
               <View style={styles.filterBadgeCount}>
-                <Text style={styles.filterBadgeText}>{activeFiltersCount}</Text>
+                <Text style={styles.filterBadgeText}>{selectedThemes.length}</Text>
               </View>
             )}
           </TouchableOpacity>
+        )}
+
+        {/* BOTÓN HISTORIAL */}
+        {!isClockMode && (
+          <TouchableOpacity style={styles.openFiltersBtn} onPress={() => openHistory()}>
+            <View style={styles.filterLeftGroup}>
+              <Ionicons name="stats-chart-outline" size={16} color={PALETTE.primary} />
+              <Text style={styles.openFiltersText}>HISTORY</Text>
+            </View>
+          </TouchableOpacity>              
+        )}
+      </View>
+
+
+      {/* ELO Global + evolución de la sesión (se colapsa en modo análisis) */}
+      <Animated.View style={[styles.eloSessionRowOuter, eloRowAnimatedStyle]}>
+        {isClockMode ? (
+          <ClockProgressGrid attempts={clock.attempts} />
+        ) : (
+          <>
+            <View style={styles.eloSessionRow}>
+              {hasBooted ? (
+                <>
+                  <EloBadge target={userRatings['global']} feedback={eloFeedback} />
+                  <SessionEloSparkline data={sessionEloHistory} globalElo={userRatings['global'] || 1200} />
+                </>
+              ) : (
+                <>
+                  <Skeleton width={90} height={50} radius={14} />
+                  <Skeleton height={70} radius={14} style={{ flex: 1 }} />
+                </>
+              )}
+            </View>
+
+            <Animated.View style={[styles.streakSlot, streakSlotAnimatedStyle]}>
+              {currentStreak >= 2 && <StreakBadge streak={currentStreak} />}
+            </Animated.View>
+          </>
+        )}
+      </Animated.View>
+
+      <View style={styles.containerMainContent}>
+
+
+        {/* 2. CRONÓMETRO + INDICADOR DE TURNO */}
+        <View style={styles.turnRow}>
+          <View style={styles.turnRowSide}>
+            {isClockMode ? (
+              <CountdownTimer
+                endsAt={clock.endsAt}
+                durationMs={clock.durationMs}
+                isFinished={clock.phase === 'finished'}
+              />
+            ) : (
+              settings.isSettingsLoaded && settings.showTimer && (
+                <PuzzleTimer startedAt={timerStartedAt} frozenMs={solveElapsedMs} result={timerResult} />
+              )
+            )}
+          </View>
+          
+          <View style={styles.turnIndicatorFrame}>
+            <View style={[
+              styles.turnDot, 
+              { 
+                backgroundColor: playerColor === 'w' ? '#fff' : '#000',
+                borderColor: '#555',
+                borderWidth: playerColor === 'b' ? 1.5 : 0 
+              }
+            ]} />
+            <Text style={styles.turnText}>
+              {playerColor === 'w' ? "WHITE TO MOVE" : "BLACK TO MOVE"}
+            </Text>
+          </View>
+
+          {/* Columna fantasma: mantiene el pill exactamente centrado */}
+          <View style={styles.turnRowSide} />
         </View>
 
-        {/* 2. INDICADOR DE TURNO */}
-        <View style={styles.turnIndicatorFrame}>
-          <View style={[
-            styles.turnDot, 
-            { 
-              backgroundColor: playerColor === 'w' ? '#fff' : '#000',
-              borderColor: '#555', // Este borde hace que el punto negro se vea
-              borderWidth: playerColor === 'b' ? 1.5 : 0 
-            }
-          ]} />
-          <Text style={styles.turnText}>
-            {playerColor === 'w' ? "WHITE TO MOVE" : "BLACK TO MOVE"}
-          </Text>
-        </View>
-
-        {/* 3. TABLERO DE AJEDREZ */}
-        <View style={styles.boardSection}>
-          <View style={styles.boardWrapper}>
-            <View style={{ opacity: !currentPuzzle ? 0 : 1 }}>
+          {/* 3. TABLERO DE AJEDREZ */}
+          <View style={styles.boardSection}>
+              <Animated.View
+                style={[styles.boardWrapper, boardSlideStyle]}
+                renderToHardwareTextureAndroid
+                shouldRasterizeIOS
+                collapsable={false}
+              >
               <ChessBoard 
                 pieces={pieces}
-                onSquarePress={onSquarePress} 
+                onSquarePress={stableSquarePress} 
+                onDragMove={stableDragMove}
                 selectedSquare={selectedSquare} 
                 legalMoves={legalMoves} 
                 orientation={playerColor}
-                hintSquare={hintSquare} 
+                hintSquare={isAtLastMove ? hintSquare : null} 
+                hintMove={isAtLastMove ? hintMove : null}
+                successSquare={successSquare}
+                errorSquare={errorSquare}
+                inCheck={boardStatus.inCheck}
+                isMate={boardStatus.isMate}
+                turn={boardStatus.turn}
+                lastMoveFrom={lastMoveFrom}
+                lastMoveTo={lastMoveTo}
+                bestEngineMove={analysisEngine.bestEngineMove}
+                isAnalysisMode={analysisEngine.isAnalysisMode}
+                centipawnScore={analysisEngine.centiPawnScore}
+                mateInMoves={analysisEngine.mateInMoves}
+                showLegalMoves={settings.showLegalMoves}
+                moveDurationMs={isClockMode ? CLOCK_TIMING.pieceMove : undefined}
               />
-            </View>
+            </Animated.View>
           </View>
-        </View>
-
-        {/* --- LISTA DE MOVIMIENTOS INTERACTIVA EN NOTACIÓN SAN --- */}
-        <View style={styles.moveListWrapper}>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.moveListContent}
-            ref={(ref) => ref?.scrollToEnd({ animated: true })} // Auto-scroll al último movimiento
-          >
-            {moveHistory.length === 0 ? (
-              <Text style={{ color: PALETTE.secondary, fontSize: 12, opacity: 0.5 }}>
-                ...
-              </Text>
-            ) : (
-              moveHistory.map((move, index) => {
-                const isWhite = index % 2 === 0;
-                const moveNumber = Math.floor(index / 2) + 1;
-                
-                // El índice del movimiento en moveHistory (0, 1, 2...)
-                // se corresponde con el viewIndex (1, 2, 3...)
-                const targetViewIndex = index + 1;
-
-                return (
-                  <View key={index} style={styles.moveItem}>
-                    {isWhite && (
-                      <Text style={styles.moveNumberText}>{moveNumber}.</Text>
-                    )}
-                    
-                    {/* --- AQUÍ ESTÁ EL BOTÓN INTERACTIVO --- */}
-                    <TouchableOpacity 
-                      onPress={() => handleMovePress(targetViewIndex)}
-                      style={styles.moveTouchArea}
-                    >
-                      <Text style={[
-                        styles.moveText,
-                        // Resaltamos el movimiento actual
-                        viewIndex === targetViewIndex && { color: PALETTE.secondary, fontWeight: '900' }
-                      ]}>
-                        {move}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                );
-              })
-            )}
-          </ScrollView>
-        </View>
-
-        {/* --- AREA DE MENSAJES DINÁMICOS --- */}
-        <View style={styles.statusMessageContainer}>
-          {message ? (
-            <Text style={[
-              styles.statusMessageText,
-              message.includes('✅') && { color: PALETTE.success },
-              message.includes('❌') && { color: PALETTE.error },
-              message.includes('⏪') && { color: PALETTE.primary }
-            ]}>
-              {message}
-            </Text>
-          ) : (
-            // Espacio vacío para que el layout no "salte" cuando no hay mensaje
-            <View style={{ height: 20 }} />
-          )}
-        </View>
-
-        {/* 4. ID PUZZLE · ELO (MINIMALISTA) */}
-        {currentPuzzle && (
-          <View style={styles.puzzleMetaContainer}>
-            
-            {/* FILA SUPERIOR: #ID · ELO */}
-            <View style={styles.puzzleMetaRow}>
-              <Text style={styles.puzzleMetaText}>
-                #{String(currentPuzzle.id).toUpperCase()}
-              </Text>
-              
-              <Text style={styles.bulletSeparator}>·</Text>
-              
-              <Text style={styles.puzzleMetaText}>
-                ELO {currentPuzzle.rating}
-              </Text>
+    
+            {/* 3. ID PUZZLE · ELO (MINIMALISTA) */}
+            <View style={styles.puzzleMetaContainer}>
+              <View style={styles.puzzleMetaRow}>
+                {hasBooted && currentPuzzle ? (
+                  <>
+                    <Text style={styles.puzzleMetaText}>
+                      #{String(currentPuzzle.id).toUpperCase()}
+                    </Text>
+                    <Text style={styles.bulletSeparator}>·</Text>
+                    <Text style={styles.puzzleMetaText}>
+                      PUZZLE ELO {currentPuzzle.rating}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Skeleton width={70} height={12} />
+                    <View style={{ width: 20 }} />
+                    <Skeleton width={120} height={12} />
+                  </>
+                )}
+              </View>
             </View>
 
-            {/* 5. FILA INFERIOR: CHIPS DE TEMAS (Asegúrate que getThemeNames devuelva algo) */}
-            <View style={styles.themeTagsRow}>
-              {getThemeNames(currentPuzzle.themes) ? (
-                getThemeNames(currentPuzzle.themes).split(', ').map((name, index) => (
-                  <View key={index} style={styles.minimalTag}>
-                    <Text style={styles.minimalTagText}>{name.toUpperCase()}</Text>
-                  </View>
-                ))
-              ) : null}
-            </View>
-            
-          </View>
+            {/* 4. ÁREA DINÁMICA: HISTORIAL SAN o MULTI-PV */}
+            <Animated.View style={[styles.moveListWrapper, analysisEngine.isAnalysisMode && styles.multiPvWrapper, moveListWrapperAnimatedStyle]}>
+              {isClockMode ? (
+                // Sin entering/exiting: el modo no cambia a mitad de partida y una animación
+                // anidada bloquearía el exiting del padre
+                <ClockScoreBar solved={clock.solved} failed={clock.failed} />
+              ) : !analysisEngine.isAnalysisMode ? (
+                <Animated.View key="move-history" entering={FadeIn.duration(200).delay(120)} exiting={FadeOut.duration(120)} style={{ flex: 1, justifyContent: 'center' }}>
+                  <MoveList moveHistory={moveHistory} viewIndex={viewIndex} onMovePress={handleMovePress} />
+                </Animated.View>
+              ) : (
+                <Animated.View key="multi-pv" entering={FadeIn.duration(200).delay(120)} exiting={FadeOut.duration(120)} style={styles.analysisLinesContainer}>
+                  <AnalysisLines 
+                    engineLines={analysisEngine.engineLines} 
+                    fen={boardStatus.fen} onSequencePress={handleEngineSequencePress} 
+                    isEvaluating={analysisEngine.isEvaluating} 
+                    placeholderHeight={MULTI_PV_HEIGHT - 20}/>
+                </Animated.View>
+              )}
+            </Animated.View>
+
+        </View>
+
+        {isClockMode ? (
+          <View style={styles.clockFooterSpacer} />
+        ) : (
+          <BoardControls
+            viewIndex={viewIndex}
+            fenHistoryLength={fenHistory.length}
+            onNavigate={navigateHistory}
+            message={message}
+            isAnalysisMode={analysisEngine.isAnalysisMode}
+            solutionRevealed={solutionRevealed}
+            onShowSolution={showSolution}
+            onStartAnalysis={startAnalysis}
+            onRetry={handleRetry}
+            onNextPuzzle={handleNextPuzzle}
+            onHint={handleHint}
+            isNextDisabled={isNextDisabled}
+          />
         )}
 
-        {/* --- NUEVA FILA DE CONTROLES MODERNOS (Abajo del todo) --- */}
-        <View style={styles.footerSection}>
-          <View style={styles.modernControlsRow}>
-
-            {/* IZQUIERDA: Flechas de navegación modernas */}
-            <View style={styles.navigationGroup}>
-              <TouchableOpacity
-                style={[styles.modernNavBtn, viewIndex === 0 && styles.navBtnDisabled]}
-                onPress={() => navigateHistory('prev')}
-                disabled={viewIndex === 0}
-              >
-                <Ionicons name="arrow-back" size={24} color={PALETTE.primary}  />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modernNavBtn, viewIndex === fenHistory.length - 1 && styles.navBtnDisabled]}
-                onPress={() => navigateHistory('next')}
-                disabled={viewIndex === fenHistory.length - 1}
-              >
-                <Ionicons name="arrow-forward" size={24} color={PALETTE.primary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* DERECHA: Botón dinámico (Skip / Reintentar / Solución) */}
-            <View style={styles.actionGroup}>
-              {/* Si el puzzle terminó o se mostró la solución, mostramos ANALYZE */}
-              
-              {(puzzleSolved || message.includes('❌') || message.includes('SOLUCIÓN')) && !isAnalysisMode && (
-                <TouchableOpacity 
-                  style={[styles.smallBtn, { backgroundColor: PALETTE.primary, marginBottom: 8 }]} 
-                  onPress={startAnalysis}
-                >
-                  <Ionicons name="analytics-outline" size={14} color="#fff" />
-                  <Text style={styles.smallBtnText}>ANALYZE</Text>
-                </TouchableOpacity>
-              )}
-              {message.includes('❌') && !isAnalysisMode ? (
-                // Caso: Error
-                <View style={styles.smallButtonRow}>
-                  <TouchableOpacity style={[styles.smallBtn, { backgroundColor: PALETTE.error}]} onPress={handleRetry}>
-                    <Text style={styles.smallBtnText}>RETRY</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.smallBtn, { backgroundColor: PALETTE.success }]} onPress={showSolution}>
-                    <Text style={styles.smallBtnText}>SOLUTION</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : message.includes('✅') ? (
-                // Caso: Éxito (Botón NEXT grande o similar)
-                <View style={styles.smallButtonRow}>
-                      <TouchableOpacity 
-                        style={[styles.smallBtn, { backgroundColor: PALETTE.secondary }]} 
-                        onPress={handleRestartPuzzle}
-                      >
-                        <Text style={styles.smallBtnText}>RESTART</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.skipBtn, { backgroundColor: PALETTE.success }]}
-                        onPress={() => loadSinglePuzzle(db)}
-                      >
-                        <Text style={[styles.skipBtnText, { color: '#fff' }]}>NEXT</Text>
-                      </TouchableOpacity>
-                    </View>
-              ) : (
-                // 3. Caso por defecto: Estado normal (Solution + Skip)
-                <View style={styles.smallButtonRow}>
-                  <TouchableOpacity
-                    style={[styles.smallBtn, { backgroundColor: PALETTE.primary }]}
-                    onPress={handleHint}
-                  >
-                    <Ionicons name="bulb-outline" size={13} color="#fff" />
-                    <Text style={styles.smallBtnText}>HINT</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.smallBtn, { backgroundColor: PALETTE.warning }]}
-                    onPress={showSolution}
-                  >
-                    <Text style={styles.smallBtnText}>SOLUTION</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.skipBtn, isNextDisabled && { opacity: 1 }]}
-                    onPress={() => loadSinglePuzzle(db)}
-                    disabled={isNextDisabled}
-                  >
-                    <Text style={styles.skipBtnText}>SKIP</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
       </View>
 
     {/* --- MODALES --- */}
 
-    {/* 1. Modal de Filtros */}
-    <Modal visible={isFilterModalVisible} animationType="slide" transparent={true}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.filterModalContent}>
-          <Text style={styles.modalTitle}>Configurar Puzzles</Text>
-          
-          {/* CONTADOR DINÁMICO DENTRO DEL MODAL */}
-          <View style={[styles.availableContainer, { alignSelf: 'center', marginBottom: 20 }]}>
-            <Text style={[
-              styles.availableBadge, 
-              tempAvailableCount === 0 && { color: PALETTE.warning }
-            ]}>
-              {tempAvailableCount === 0 ? "SIN PUZZLES DISPONIBLES" : `${tempAvailableCount} PUZZLES ENCONTRADOS`}
-            </Text>
-          </View>
+    <MainMenuModal
+      visible={isMenuVisible}
+      onClose={() => setIsMenuVisible(false)}
+      currentMode={appMode}
+      onSelectMode={handleSelectMode}
+      onOpenSupport={() => openFromMenu(() => setIsSupportModalVisible(true))}
+      onOpenSettings={() => openFromMenu(() => setIsSettingsModalVisible(true))}
+    />
 
-          <View style={styles.filterSection}>
-            <Text style={styles.filterTitle}>DIFICULTAD ELO: {tempEloRange[0]} — {tempEloRange[1]}</Text>
-            <MultiSlider 
-              values={tempEloRange} 
-              sliderLength={SCREEN_WIDTH * 0.7} 
-              onValuesChange={setTempEloRange} 
-              min={400} max={3000} step={50} 
-              selectedStyle={{ backgroundColor: PALETTE.secondary }}
-              trackStyle={{ height: 4, backgroundColor: PALETTE.surfaceLight }}
-              markerStyle={styles.sliderMarker}
-            />
-          </View>
+    <FilterModal
+      visible={isFilterModalVisible}
+      onClose={() => setIsFilterModalVisible(false)}
+      db={db}
+      currentEloRange={eloRange}
+      currentSelectedThemes={selectedThemes}
+      currentIsRecommendedMode={isRecommendedMode}
+      globalElo={userRatings['global'] || 1200}
+      onApply={(newRange, newThemes, newRecommendedMode) => {
+        setEloRange(newRange);
+        setSelectedThemes(newThemes);
+        setIsRecommendedMode(newRecommendedMode);
+        setIsFilterModalVisible(false);
+        loadSinglePuzzle(db, newRange, newThemes);
+      }}
+    />
 
-          <Text style={styles.filterTitle}>TEMAS TÁCTICOS</Text>
-          <ScrollView contentContainerStyle={styles.modalThemesGrid}>
-            {CHESS_THEMES.map((theme) => {
-              const isSelected = tempSelectedThemes.includes(theme.id);
-              return (
-                <TouchableOpacity
-                  key={theme.id}
-                  onPress={() => {
-                    setTempSelectedThemes(prev => 
-                      isSelected ? prev.filter(id => id !== theme.id) : [...prev, theme.id]
-                    );
-                  }}
-                  style={[styles.themeChip, isSelected && styles.themeChipActive]}
-                >
-                  <Text style={[styles.themeChipText, isSelected && styles.themeChipTextActive]}>
-                    {theme.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+    <SettingsModal
+      visible={isSettingsModalVisible}
+      onClose={() => setIsSettingsModalVisible(false)}
+      onPreviewSound={() => playSound('move')}
+    />
+    
+    <HistoryModal
+      visible={isHistoryModalVisible}
+      onClose={closeHistory}
+      globalElo={userRatings['global'] || 1200}
+      eloHistoryData={eloHistoryData}
+      recentPuzzles={recentPuzzles}
+      isHistoryListReady={isHistoryListReady}
+      selectedHistoryItem={selectedHistoryItem}
+      onSelectPuzzle={selectHistoryPuzzle}
+    />
 
-          <View style={styles.modalFooter}>
-            <TouchableOpacity 
-              style={[styles.modalBtn, styles.btnCancel]} 
-              onPress={() => setIsFilterModalVisible(false)}
-            >
-              <Text style={styles.btnText}>CANCELAR</Text>
-            </TouchableOpacity>
+    <PromotionModal
+      visible={promotionModalVisible}
+      playerColor={playerColor}
+      getPieceImage={getPromotionPieceImage}
+      onSelect={(piece) => pendingMove && executeMove(pendingMove.from, pendingMove.to, piece)}
+      onCancel={() => {
+        setPromotionModalVisible(false);
+        setPendingMove(null);
+        clearSelection();
+        syncPiecesFromGame(game);
+      }}
+    />
 
-            {/* BOTÓN APLICAR: Se desactiva y cambia de color si no hay puzzles */}
-            <TouchableOpacity 
-              style={[
-                styles.modalBtn, 
-                styles.btnApply, 
-                tempAvailableCount === 0 && { backgroundColor: PALETTE.disabled, opacity: 0.5 }
-              ]} 
-              onPress={applyFilters}
-              disabled={tempAvailableCount === 0}
-            >
-              <Text style={styles.btnText}>
-                {tempAvailableCount === 0 ? "REVISAR FILTROS" : "APLICAR"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
+    <SupportModal
+      visible={isSupportModalVisible}
+      onClose={() => {
+        setIsSupportModalVisible(false);
+        // Reseteamos con retardo para que no se vea el cambio de texto
+        // mientras el modal se está cerrando.
+        setTimeout(donations.resetStatus, 400);
+      }}
+      products={donations.products}
+      status={donations.status}
+      isAvailable={donations.isAvailable}
+      connected={donations.connected}
+      onDonate={donations.donate}
+    />
 
-    {/* 2. Modal de Coronación */}
-    {promotionModalVisible && (
-      <View style={styles.promotionOverlay}>
-        <View style={styles.promotionGlassCard}>
-          <Text style={styles.promotionTitle}>CORONACIÓN</Text>
-          <View style={styles.promotionRow}>
-            {['q', 'r', 'b', 'n'].map((p) => (
-              <TouchableOpacity 
-                key={p} 
-                style={styles.promotionPieceContainer}
-                onPress={() => pendingMove && executeMove(pendingMove.from, pendingMove.to, p)}
-              >
-                <View style={[styles.pieceCircle, { backgroundColor: playerColor === 'w' ? PALETTE.boardDark : PALETTE.boardLight }]}>
-                  <Image source={getPromotionPieceImage(p)} style={styles.promotionImage} resizeMode="contain" />
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TouchableOpacity style={styles.cancelPromotion} onPress={() => { setPromotionModalVisible(false); clearSelection(); }}>
-            <Text style={styles.cancelText}>CANCELAR</Text>
-          </TouchableOpacity>
-        </View>
+      <ClockStartModal
+        visible={clock.isStartVisible}
+        db={db}
+        onClose={() => { clock.closeStart(); if (clock.phase === 'idle') setAppMode('puzzles'); }}
+        onStart={handleStartClockRun}
+      />
+
+    <ClockResultModal
+      visible={clock.isResultVisible}
+      summary={clock.summary}
+      ranking={clock.ranking}
+      onPlayAgain={() => { clock.closeResult(); handleStartClockRun(clock.durationMs); }}
+      onExit={() => { clock.closeResult(); handleExitClock(); }}
+    />
+
+    {analysisEngine.isAnalysisMode && (
+      <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}>
+        {analysisEngine.StockfishWebView}
       </View>
     )}
-
   </View>
+</GestureHandlerRootView>
 );
 }
 
 const styles = StyleSheet.create({
-  // --- CONTENEDORES PRINCIPALES ---
-  container: { flex: 1, backgroundColor: PALETTE.background },
-  mainWrapper: { flex: 1, paddingTop: 60, paddingBottom: 50, alignItems: 'center' },
-  footerSection: { marginTop: 'auto', width: '100%', alignItems: 'center', marginBottom: 40 },
-  loaderOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: PALETTE.surfaceDark },
+// --- CONTENEDORES PRINCIPALES ---
+container: { flex: 1, backgroundColor: PALETTE.background },
+mainWrapper: { flex: 1, paddingTop: 40, paddingBottom: 10, alignItems: 'center' },
+containerMainContent: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', marginTop: 60, marginBottom: 30 },
 
   // --- CABECERA Y META-DATA ---
-  headerRow: { width: '100%', paddingHorizontal: '6%', flexDirection: 'row', marginBottom: 20 },
-  openFiltersBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: PALETTE.surface, paddingVertical: 10, paddingHorizontal: 15, borderRadius: 12, borderWidth: 1, borderColor: PALETTE.surfaceLight },
-  filterLeftGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  openFiltersText: { color: PALETTE.primary, fontWeight: '800', fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' },
-  filterBadgeCount: { backgroundColor: PALETTE.primary, minWidth: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center', marginLeft: 10, paddingHorizontal: 3 },
-  filterBadgeText: { color: PALETTE.surface, fontSize: 10, fontWeight: 'bold' },
-  puzzleMetaContainer: { marginTop: 4, alignItems: 'center', width: '95%' },
-  puzzleMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  puzzleMetaText: { color: PALETTE.primary, fontSize: 15, fontWeight: '700', letterSpacing: 1.5 },
-  bulletSeparator: { color: PALETTE.primary, fontSize: 34, paddingHorizontal: 8 },
-  themeTagsRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6 },
-  minimalTag: { backgroundColor: PALETTE.tagBg, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: PALETTE.tagBorder },
-  minimalTagText: { color: PALETTE.primary, fontSize: 9, fontWeight: '800' },
+headerRow: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', gap: 10, width: SCREEN_WIDTH * 0.95, alignSelf: 'center', marginTop: Platform.OS === 'ios' ? 10 : 20, marginBottom: 15, paddingHorizontal: 5 },
+headerLeftGroup: { flexDirection: 'row', alignItems: 'center', },
+supportBtn: { marginLeft: 8, marginRight: 4, flexDirection: 'row', alignItems: 'center', backgroundColor: PALETTE.surface, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: PALETTE.surfaceLight },
+openFiltersBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: PALETTE.surface, paddingVertical: 10, paddingHorizontal: 15, borderRadius: 12, borderWidth: 1, borderColor: PALETTE.surfaceLight },
+filterLeftGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+iconBtn: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: PALETTE.surface, borderRadius: 12, borderWidth: 1, borderColor: PALETTE.surfaceLight },
+menuBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', marginLeft: -6, marginRight: 2 },
+openFiltersText: { color: PALETTE.primary, fontWeight: '800', fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' },
+filterBadgeCount: { backgroundColor: PALETTE.primary, minWidth: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center', marginLeft: 10, paddingHorizontal: 3 },
+filterBadgeText: { color: PALETTE.surface, fontSize: 10, fontWeight: 'bold' },
+puzzleMetaContainer: { marginTop: 1, marginBottom: 1, alignItems: 'center', width: '95%' },
+puzzleMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 40 },
+puzzleMetaText: { color: PALETTE.primary, fontSize: 13, fontWeight: '700', letterSpacing: 1.5, alignSelf: 'center', textAlign: 'center' },
+bulletSeparator: { color: PALETTE.primary, fontSize: 34, paddingHorizontal: 8 },
+minimalTag: { backgroundColor: PALETTE.tagBg, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: PALETTE.tagBorder },
+headerSpacer: { flex: 1 },
 
-  // --- INDICADOR DE TURNO Y MENSAJES ---
-  turnIndicatorFrame: { flexDirection: 'row', alignItems: 'center', backgroundColor: PALETTE.surface, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, borderWidth: 1, borderColor: PALETTE.surfaceLight, marginBottom: 20, elevation: 4 },
-  turnDot: { width: 14, height: 14, borderRadius: 7, marginRight: 12 },
-  turnText: { color: PALETTE.accent, fontSize: 13, fontWeight: '800', letterSpacing: 1.2 },
-  statusMessageContainer: { width: '100%', alignItems: 'center', justifyContent: 'center', height: 30, marginTop: 10, marginBottom: 5 },
-  statusMessageText: { fontSize: 14, fontWeight: '800', letterSpacing: 1.2, textAlign: 'center', backgroundColor: PALETTE.boardLight, paddingHorizontal: 15, paddingVertical: 4, borderRadius: 20 },
+// --- INDICADOR DE TURNO
+turnIndicatorFrame: { flexDirection: 'row', alignItems: 'center', backgroundColor: PALETTE.surface, paddingVertical: 6, paddingHorizontal: 20, borderRadius: 25, borderWidth: 1, borderColor: PALETTE.surfaceLight, elevation: 4 },
+turnDot: { width: 14, height: 14, borderRadius: 7, marginRight: 12 },
+turnText: { color: PALETTE.accent, fontSize: 13, fontWeight: '800', letterSpacing: 1.2 },
+turnRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: SCREEN_WIDTH * 0.98, alignSelf: 'center', marginBottom: 10 },
+turnRowSide: { flex: 1, alignItems: 'flex-end', paddingRight: 8 },
 
-  // --- SECCIÓN DEL TABLERO ---
-  boardSection: { width: '100%', alignItems: 'center' },
-  boardWrapper: { width: SCREEN_WIDTH, aspectRatio: 1, borderWidth: 0, borderColor: PALETTE.surface, borderRadius: 4, elevation: 0, shadowColor: '#000000', alignItems: 'center' },
+// --- SECCIÓN DEL TABLERO ---
+boardSection: { width: '100%', alignItems: 'center', overflow: 'hidden' },
+boardWrapper: { width: SCREEN_WIDTH, borderWidth: 0, borderColor: PALETTE.surface, borderRadius: 4, elevation: 0, shadowColor: '#000000', alignItems: 'center' },
 
-  // --- CONTROLES DE NAVEGACIÓN Y ACCIÓN ---
-  modernControlsRow: { flexDirection: 'row', width: '100%', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 25 },
-  navigationGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  modernNavBtn: { padding: 8, backgroundColor: PALETTE.glass, borderRadius: 10 },
-  navBtnDisabled: { opacity: 0.35, backgroundColor: PALETTE.glass },
-  historyControls: { flexDirection: 'row', alignItems: 'center', width: '90%', marginTop: 10, backgroundColor: PALETTE.surface, borderRadius: 14, padding: 4, borderWidth: 1, borderColor: PALETTE.surfaceLight },
-  historyStatusText: { color: PALETTE.primary, fontSize: 11, fontWeight: 'bold', letterSpacing: 0.5 },
-  actionGroup: { alignItems: 'flex-end' },
-  smallButtonRow: { flexDirection: 'row', gap: 8, alignItems: 'center', width: '100%' },
-  smallBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 6 },
-  smallBtnText: { color: '#ffffff', fontWeight: '900', fontSize: 10, letterSpacing: 1 },
-  skipBtn: { backgroundColor: PALETTE.accent, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  skipBtnText: { color: PALETTE.surface, fontWeight: '900', fontSize: 12, letterSpacing: 1 },
-  btnText: { color: PALETTE.surfaceDark, fontWeight: '900', fontSize: 14, letterSpacing: 1.5 },
-  btn: { flex: 1, height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+// --- CONTROLES DE NAVEGACIÓN Y ACCIÓN ---
+multiPvWrapper: { paddingVertical: 10, justifyContent: 'flex-start', backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0, },
+analysisLinesContainer: { width: '100%', alignItems: 'center', gap: 1, justifyContent: 'flex-start', },
+streakSlot: { width: '100%', alignItems: 'center', justifyContent: 'flex-start', overflow: 'hidden' },
 
-  // --- MODAL DE FILTROS ---
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
-  filterModalContent: { width: '90%', height: '80%', backgroundColor: PALETTE.surfaceDark, borderRadius: 30, padding: 25, borderWidth: 1, borderColor: PALETTE.chipBorder },
-  modalTitle: { color: '#ffffff', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
-  filterSection: { marginBottom: 30, alignItems: 'center' },
-  filterTitle: { color: PALETTE.chipText, fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8, marginLeft: '5%' },
-  availableContainer: { marginTop: 5, backgroundColor: PALETTE.tagBg, paddingVertical: 4, paddingHorizontal: 12, borderRadius: 12 },
-  availableBadge: { color: PALETTE.secondary, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  sliderMarker: { backgroundColor: '#ffffff', height: 20, width: 20, borderRadius: 10, borderWidth: 2, borderColor: PALETTE.secondary, elevation: 5, shadowColor: '#000000' },
-  modalThemesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', paddingBottom: 20 },
-  themesContainer: { width: '100%', marginTop: 15 },
-  themesScrollContent: { paddingHorizontal: SCREEN_WIDTH * 0.05, paddingVertical: 4 },
-  themeChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, backgroundColor: PALETTE.chipBg, marginRight: 10, borderWidth: 1, borderColor: PALETTE.chipBorder },
-  themeChipActive: { backgroundColor: PALETTE.chipActiveBg, borderColor: PALETTE.secondary, borderWidth: 2 },
-  themeChipTextActive: { color: PALETTE.secondary, fontWeight: '800' },
-  themeChipText: { color: PALETTE.chipText, fontSize: 12, fontWeight: '600' },
-  modalFooter: { flexDirection: 'row', gap: 12, marginTop: 10 },
-  modalBtn: { flex: 1, height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  btnCancel: { backgroundColor: PALETTE.surfaceLight },
-  btnApply: { backgroundColor: PALETTE.secondary },
+// --- MODAL DE FILTROS ---
+moveListWrapper: { height: 40, backgroundColor: PALETTE.surface, borderRadius: 8, marginTop: 1, marginBottom: 2, width: '98%', justifyContent: 'center', borderWidth: 1, borderColor: PALETTE.surfaceLight },
+eloSessionRowOuter: { width: SCREEN_WIDTH * 0.95, alignSelf: 'center', overflow: 'hidden' },
+eloSessionRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
 
-  // --- MODAL DE CORONACIÓN ---
-  promotionOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', zIndex: 1000, elevation: 25 },
-  promotionGlassCard: { width: '85%', backgroundColor: PALETTE.surfaceDark, borderRadius: 28, padding: 25, alignItems: 'center', borderWidth: 1, borderColor: PALETTE.primary },
-  promotionTitle: { color: PALETTE.secondary, fontSize: 16, fontWeight: '800', letterSpacing: 2, marginBottom: 5 },
-  promotionRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', gap: 10 },
-  promotionPieceContainer: { flex: 1, alignItems: 'center' },
-  pieceCircle: { width: SCREEN_WIDTH * 0.15, height: SCREEN_WIDTH * 0.15, borderRadius: 12, justifyContent: 'center', alignItems: 'center', backgroundColor: PALETTE.surface, borderWidth: 1, borderColor: PALETTE.surfaceLight },
-  promotionImage: { width: '80%', height: '80%' },
-  cancelPromotion: { marginTop: 30, paddingVertical: 10, paddingHorizontal: 20 },
-  cancelText: { color: PALETTE.error, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
-
-
-  moveListWrapper: {
-  height: 40,
-  backgroundColor: PALETTE.surface,
-  borderRadius: 8,
-  marginVertical: 10,
-  width: '98%',
-  justifyContent: 'center',
-  borderWidth: 1,
-  borderColor: PALETTE.surfaceLight,
-},
-moveListContent: {
-  alignItems: 'center',
-  paddingHorizontal: 10,
-},
-moveItem: {
-  flexDirection: 'row',
-  marginRight: 12,
-  alignItems: 'center',
-},
-moveNumberText: {
-  color: PALETTE.secondary,
-  fontSize: 12,
-  marginRight: 4,
-  fontWeight: '600',
-},
-moveText: {
-  color: PALETTE.primary,
-  fontSize: 14,
-  fontWeight: 'bold',
-},
-activeMoveText: {
-  color: PALETTE.secondary, // Color resaltado al navegar
-  textDecorationLine: 'underline',
-},
-moveTouchArea: {
-    paddingVertical: 5, // Aumenta el área táctil vertical
-    paddingHorizontal: 2, // Pequeño padding horizontal
-  },
+// --- MODO CONTRARELOJ ---
+clockFooterSpacer: { height: 69, marginTop: 'auto', marginBottom: 20 },
 });

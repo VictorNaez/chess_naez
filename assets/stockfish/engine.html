@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>
+
+<script>
+  // Errores JS no capturados: siempre los enviamos (son raros y críticos)
+  window.onerror = function (msg, url, line, col) {
+    window.ReactNativeWebView.postMessage('[SF] JS-ERROR: ' + msg + ' @ ' + url + ':' + line + ':' + col);
+    return true;
+  };
+</script>
+
+<script>
+  // --- MODO DEBUG ---
+  var DEBUG = false;
+  function dbg(msg) {
+    if (DEBUG) window.ReactNativeWebView.postMessage(msg);
+  }
+
+  // --- INTERCEPTACIÓN DE CONSOLA ---
+  // OJO: este build de Stockfish emite parte de su salida UCI por console.log,
+  // no solo por el callback print(). Si se elimina, el motor deja de responder.
+  // La diferencia con la versión original es que ya NO hacemos postMessage
+  // de todo: lo enrutamos por routeEngineLine(), que filtra y agrupa.
+  var oldLog = console.log;
+  console.log = function () {
+    var msg = Array.prototype.join.call(arguments, ' ');
+    if (typeof routeEngineLine === 'function') {
+      routeEngineLine(msg);
+    } else {
+      window.ReactNativeWebView.postMessage('[SF-OUT] ' + msg);
+    }
+    if (DEBUG) oldLog.apply(console, arguments);
+  };
+
+  var oldWarn = console.warn;
+  console.warn = function () {
+    dbg('[SF-CONSOLE.WARN] ' + Array.prototype.join.call(arguments, ' '));
+    if (DEBUG) oldWarn.apply(console, arguments);
+  };
+
+  var oldError = console.error;
+  console.error = function () {
+    var msg = Array.prototype.join.call(arguments, ' ');
+    // Los errores sí los dejamos pasar: pueden contener el crash del WASM
+    window.ReactNativeWebView.postMessage('[SF-CONSOLE.ERROR] ' + msg);
+    if (DEBUG) oldError.apply(console, arguments);
+  };
+</script>
+
+<script>
+  // --- POLYFILL fetch() para file:// (necesario en Android WebView) ---
+  window.fetch = function (url) {
+    dbg('[SF] FETCH-POLYFILL-XHR: ' + url);
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'arraybuffer';
+      xhr.onload = function () {
+        if (xhr.status === 200 || xhr.status === 0) {
+          resolve({
+            ok: true,
+            status: 200,
+            arrayBuffer: function () { return Promise.resolve(xhr.response); },
+            headers: { get: function () { return null; } }
+          });
+        } else {
+          reject(new Error('XHR status ' + xhr.status));
+        }
+      };
+      xhr.onerror = function () {
+        reject(new Error('XHR network error: ' + url));
+      };
+      xhr.send(null);
+    });
+  };
+</script>
+
+<script>
+  var module = { exports: {} };
+  var exports = module.exports;
+</script>
+
+<script src="./stockfish-18-lite-single.cjs"
+        onload="dbg('[SF] CJS-SCRIPT-LOADED-OK')"
+        onerror="window.ReactNativeWebView.postMessage('[SF] JS-ERROR: CJS-SCRIPT-404-OR-ERROR')"></script>
+
+<script>
+  var _raw = module.exports;
+  var _factory = (_raw && typeof _raw.default === 'function') ? _raw.default : _raw;
+  if (typeof _factory === 'function') {
+    window.Stockfish = _factory;
+  }
+  dbg('[SF] typeof Stockfish=' + typeof Stockfish);
+
+  var engine = null;
+  var engineWarm = false;
+  var pendingCommands = [];
+  var commandChain = Promise.resolve();
+
+  // --- THROTTLE de líneas 'info' ---
+  // 60ms ≈ 1 frame. Suficiente para cortar el grueso del tráfico del puente
+  // sin introducir latencia perceptible.
+  var infoBuffer = {};
+  var flushTimer = null;
+
+  function flushInfo() {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    var keys = Object.keys(infoBuffer);
+    for (var i = 0; i < keys.length; i++) {
+      window.ReactNativeWebView.postMessage('[SF-OUT] ' + infoBuffer[keys[i]]);
+    }
+    infoBuffer = {};
+  }
+
+  // indexOf en vez de regex: este código corre en el mismo hilo que el WASM,
+  // así que cada microsegundo aquí es tiempo de búsqueda que le quitamos al motor.
+  function multipvKey(line) {
+    var i = line.indexOf(' multipv ');
+    if (i === -1) return '1';
+    var start = i + 9;
+    var end = line.indexOf(' ', start);
+    return end === -1 ? line.substring(start) : line.substring(start, end);
+  }
+
+  function queueInfo(line) {
+    infoBuffer[multipvKey(line)] = line;
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushInfo, 60);
+    }
+  }
+
+    // --- ENRUTADOR ÚNICO DE SALIDA DEL MOTOR ---
+  // Todas las líneas del motor pasan por aquí, vengan de print() o de console.log.
+  function routeEngineLine(line) {
+    if (typeof line !== 'string' || !line) return;
+
+    // Líneas 'info' sin score: ruido puro (currmove, nps, hashfull...)
+    if (line.indexOf('info ') === 0) {
+      if (line.indexOf(' score ') === -1) return;
+      queueInfo(line);
+      return;
+    }
+
+    // 'bestmove': vaciamos el buffer primero para no llegar tarde al resultado
+    if (line.indexOf('bestmove') === 0) {
+      flushInfo();
+    }
+
+    window.ReactNativeWebView.postMessage('[SF-OUT] ' + line);
+  }
+
+  function reportEngineError(cmd, e) {
+    var msg = String(e);
+    window.ReactNativeWebView.postMessage('[SF] SYNC-THROW -> ' + cmd + ': ' + msg);
+    if (msg.indexOf('memory access out of bounds') !== -1 || msg.indexOf('RuntimeError') !== -1) {
+      window.ReactNativeWebView.postMessage('[SF] FATAL-CRASH');
+    }
+  }
+
+  function sendToEngine(cmd) {
+    dbg('[SF] enviando -> ' + cmd);
+    commandChain = commandChain.then(function () {
+      try {
+        if (typeof engine.ccall === 'function') {
+          return Promise.resolve(
+            engine.ccall('command', null, ['string'], [cmd], { async: true })
+          ).catch(function (e) { reportEngineError(cmd, e); });
+        } else {
+          window.ReactNativeWebView.postMessage('[SF] FATAL: ccall no existe en el motor.');
+        }
+      } catch (e) {
+        reportEngineError(cmd, e);
+      }
+    });
+    return commandChain;
+  }
+
+  function flushQueue() {
+    dbg('[SF] flushQueue count=' + pendingCommands.length);
+    pendingCommands.forEach(sendToEngine);
+    pendingCommands = [];
+  }
+
+  function receive(cmd) {
+    dbg('[SF] receive() cmd=' + cmd + ' engineWarm=' + engineWarm);
+    if (engineWarm) {
+      sendToEngine(cmd);
+    } else {
+      pendingCommands.push(cmd);
+    }
+  }
+
+  document.addEventListener('message', function (e) { receive(e.data); });
+  window.addEventListener('message', function (e) { receive(e.data); });
+
+  try {
+    Stockfish({
+      locateFile: function (path) {
+        return path.endsWith('.wasm') ? 'stockfish-18-lite-single_wasm.wasm' : path;
+      },
+      
+      print: function (line) { routeEngineLine(line); },
+      printErr: function (line) {
+        dbg('[SF] STDERR: ' + line);
+      }
+    }).then(function (sf) {
+      dbg('[SF] ENGINE-PROMISE-RESOLVED');
+      engine = sf;
+
+      setTimeout(function () {
+        engineWarm = true;
+        dbg('[SF] engineWarm=true');
+        flushQueue();
+      }, 200);
+
+    }).catch(function (err) {
+      window.ReactNativeWebView.postMessage('[SF] JS-ERROR: ENGINE-PROMISE-REJECTED: ' + String(err));
+    });
+  } catch (e) {
+    window.ReactNativeWebView.postMessage('[SF] JS-ERROR: SYNC-THROW calling Stockfish(): ' + String(e));
+  }
+</script>
+</body>
+</html>

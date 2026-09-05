@@ -2,15 +2,8 @@
   "expo": {
     "name": "chess_naez",
     "slug": "chess_naez",
+    "scheme": "chess-naez",
     "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "chessnaez",
-    "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true
-    },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -18,33 +11,29 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.naez.chess"
     },
-    "androidNavigationBar": {
-      "visible": "sticky-immersive",
-      "backgroundColor": "#121212"
-    },
-    "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
-    "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
+  "plugins": [
+    "expo-dev-client",
+    "expo-router",
+    [
+      "expo-splash-screen",
+      {
+        "image": "./assets/images/splash-icon.png",
+        "imageWidth": 200,
+        "resizeMode": "contain",
+        "backgroundColor": "#ffffff",
+        "dark": {
+          "backgroundColor": "#000000"
         }
-      ],
-      "expo-sqlite"
+      }
     ],
+    "expo-sqlite",
+    "expo-font",
+    "expo-web-browser",
+    "expo-iap"
+  ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

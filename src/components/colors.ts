@@ -7,7 +7,7 @@ export const PALETTE = {
   glass: 'rgba(255, 255, 255, 0.15)',
 
   // Colores de Marca / Acento
-  primary: '#9DC2DC',       // El azul acero que usas para textos/iconos
+  primary: '#9dc2dc',       // El azul acero que usas para textos/iconos
   secondary: '#4dabf7',     // Azul brillante para botones de acción/aplicar
   accent: '#F0E6DD',        // Color crema para textos de contraste y casillas blancas
 
@@ -24,7 +24,7 @@ export const PALETTE = {
   boardLight: '#F0E6DD',    // Casillas claras
   boardSelect: '#ffd365',   // Casilla seleccionada
   boardLegal: 'rgba(251, 190, 36, 0.45)', // Dots de movimientos
-  lastMoves: '#3b3b3bea', // Dots de movimientos
+  boardLastMove: 'rgba(247, 224, 85, 0.45)', // Dots de movimientos
 
   // UI Específica (Chips y Temas)
   chipBg: '#252525',
