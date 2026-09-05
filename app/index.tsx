@@ -42,8 +42,6 @@ import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, 
 import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
 import type { AppMode } from '../src/types/mode';
 import type { Puzzle } from '../src/types/puzzle';
- 
-// ESTO ES UNA PRUEBA ESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBAESTO ES UNA PRUEBA
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -176,11 +174,20 @@ const puzzleKey = (range: number[], themes: string[]) =>
 // Extrae el cuerpo de la query de loadSinglePuzzle a una función pura
 const queryPuzzle = useCallback(async (
   database: SQLite.SQLiteDatabase, range: number[], themes: string[]
-): Promise<Puzzle | null> => {
-  const rows = await database.getAllAsync<any>(
-    `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${buildThemeCondition(themes)} ORDER BY RANDOM() LIMIT 1`,
-    [range[0], range[1]]
-  );
+  ): Promise<Puzzle | null> => {
+    const whereClause = `rating BETWEEN ? AND ? ${buildThemeCondition(themes)}`;
+    const params = [range[0], range[1]];
+
+    const countRow = await database.getFirstAsync<{ total: number }>(
+      `SELECT COUNT(*) as total FROM puzzles WHERE ${whereClause}`, params
+    );
+    const total = countRow?.total ?? 0;
+    if (total === 0) return null;
+
+    const offset = Math.floor(Math.random() * total);
+    const rows = await database.getFirstAsync<any>(
+      `SELECT * FROM puzzles WHERE ${whereClause} LIMIT 1 OFFSET ?`, [...params, offset]
+    );
   if (!rows?.length) return null;
   const r = rows[0];
   return {

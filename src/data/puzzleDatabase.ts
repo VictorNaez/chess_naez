@@ -15,5 +15,13 @@ export const openPuzzleDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
     }
   }
 
-  return SQLite.openDatabaseAsync(DB_NAME);
+  const database = await SQLite.openDatabaseAsync(DB_NAME);
+
+  // Índice sobre rating: sin esto, cada carga de puzzle hace un full table scan
+  // de las ~100k filas. IF NOT EXISTS lo hace idempotente y gratis en aperturas
+  // posteriores una vez creado. Esto cubre tanto instalaciones nuevas como
+  // usuarios ya existentes, cuya .db en disco nunca se sobreescribe con el asset.
+  await database.execAsync(`CREATE INDEX IF NOT EXISTS idx_puzzles_rating ON puzzles(rating);`);
+
+  return database;
 };
