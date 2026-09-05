@@ -25,3 +25,12 @@ export const openPuzzleDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
 
   return database;
 };
+
+let cachedMaxRowid: number | null = null;
+
+export const getMaxRowid = async (db: SQLite.SQLiteDatabase): Promise<number> => {
+  if (cachedMaxRowid !== null) return cachedMaxRowid;
+  const row = await db.getFirstAsync<{ maxId: number }>('SELECT MAX(rowid) as maxId FROM puzzles');
+  cachedMaxRowid = row?.maxId ?? 1;
+  return cachedMaxRowid;
+};

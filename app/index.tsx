@@ -1,7 +1,7 @@
 import { PALETTE } from '@/src/components/colors';
 import { StreakBadge } from '@/src/components/header/StreakBadge';
 import { PromotionModal } from '@/src/components/modals/PromotionModal';
-import { CLOCK_TIMING } from '@/src/lib/clock';
+import { CLOCK_TIMING, getLadderRange } from '@/src/lib/clock';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Chess, Square } from "chess.js";
@@ -29,7 +29,7 @@ import { SupportModal } from '../src/components/modals/SupportModal';
 import { BoardControls } from '../src/components/puzzle/BoardControls';
 import { MoveList } from '../src/components/puzzle/MoveList';
 import { Skeleton } from '../src/components/ui/Skeleton';
-import { openPuzzleDatabase } from '../src/data/puzzleDatabase';
+import { getMaxRowid, openPuzzleDatabase } from '../src/data/puzzleDatabase';
 import { useAnalysisEngine } from '../src/hooks/useAnalysisEngine';
 import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
@@ -113,6 +113,7 @@ function App() {
   const [isNextDisabled, setIsNextDisabled] = useState(false);
   const isAtLastMove = viewIndex === fenHistory.length - 1;
   const nextPuzzleRef = useRef<{ key: string; puzzle: Puzzle } | null>(null);
+  const clockPrefetchRef = useRef<{ range: number[]; puzzle: Puzzle } | null>(null);
   const prefetchingRef = useRef(false);
 
   // --- ARRANQUE: true una sola vez, cuando ya hay datos reales que pintar ---
@@ -171,32 +172,41 @@ function App() {
 const puzzleKey = (range: number[], themes: string[]) =>
   `${range[0]}-${range[1]}-${themes.join(',')}`;
 
-// Extrae el cuerpo de la query de loadSinglePuzzle a una función pura
+
+const mapRow = (r: any): Puzzle => ({
+  id: String(r.ID ?? r.id),
+  fen: r.FEN ?? r.fen,
+  solution: (r.SOLUTION ?? r.solution).split(' '),
+  rating: Number(r.RATING ?? r.rating),
+  themes: r.themes ?? "",
+});
+
 const queryPuzzle = useCallback(async (
   database: SQLite.SQLiteDatabase, range: number[], themes: string[]
-  ): Promise<Puzzle | null> => {
-    const whereClause = `rating BETWEEN ? AND ? ${buildThemeCondition(themes)}`;
-    const params = [range[0], range[1]];
+): Promise<Puzzle | null> => {
+  const themeCond = buildThemeCondition(themes);
+  const maxRowid = await getMaxRowid(database);
 
-    const countRow = await database.getFirstAsync<{ total: number }>(
-      `SELECT COUNT(*) as total FROM puzzles WHERE ${whereClause}`, params
+  // Arrancamos en un rowid aleatorio y buscamos la primera fila que cumpla
+  // el filtro a partir de ahí. El coste depende de lo cerca que esté la
+  // coincidencia más próxima, no del total de filas que cumplan el filtro.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const startRowid = Math.floor(Math.random() * maxRowid) + 1;
+    const r = await database.getFirstAsync<any>(
+      `SELECT * FROM puzzles WHERE rowid >= ? AND rating BETWEEN ? AND ? ${themeCond} ORDER BY rowid LIMIT 1`,
+      [startRowid, range[0], range[1]]
     );
-    const total = countRow?.total ?? 0;
-    if (total === 0) return null;
+    if (r) return mapRow(r);
+  }
 
-    const offset = Math.floor(Math.random() * total);
-    const rows = await database.getFirstAsync<any>(
-      `SELECT * FROM puzzles WHERE ${whereClause} LIMIT 1 OFFSET ?`, [...params, offset]
-    );
-  if (!rows?.length) return null;
-  const r = rows[0];
-  return {
-    id: String(r.ID ?? r.id),
-    fen: r.FEN ?? r.fen,
-    solution: (r.SOLUTION ?? r.solution).split(' '),
-    rating: Number(r.RATING ?? r.rating),
-    themes: r.themes ?? "",
-  };
+  // Red de seguridad: si 4 intentos no encontraron nada hacia adelante
+  // (filtro muy raro, mala suerte con el punto de arranque), buscamos sin
+  // restricción de rowid. Esto sí puede tardar más, pero solo en el peor caso.
+  const r = await database.getFirstAsync<any>(
+    `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${themeCond} LIMIT 1`,
+    [range[0], range[1]]
+  );
+  return r ? mapRow(r) : null;
 }, []);
 
 const prefetchNext = useCallback(async (range: number[], themes: string[]) => {
@@ -1082,9 +1092,9 @@ const eloRowAnimatedStyle = useAnimatedStyle(() => ({
 }), [isClockMode]);
 
 // --- TRANSICIÓN DE TABLERO EN CONTRARRELOJ ---
-const BOARD_SLIDE_OUT = 70;
-const BOARD_SLIDE_IN = 100;
-const BOARD_GAP = 20; 
+const BOARD_SLIDE_OUT = 180;
+const BOARD_SLIDE_IN = 220;
+const BOARD_GAP = 0; 
 const boardSlideX = useSharedValue(0);
 const boardSlideStyle = useAnimatedStyle(() => ({ transform: [{ translateX: boardSlideX.value }] }));
 
@@ -1281,9 +1291,31 @@ useEffect(() => {
   }
 }, [firstMoveDone]);
 
+// Precarga el primer puzle del escalón 0 mientras el usuario está en la
+// pantalla de "Empezar" (eligiendo duración, mirando récords). Ese rato
+// muerto es la ventana perfecta para tener el puzle listo antes de tocar
+// EMPEZAR.
+useEffect(() => {
+  if (!clock.isStartVisible || !db) return;
+  const range = getLadderRange(0);
+  clockPrefetchRef.current = null; // por si quedó algo de una sesión anterior
+  (async () => {
+    const p = await queryPuzzle(db, range, []);
+    if (p) clockPrefetchRef.current = { range, puzzle: p };
+  })();
+}, [clock.isStartVisible, db]);
+
 const handleStartClockRun = useCallback((ms: number) => {
   const range = clock.armRun(ms);
-  loadSinglePuzzle(db, range, [], { fast: true });
+  const cached = clockPrefetchRef.current;
+
+  if (cached && cached.range[0] === range[0] && cached.range[1] === range[1]) {
+    clockPrefetchRef.current = null;
+    setCurrentPuzzle(cached.puzzle);
+    resetPuzzleState(cached.puzzle, false, false, false, CLOCK_TIMING.firstMove);
+  } else {
+    loadSinglePuzzle(db, range, [], { fast: true });
+  }
 }, [db]);
 
 const handleExitClock = useCallback(() => {

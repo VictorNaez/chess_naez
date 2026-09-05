@@ -22,8 +22,8 @@ export const CLOCK_TIMING = {
 // --- ESCALERA DE DIFICULTAD ---
 const START_MIN = 400;   // primer puzle: 400
 const WINDOW    = 100;   // ancho de la ventana de rating
-const BASE_STEP = 50;    // subida del primer acierto
-const ACCEL     = 5;     // cuánto crece la subida en cada escalón
+const BASE_STEP = 70;    // subida del primer acierto
+const ACCEL     = 10;     // cuánto crece la subida en cada escalón
 const MAX_MIN   = 2900;
 
 // Progresión acelerada: subida = BASE_STEP + ACCEL * escalón.
