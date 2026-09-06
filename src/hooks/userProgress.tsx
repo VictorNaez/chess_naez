@@ -52,6 +52,7 @@ export const userProgress = (db: SQLite.SQLiteDatabase | null) => {
             is_success INTEGER DEFAULT 1,
             puzzleID TEXT,
             solve_ms INTEGER DEFAULT 0,
+            is_recommended INTEGER DEFAULT 0,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           );
         `);
@@ -76,6 +77,10 @@ export const userProgress = (db: SQLite.SQLiteDatabase | null) => {
 
         try {
           await db.execAsync(`ALTER TABLE elo_history ADD COLUMN solve_ms INTEGER DEFAULT 0;`);
+        } catch (e) { /* Ya existía la columna, ignorar */ }
+
+        try {
+          await db.execAsync(`ALTER TABLE elo_history ADD COLUMN is_recommended INTEGER DEFAULT NULL;`);
         } catch (e) { /* Ya existía la columna, ignorar */ }
 
         // Si el historial está completamente vacío, insertamos el punto de partida inicial de 1200
@@ -114,7 +119,14 @@ export const userProgress = (db: SQLite.SQLiteDatabase | null) => {
   // =========================================================
   // 2. GUARDAR PUZLE RESUELTO (PROCESAR ACIERTO O FALLO)
   // =========================================================
-  const saveResolvedPuzzle = async (puzzleId: string, themeList: string[], isSuccess: boolean, puzzleElo: number, solveMs: number = 0) => {
+  const saveResolvedPuzzle = async (
+    puzzleId: string,
+    themeList: string[],
+    isSuccess: boolean,
+    puzzleElo: number,
+    solveMs: number = 0,
+    isRecommendedMode: boolean = false,
+  ) => {
     if (!db || isLocked) return 0;
     setIsLocked(true); // Activamos el cerrojo de seguridad
 
@@ -180,6 +192,12 @@ export const userProgress = (db: SQLite.SQLiteDatabase | null) => {
     } finally {
       setIsLocked(false); // Abrimos de nuevo el cerrojo
     }
+
+    await db.runAsync(
+      `INSERT INTO elo_history (elo, puzzle_elo, elo_change, is_success, puzzleID, solve_ms, is_recommended)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [newGlobalElo, puzzleElo, eloVariation, isSuccess ? 1 : 0, puzzleId, Math.round(solveMs), isRecommendedMode ? 1 : 0]
+    );
 
     return eloVariation;
   };

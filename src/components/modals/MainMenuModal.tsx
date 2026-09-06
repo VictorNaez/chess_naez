@@ -16,6 +16,7 @@ interface MainMenuModalProps {
   onSelectMode: (mode: AppMode) => void;
   onOpenSupport: () => void;
   onOpenSettings: () => void;
+  onOpenStats: () => void;
 }
 
 // Nunca ocupa la pantalla entera: el trozo de fondo visible a la derecha es lo
@@ -26,7 +27,7 @@ const DRAWER_TOP_PAD = Platform.OS === 'ios' ? 60 : 44;
 
 const MODES: { id: AppMode; icon: IoniconName; label: string; available: boolean }[] = [
   { id: 'puzzles', icon: 'extension-puzzle-outline', label: 'Modo puzles',       available: true  },
-  { id: 'rush',    icon: 'flash-outline',            label: 'Modo rush',         available: false },
+//  { id: 'rush',    icon: 'flash-outline',            label: 'Modo rush',         available: false },
   { id: 'clock',   icon: 'timer-outline',            label: 'Modo contrarreloj', available: true  },
   { id: 'survival', icon: 'skull-outline',           label: 'Supervivencia',     available: true  },
 ];
@@ -34,7 +35,7 @@ const MODES: { id: AppMode; icon: IoniconName; label: string; available: boolean
 // Acciones de análisis: no son modos, no cambian la sesión. Cuando construyas
 // cada una, pon available: true y pásale su handler desde index.
 const ANALYSIS_ITEMS: { id: string; icon: IoniconName; label: string; available: boolean }[] = [
-  { id: 'stats',  icon: 'bar-chart-outline',   label: 'Estadísticas', available: false },
+  { id: 'stats',  icon: 'bar-chart-outline',   label: 'Estadísticas', available: true },
   { id: 'review', icon: 'repeat-outline',      label: 'Repaso',       available: false },
 ];
 
@@ -91,6 +92,7 @@ export const MainMenuModal = React.memo(({
   onClose,
   currentMode,
   onSelectMode,
+  onOpenStats,
   onOpenSupport,
   onOpenSettings,
 }: MainMenuModalProps) => {
@@ -153,7 +155,11 @@ export const MainMenuModal = React.memo(({
               label={item.label}
               disabled={!item.available}
               badge={!item.available ? 'PRONTO' : undefined}
-              onPress={() => { /* pendiente: abrir estadísticas / repaso */ }}
+              onPress={() => {
+                if (!item.available) return;
+                hapticImpact('light');
+                if (item.id === 'stats') onOpenStats();
+              }}
             />
           ))}
 

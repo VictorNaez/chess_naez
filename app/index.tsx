@@ -1,6 +1,8 @@
 import { PALETTE } from '@/src/components/colors';
 import { StreakBadge } from '@/src/components/header/StreakBadge';
 import { PromotionModal } from '@/src/components/modals/PromotionModal';
+import { StatsModal } from '@/src/components/modals/StatsModal';
+import { useStats } from '@/src/hooks/useStats';
 import { CLOCK_DURATIONS, CLOCK_TIMING, DEFAULT_CLOCK_DURATION_MS, getLadderRange } from '@/src/lib/clock';
 import { DEFAULT_SURVIVAL_MS, SURVIVAL_SPEEDS, survivalDangerMs, survivalWarnMs } from '@/src/lib/survival';
 import { Ionicons } from '@expo/vector-icons';
@@ -437,6 +439,11 @@ const {
   selectHistoryPuzzle,
 } = useEloHistory(db, openHistoryPuzzleOnBoard);
 
+const {
+  isStatsVisible, stats, isStatsLoading, statsRange,
+  setStatsRange, openStats, closeStats,
+} = useStats(db);
+
 // Función para rebobinar el puzzle paso a paso (usada en el botón Retry)
 const handleRetry = async () => {
   // Si estamos mostrando la solución o no hay historia para deshacer, cancelamos
@@ -797,7 +804,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
 
             } else if (!isHistoryMode && !isRetryMode) {
               const temasArray = currentPuzzle.themes.split(' ');
-              const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true, currentPuzzle.rating, solveMs);
+              const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true,  currentPuzzle.rating, solveMs, isRecommendedMode);
               if (puntosGanados !== 0) {
                 setEloFeedback({ value: puntosGanados });
               }
@@ -889,7 +896,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
 
           } else if (!isHistoryMode && !isRetryMode) {
             const temasArray = currentPuzzle.themes.split(' ');
-            const puntosPerdidos = await updateElo(currentPuzzle.id, temasArray, false, currentPuzzle.rating, solveMs);
+            const puntosPerdidos = await updateElo(currentPuzzle.id, temasArray, false, currentPuzzle.rating, solveMs, isRecommendedMode);
             if (puntosPerdidos !== 0) {
               setEloFeedback({ value: puntosPerdidos });
             }
@@ -1705,6 +1712,7 @@ return (
       onClose={() => setIsMenuVisible(false)}
       currentMode={appMode}
       onSelectMode={handleSelectMode}
+      onOpenStats={() => openFromMenu(openStats)}
       onOpenSupport={() => openFromMenu(() => setIsSupportModalVisible(true))}
       onOpenSettings={() => openFromMenu(() => setIsSettingsModalVisible(true))}
     />
@@ -1742,6 +1750,16 @@ return (
       selectedHistoryItem={selectedHistoryItem}
       onSelectPuzzle={selectHistoryPuzzle}
     />
+
+    <StatsModal
+        visible={isStatsVisible}
+        onClose={closeStats}
+        stats={stats}
+        isLoading={isStatsLoading}
+        range={statsRange}
+        onChangeRange={setStatsRange}
+        currentStreak={currentStreak}
+      />
 
     <PromotionModal
       visible={promotionModalVisible}
