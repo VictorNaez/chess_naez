@@ -1,5 +1,6 @@
 import { en } from './locales/en';
 import { es } from './locales/es';
+import { pt } from './locales/pt';
 
 // La forma del diccionario la manda el español. Cualquier idioma nuevo se tipa
 // como `Dictionary` y el compilador exige que esté completo.

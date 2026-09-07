@@ -91,6 +91,8 @@ export const pt: Dictionary = {
     bestStreak: 'MELHOR SEQUÊNCIA',
     noData: 'Você ainda não resolveu nenhum puzzle',
     noActivity: 'Sem atividade neste período',
+    noActivity_data: 'Ainda não há dados',
+    tryWiderTimeInterval: 'Tente um intervalo de tempo maior.',
 
     lastNDays: (n: number) => `últimos ${n} dias`,
     bestTheme: (name: string) => `Melhor tema: ${name}`,
