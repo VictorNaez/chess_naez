@@ -17,6 +17,9 @@ interface MainMenuModalProps {
   onOpenSupport: () => void;
   onOpenSettings: () => void;
   onOpenStats: () => void;
+  // Puzles pendientes de repasar. Se pinta como badge en la fila de Repaso: es
+  // el recordatorio de que tienes deberes, sin tener que abrir nada.
+  repasoCount?: number;
 }
 
 // Nunca ocupa la pantalla entera: el trozo de fondo visible a la derecha es lo
@@ -32,11 +35,18 @@ const MODES: { id: AppMode; icon: IoniconName; label: string; available: boolean
   { id: 'survival', icon: 'skull-outline',           label: 'Supervivencia',     available: true  },
 ];
 
-// Acciones de análisis: no son modos, no cambian la sesión. Cuando construyas
-// cada una, pon available: true y pásale su handler desde index.
-const ANALYSIS_ITEMS: { id: string; icon: IoniconName; label: string; available: boolean }[] = [
-  { id: 'stats',  icon: 'bar-chart-outline',   label: 'Estadísticas', available: true },
-  { id: 'review', icon: 'repeat-outline',      label: 'Repaso',       available: false },
+// Sección de análisis. Las que llevan `mode` sí cambian la sesión (van por
+// onSelectMode como cualquier modo); las que no, son acciones sueltas que abren
+// su modal y devuelven al usuario donde estaba.
+const ANALYSIS_ITEMS: {
+  id: string;
+  icon: IoniconName;
+  label: string;
+  available: boolean;
+  mode?: AppMode;
+}[] = [
+  { id: 'stats',  icon: 'bar-chart-outline', label: 'Estadísticas', available: true },
+  { id: 'review', icon: 'repeat-outline',    label: 'Repaso',       available: true, mode: 'repaso' },
 ];
 
 // A nivel de módulo a propósito: definida dentro del render, React la trataría
@@ -95,6 +105,7 @@ export const MainMenuModal = React.memo(({
   onOpenStats,
   onOpenSupport,
   onOpenSettings,
+  repasoCount = 0,
 }: MainMenuModalProps) => {
   // El Modal no puede desmontarse a la vez que 'visible' pasa a false o la
   // animación de salida no llega a verse. Lo apagamos en el callback del timing.
@@ -153,12 +164,20 @@ export const MainMenuModal = React.memo(({
               key={item.id}
               icon={item.icon}
               label={item.label}
+              active={!!item.mode && item.mode === currentMode}
               disabled={!item.available}
-              badge={!item.available ? 'PRONTO' : undefined}
+              badge={
+                !item.available
+                  ? 'PRONTO'
+                  : item.id === 'review' && repasoCount > 0
+                    ? String(repasoCount)
+                    : undefined
+              }
               onPress={() => {
                 if (!item.available) return;
                 hapticImpact('light');
-                if (item.id === 'stats') onOpenStats();
+                if (item.mode) onSelectMode(item.mode);
+                else if (item.id === 'stats') onOpenStats();
               }}
             />
           ))}

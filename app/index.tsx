@@ -25,18 +25,22 @@ import { SessionEloSparkline } from '../src/components/header/SessionEloSparklin
 import { FilterModal } from '../src/components/modals/FilterModal';
 import { HistoryModal } from '../src/components/modals/HistoryModal';
 import { MainMenuModal } from '../src/components/modals/MainMenuModal';
+import { RepasoResultModal } from '../src/components/modals/RepasoResultModal';
+import { RepasoStartModal } from '../src/components/modals/RepasoStartModal';
 import { RunResultModal } from '../src/components/modals/RunResultModal';
 import { RunStartModal } from '../src/components/modals/RunStartModal';
 import { SettingsModal } from '../src/components/modals/SettingsModal';
 import { SupportModal } from '../src/components/modals/SupportModal';
 import { BoardControls } from '../src/components/puzzle/BoardControls';
 import { MoveList } from '../src/components/puzzle/MoveList';
+import { RepasoProgressPill } from '../src/components/repaso/RepasoProgressPill';
 import { Skeleton } from '../src/components/ui/Skeleton';
 import { getMaxRowid, openPuzzleDatabase } from '../src/data/puzzleDatabase';
 import { useAnalysisEngine } from '../src/hooks/useAnalysisEngine';
 import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
 import { useEloHistory } from '../src/hooks/useEloHistory';
+import { useRepasoMode } from '../src/hooks/useRepasoMode';
 import { userProgress } from "../src/hooks/userProgress";
 import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
 import { useSounds } from '../src/hooks/useSounds';
@@ -44,9 +48,11 @@ import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
+import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import type { AppMode } from '../src/types/mode';
 import { isRunModeId } from '../src/types/mode';
 import type { Puzzle } from '../src/types/puzzle';
+import type { RepasoOrder } from '../src/types/repaso';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -116,9 +122,11 @@ function App() {
   // se rellena más abajo, cuando swapRunPuzzle ya existe.
   const survivalTimeoutRef = useRef<(o: { nextRange: [number, number]; gameOver: boolean }) => void>(() => {});
   const survival = useSurvivalMode(db, survivalTimeoutRef);
+  const repaso = useRepasoMode(db);
 
   const isClockMode = appMode === 'clock';
   const isSurvivalMode = appMode === 'survival';
+  const isRepasoMode = appMode === 'repaso';
   // Todo lo que comparten contrarreloj y supervivencia: sin filtros, sin
   // historial, sin ELO, tablero que se sustituye solo, animaciones rápidas.
   const isRunMode = isRunModeId(appMode);
@@ -126,6 +134,9 @@ function App() {
   const runPhase = isSurvivalMode ? survival.phase : clock.phase;
   const [isRecommendedMode, setIsRecommendedMode] = useState(false);
   const [isHistoryMode, setIsHistoryMode] = useState<boolean>(false);
+  // Sólo alimentan la cola de repaso los intentos "de verdad": modo puzles, no
+  // un puzle del historial ni un reintento (ya lo contaste la primera vez).
+  const canFeedRepaso = feedsRepaso(appMode) && !isHistoryMode && !isRetryMode;
   const [sessionEloHistory, setSessionEloHistory] = useState<number[]>([]);
   const hasSeededSessionElo = useRef(false);
   const MOVE_LIST_HEIGHT = 40;   // altura en modo puzzle (historial SAN)
@@ -554,6 +565,13 @@ const showSolution = async () => {
   setIsShowingSolution(true);
   setSolutionRevealed(true);
   stopTimer(false);
+
+  // Ver la solución cuenta como "no lo sabía": entra en la cola de repaso.
+  // En repaso, además, deja el puzle dentro de la cola aunque luego lo
+  // resuelvas con Retry.
+  if (isRepasoMode) repaso.registerResult(false, currentPuzzle.id);
+  else if (canFeedRepaso) repaso.capture('solution', currentPuzzle);
+
   clearSelection();
   setHintSquare(null);
   setHintMove(null);
@@ -802,6 +820,13 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
               const { nextRange, gameOver, ignored } = survival.registerResult(true, currentPuzzle.id, currentPuzzle.rating, solveMs);
               if (!ignored && !gameOver) swapRunPuzzle(nextRange, CLOCK_TIMING.afterSolve);
 
+            } else if (isRepasoMode) {
+              // Acertar lo saca de la cola. NO toca el ELO: ya lo pagaste
+              // cuando lo fallaste y aquí puedes acordarte de la solución, así
+              // que sumaría ELO que no has ganado. Tampoco escribe en
+              // elo_history, para no descuadrar el panel de estadísticas.
+              repaso.registerResult(true, currentPuzzle.id);
+
             } else if (!isHistoryMode && !isRetryMode) {
               const temasArray = currentPuzzle.themes.split(' ');
               const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true,  currentPuzzle.rating, solveMs, isRecommendedMode);
@@ -894,12 +919,19 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             const { nextRange, gameOver, ignored } = survival.registerResult(false, currentPuzzle.id, currentPuzzle.rating, solveMs);
             if (!ignored && !gameOver) swapRunPuzzle(nextRange, CLOCK_TIMING.afterFail);
 
+          } else if (isRepasoMode) {
+            // Sigue en la cola: sube fail_count y due_at lo manda al final,
+            // así que la próxima sesión no te lo pone el primero.
+            repaso.registerResult(false, currentPuzzle.id);
+
           } else if (!isHistoryMode && !isRetryMode) {
             const temasArray = currentPuzzle.themes.split(' ');
             const puntosPerdidos = await updateElo(currentPuzzle.id, temasArray, false, currentPuzzle.rating, solveMs, isRecommendedMode);
             if (puntosPerdidos !== 0) {
               setEloFeedback({ value: puntosPerdidos });
             }
+            // Lo que motiva todo esto: el puzle fallado se guarda solo.
+            if (canFeedRepaso) repaso.capture('fail', currentPuzzle);
           }
         }
       }
@@ -1015,7 +1047,13 @@ const getPromotionPieceImage = (type: string) => {
 // Función para mostrar pistas, actualmente solo ilumina la pieza a mover
 const handleHint = () => {
   if (!currentPuzzle || puzzleSolved || isBoardLocked) return;
-  
+
+  // Pedir pista también mete el puzle en la cola. Es el motivo más flojo de
+  // los tres (REPASO_REASON.hint), así que si además lo fallas el UPSERT lo
+  // sube a 'fail' y no al revés.
+  if (isRepasoMode) repaso.registerResult(false, currentPuzzle.id);
+  else if (canFeedRepaso) repaso.capture('hint', currentPuzzle);
+
   const moveStr = currentPuzzle.solution[solutionStep];
   if (moveStr) {
     const fromSquare = moveStr.slice(0, 2);
@@ -1056,7 +1094,9 @@ useEffect(() => {
         await AsyncStorage.setItem('@is_recommended_mode', JSON.stringify(isRecommendedMode));
         
         // VOLVEMOS A DEJAR ESTA LÍNEA ACTIVA: Guardar el puzle activo al cambiar
-        if (currentPuzzle) {
+        // En repaso no: al reabrir la app volveríamos a modo puzles con un puzle
+        // de la cola en pantalla, y esta vez sí daría ELO.
+        if (currentPuzzle && !isRepasoMode) {
           await AsyncStorage.setItem('@current_puzzle', JSON.stringify(currentPuzzle));
         }
       } catch (error) {
@@ -1067,7 +1107,7 @@ useEffect(() => {
     if (!loading || db) {
       savePersistentData();
     }
-  }, [eloRange, selectedThemes, isRecommendedMode, currentPuzzle]);
+  }, [eloRange, selectedThemes, isRecommendedMode, currentPuzzle, isRepasoMode]);
 
 // Efecto para bloquear el tablero si estamos viendo un movimiento anterior o si el puzzle ya fue resuelto
 useEffect(() => {
@@ -1212,6 +1252,51 @@ const swapRunPuzzle = useCallback((nextRange: number[], delayMs: number) => {
   slidePuzzle(() => loadSinglePuzzle(db, nextRange, [], { fast: true }), delayMs);
 }, [db, slidePuzzle]);
 
+// =========================================================
+// MODO REPASO
+// =========================================================
+// No pasa por loadSinglePuzzle: aquí no hay consulta aleatoria ni filtros, el
+// puzle ya viene elegido por el hook. Función normal (no useCallback) porque
+// depende de resetPuzzleState, que se recrea en cada render; mismo criterio que
+// loadSinglePuzzle.
+const loadRepasoPuzzle = (puzzle: Puzzle | null) => {
+  if (!puzzle) return;
+  setSolutionRevealed(false);
+  resetLock();
+  setIsBoardLocked(false);
+  setEloFeedback(null);
+  setMoveHistory([]);
+  setCurrentPuzzle(puzzle);
+  resetPuzzleState(puzzle, false, false, false, REPASO_FIRST_MOVE_MS);
+};
+
+const startRepasoSession = useCallback(async (order: RepasoOrder) => {
+  repaso.closeStart();
+  const first = await repaso.startSession(order);
+
+  // La cola se vació entre abrir el modal y pulsar EMPEZAR (o el JOIN no
+  // devolvió nada). Volvemos a puzles en vez de dejar el tablero muerto.
+  if (!first) {
+    setAppMode('puzzles');
+    loadSinglePuzzle(db);
+    return;
+  }
+  slidePuzzle(() => loadRepasoPuzzle(first));
+}, [db, slidePuzzle]);
+
+// Avanza al siguiente de la cola. Si no queda ninguno, el hook cierra la sesión
+// y abre el modal de resultado; el tablero se queda con el último puzle detrás.
+const handleNextRepasoPuzzle = useCallback(() => {
+  const next = repaso.nextPuzzle();
+  if (next) slidePuzzle(() => loadRepasoPuzzle(next));
+}, [slidePuzzle]);
+
+const handleExitRepaso = useCallback(() => {
+  repaso.abortSession();
+  setAppMode('puzzles');
+  loadSinglePuzzle(db);
+}, [db]);
+
 // --- SE ACABÓ EL TIEMPO DE UN PUZLE (solo supervivencia) ---
 // El hook ya ha descontado la vida y anotado el intento. Aquí solo queda el
 // feedback y, si la partida sigue viva, traer el siguiente puzle.
@@ -1228,11 +1313,16 @@ const handleSurvivalTimeout = useCallback(({ nextRange, gameOver }: { nextRange:
 
 useEffect(() => { survivalTimeoutRef.current = handleSurvivalTimeout; }, [handleSurvivalTimeout]);
 
-// Modo puzles: Next y Skip
+// Modo puzles: Next y Skip. En repaso el "siguiente" no es aleatorio: sale de
+// la cola, así que se desvía a handleNextRepasoPuzzle.
 const handleNextPuzzle = useCallback(() => {
   if (isNextDisabled) return;
+  if (isRepasoMode) {
+    handleNextRepasoPuzzle();
+    return;
+  }
   slidePuzzle(() => loadSinglePuzzle(db));
-}, [db, isNextDisabled, slidePuzzle]);
+}, [db, isNextDisabled, isRepasoMode, handleNextRepasoPuzzle, slidePuzzle]);
 
 const streakSlotAnimatedStyle = useAnimatedStyle(() => ({
   height: STREAK_SLOT_HEIGHT * eloRowProgress.value,
@@ -1415,13 +1505,20 @@ const handleSelectMode = useCallback((mode: AppMode) => {
   // 220ms: abrir un modal mientras el drawer se cierra parpadea en Android
   if (mode === 'clock') {
     survival.abortRun();
+    repaso.abortSession();
     setTimeout(() => clock.openStart(), 220);
   } else if (mode === 'survival') {
     clock.abortRun();
+    repaso.abortSession();
     setTimeout(() => survival.openStart(), 220);
+  } else if (mode === 'repaso') {
+    clock.abortRun();
+    survival.abortRun();
+    setTimeout(() => repaso.openStart(), 220);
   } else {
     clock.abortRun();
     survival.abortRun();
+    repaso.abortSession();
     loadSinglePuzzle(db);
   }
 }, [appMode, db]);
@@ -1498,7 +1595,7 @@ return (
         <View style={styles.headerSpacer} />
 
         {/* BOTÓN FILTROS */}
-        {!isRunMode && (
+        {!isRunMode && !isRepasoMode && (
           <TouchableOpacity style={styles.openFiltersBtn} onPress={() => setIsFilterModalVisible(true)}>
             <View style={styles.filterLeftGroup}>
               <Ionicons name="options-outline" size={16} color={PALETTE.primary} />
@@ -1514,13 +1611,23 @@ return (
         )}
 
         {/* BOTÓN HISTORIAL */}
-        {!isRunMode && (
+        {!isRunMode && !isRepasoMode && (
           <TouchableOpacity style={styles.openFiltersBtn} onPress={() => openHistory()}>
             <View style={styles.filterLeftGroup}>
               <Ionicons name="stats-chart-outline" size={16} color={PALETTE.primary} />
               <Text style={styles.openFiltersText}>HISTORY</Text>
             </View>
           </TouchableOpacity>              
+        )}
+
+        {/* PROGRESO DEL REPASO: ocupa el hueco de filtros + historial, que aquí
+            no pintan nada porque la cola decide qué puzles ves */}
+        {isRepasoMode && (
+          <RepasoProgressPill
+            current={repaso.position.current}
+            total={repaso.position.total}
+            onExit={handleExitRepaso}
+          />
         )}
       </View>
 
@@ -1715,6 +1822,7 @@ return (
       onOpenStats={() => openFromMenu(openStats)}
       onOpenSupport={() => openFromMenu(() => setIsSupportModalVisible(true))}
       onOpenSettings={() => openFromMenu(() => setIsSettingsModalVisible(true))}
+      repasoCount={repaso.stats.count}
     />
 
     <FilterModal
@@ -1807,6 +1915,7 @@ return (
       kind="clock"
       summary={clock.summary}
       ranking={clock.ranking}
+      onClose={clock.closeResult}
       onPlayAgain={() => { clock.closeResult(); handleStartClockRun(clock.durationMs); }}
       onExit={() => { clock.closeResult(); handleExitRun(); }}
     />
@@ -1830,8 +1939,25 @@ return (
       kind="survival"
       summary={survival.summary}
       ranking={survival.ranking}
+      onClose={survival.closeResult}
       onPlayAgain={() => { survival.closeResult(); handleStartSurvivalRun(survival.perPuzzleMs); }}
       onExit={() => { survival.closeResult(); handleExitRun(); }}
+    />
+
+    <RepasoStartModal
+      visible={repaso.isStartVisible}
+      stats={repaso.stats}
+      isPreparing={repaso.isPreparing}
+      onClose={() => { repaso.closeStart(); if (repaso.phase === 'idle') setAppMode('puzzles'); }}
+      onStart={startRepasoSession}
+    />
+
+    <RepasoResultModal
+      visible={repaso.isResultVisible}
+      summary={repaso.summary}
+      remaining={repaso.stats.count}
+      onReviewAgain={() => { repaso.closeResult(); repaso.openStart(); }}
+      onExit={() => { repaso.closeResult(); handleExitRepaso(); }}
     />
 
     {analysisEngine.isAnalysisMode && (

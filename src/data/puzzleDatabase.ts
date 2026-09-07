@@ -1,6 +1,7 @@
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
+import type { Puzzle } from '../types/puzzle';
 
 const DB_NAME = 'puzzles_v2.db';
 
@@ -33,4 +34,32 @@ export const getMaxRowid = async (db: SQLite.SQLiteDatabase): Promise<number> =>
   const row = await db.getFirstAsync<{ maxId: number }>('SELECT MAX(rowid) as maxId FROM puzzles');
   cachedMaxRowid = row?.maxId ?? 1;
   return cachedMaxRowid;
+};
+
+// Recupera un puzle concreto por su id. Lo usan el repaso post-partida
+// (contrarreloj / supervivencia) y cualquier sitio que guarde solo el id.
+// El id se prueba como texto y como número: según la columna, SQLite compara
+// '12345' con 12345 sin coincidencia.
+export const getPuzzleById = async (
+  db: SQLite.SQLiteDatabase,
+  id: string | number,
+): Promise<Puzzle | null> => {
+  let row = await db.getFirstAsync<any>('SELECT * FROM puzzles WHERE id = ?', [String(id)]);
+
+  if (!row) {
+    const numericId = Number(id);
+    if (!Number.isNaN(numericId)) {
+      row = await db.getFirstAsync<any>('SELECT * FROM puzzles WHERE id = ?', [numericId]);
+    }
+  }
+
+  if (!row) return null;
+
+  return {
+    id: String(row.ID ?? row.id),
+    fen: row.FEN ?? row.fen,
+    solution: String(row.SOLUTION ?? row.solution).split(' '),
+    rating: Number(row.RATING ?? row.rating),
+    themes: row.themes ?? '',
+  };
 };

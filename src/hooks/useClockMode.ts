@@ -172,6 +172,13 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
   const closeStart = useCallback(() => setIsStartVisible(false), []);
   const closeResult = useCallback(() => setIsResultVisible(false), []);
 
+  // Reabrir el resumen después de cerrarlo para repasar puzles. Solo tiene
+  // sentido con la partida terminada: el summary ya está calculado.
+  const openResult = useCallback(() => {
+    if (phaseRef.current !== 'finished') return;
+    setIsResultVisible(true);
+  }, []);
+
   // Abandonar sin guardar (salir del modo a media partida)
   const abortRun = useCallback(() => {
     clearDeadline();
@@ -208,6 +215,6 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
     summary, ranking, records, refreshRecords,
     isStartVisible, isResultVisible,
     armRun, beginCountdown, registerResult, finishRun, abortRun,
-    openStart, closeStart, closeResult,
+    openStart, closeStart, closeResult, openResult,
   };
 };

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { formatDuration } from '../../lib/time';
 import type { RunKind, RunRanking, RunSummary } from '../../types/run';
 import { PALETTE } from '../colors';
@@ -12,6 +12,9 @@ interface RunResultModalProps {
   ranking: RunRanking | null;
   onPlayAgain: () => void;
   onExit: () => void;
+  // Cerrar != salir: el modal se esconde pero la partida terminada sigue en
+  // pantalla, con su rejilla de puzles lista para repasarlos uno a uno.
+  onClose: () => void;
 }
 
 // A nivel de módulo: definirlo dentro del render lo remontaría en cada pasada.
@@ -23,7 +26,7 @@ const StatCell = React.memo(({ label, value }: { label: string; value: string })
 ));
 
 export const RunResultModal = React.memo(({
-  visible, kind, summary, ranking, onPlayAgain, onExit,
+  visible, kind, summary, ranking, onPlayAgain, onExit, onClose,
 }: RunResultModalProps) => {
   if (!summary) return null;
 
@@ -32,10 +35,23 @@ export const RunResultModal = React.memo(({
   const isRecord = ranking?.isPersonalBest ?? false;
   const survivedMs = Math.max(0, summary.endedAt - summary.startedAt);
 
+  // El botón atrás de Android esconde el resumen; no abandona la partida.
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onExit}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.root}>
         <View style={styles.card}>
+
+          <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={12}>
+            <Ionicons name="close" size={22} color={PALETTE.chipText} />
+          </TouchableOpacity>
+
+          {/* La tarjeta creció con el bloque de repaso: en pantallas cortas el
+              contenido tiene que poder desplazarse en vez de salirse. */}
+          <ScrollView
+            style={{ width: '100%' }}
+            contentContainerStyle={styles.cardScroll}
+            showsVerticalScrollIndicator={false}
+          >
 
           {isRecord && (
             <View style={styles.recordBanner}>
@@ -86,9 +102,19 @@ export const RunResultModal = React.memo(({
             <Text style={styles.primaryText}>JUGAR OTRA VEZ</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.reviewBtn} onPress={onClose}>
+            <Ionicons name="search-outline" size={15} color={PALETTE.primary} />
+            <Text style={styles.reviewText}>REVISAR PUZLES</Text>
+          </TouchableOpacity>
+          <Text style={styles.reviewHint}>
+            Toca cualquier cuadrado del marcador para volver a jugar ese puzle.
+          </Text>
+
           <TouchableOpacity style={styles.secondaryBtn} onPress={onExit}>
             <Text style={styles.secondaryText}>Volver a puzles</Text>
           </TouchableOpacity>
+
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -98,10 +124,11 @@ export const RunResultModal = React.memo(({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   card: {
-    width: '100%', maxWidth: 420, alignItems: 'center',
+    width: '100%', maxWidth: 420, maxHeight: '90%', alignItems: 'center',
     backgroundColor: PALETTE.surfaceDark, borderRadius: 20,
     borderWidth: 1, borderColor: PALETTE.surfaceLight, padding: 22,
   },
+  cardScroll: { alignItems: 'center', paddingBottom: 2 },
   recordBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: PALETTE.warning, paddingVertical: 5, paddingHorizontal: 12,
@@ -130,6 +157,15 @@ const styles = StyleSheet.create({
     backgroundColor: PALETTE.secondary, borderRadius: 14,
   },
   primaryText: { color: '#ffffff', fontSize: 13, fontWeight: '900', letterSpacing: 1.5 },
+  closeBtn: { position: 'absolute', top: 10, right: 10, width: 34, height: 34, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  reviewBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    width: '100%', marginTop: 10, paddingVertical: 13,
+    backgroundColor: PALETTE.chipBg, borderRadius: 14,
+    borderWidth: 1, borderColor: PALETTE.chipBorder,
+  },
+  reviewText: { color: PALETTE.primary, fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
+  reviewHint: { color: PALETTE.chipText, fontSize: 10, textAlign: 'center', marginTop: 8, paddingHorizontal: 10, lineHeight: 14 },
   secondaryBtn: { marginTop: 12, paddingVertical: 8 },
   secondaryText: { color: PALETTE.chipText, fontSize: 12, fontWeight: '700' },
 });
