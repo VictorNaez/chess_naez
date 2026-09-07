@@ -12,6 +12,8 @@ import {
 } from '../../lib/statsQueries';
 import { SURVIVAL_SPEEDS } from '../../lib/survival';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
+import { themeName } from '../chess_themes';
 import {
   accuracyTint,
   ActivityBars,
@@ -118,6 +120,7 @@ export const StatsModal = React.memo(({
   onChangeRange,
   currentStreak,
 }: StatsModalProps) => {
+  const t = useT();
   const [themeSort, setThemeSort] = useState<ThemeSort>('accuracy');
 
   const sortedThemes = useMemo(() => {
@@ -163,7 +166,7 @@ export const StatsModal = React.memo(({
           {/* CABECERA */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <Text style={styles.title}>ESTADÍSTICAS</Text>
+              <Text style={styles.title}>{t.stats.title}</Text>
               <Text style={styles.subtitle}>
                 {stats.currentElo} ELO
                 <Text style={styles.subtitleDim}>  ·  máx {stats.maxElo}</Text>
@@ -220,7 +223,7 @@ export const StatsModal = React.memo(({
                 <Text style={[styles.heroValue, { color: accuracyTint(stats.accuracy) }]}>
                   {pct(stats.accuracy)}
                 </Text>
-                <Text style={styles.heroLabel}>PRECISIÓN</Text>
+                <Text style={styles.heroLabel}>{t.stats.accuracy}</Text>
 
                 <View style={styles.heroBar}>
                   <SplitBar solved={stats.solved} failed={stats.failed} />
@@ -239,25 +242,25 @@ export const StatsModal = React.memo(({
               </View>
 
               <View style={styles.grid}>
-                <StatCell label="PUZZLES RESUELTOS" value={String(stats.attempts)} />
+                <StatCell label={t.stats.puzzlesSolved} value={String(stats.attempts)} />
                 <StatCell
-                  label="ELO GANADO / PERDIDO"
+                  label={t.stats.eloGained}
                   value={signed(stats.eloGain)}
                   tint={stats.eloGain >= 0 ? PALETTE.success : PALETTE.error}
                 />
-                <StatCell label="TIEMPO TOTAL" value={formatTotal(stats.totalTimeMs)} />
-                <StatCell label="RACHA ACTUAL" value={String(currentStreak)} />
-                <StatCell label="MEJOR RACHA" value={String(stats.bestStreak)} />
-                <StatCell label="ELO MÁXIMO" value={String(stats.maxElo)} />
+                <StatCell label={t.stats.totalTime} value={formatTotal(stats.totalTimeMs)} />
+                <StatCell label={t.stats.currentStreak} value={String(currentStreak)} />
+                <StatCell label={t.stats.bestStreak} value={String(stats.bestStreak)} />
+                <StatCell label={t.stats.eloMax} value={String(stats.maxElo)} />
               </View>
 
               {/* ============ MODO DE SELECCIÓN DE ELO ============ */}
               {showModeSplit && (
                 <>
-                  <SectionTitle icon="options-outline" title="ACIERTOS POR TIPO DE PUZLE" />
+                  <SectionTitle icon="options-outline" title={t.stats.sectionByType} />
 
                   <MetricRow
-                    label="ELO automático"
+                    label={t.stats.eloAuto}
                     ratio={stats.auto.accuracy}
                     tint={accuracyTint(stats.auto.accuracy)}
                     value={stats.auto.attempts > 0 ? pct(stats.auto.accuracy) : '—'}
@@ -265,7 +268,7 @@ export const StatsModal = React.memo(({
                     faded={stats.auto.attempts === 0}
                   />
                   <MetricRow
-                    label="ELO manual"
+                    label={t.stats.eloManual}
                     ratio={stats.manual.accuracy}
                     tint={accuracyTint(stats.manual.accuracy)}
                     value={stats.manual.attempts > 0 ? pct(stats.manual.accuracy) : '—'}
@@ -277,21 +280,21 @@ export const StatsModal = React.memo(({
               )}
 
               {/* ============ TIEMPO ============ */}
-              <SectionTitle icon="time-outline" title="TIEMPO DE RESOLUCIÓN" />
+              <SectionTitle icon="time-outline" title={t.stats.sectionSolveTime} />
               <View style={styles.grid}>
-                <StatCell label="MEDIA EN ACIERTOS" value={formatShort(stats.avgSolveMsSuccess)} />
-                <StatCell label="MEDIA EN FALLOS" value={formatShort(stats.avgSolveMsFail)} />
-                <StatCell label="MÁS RÁPIDO" value={formatShort(stats.fastestSolveMs)} />
+                <StatCell label={t.stats.avgOnSolved} value={formatShort(stats.avgSolveMsSuccess)} />
+                <StatCell label={t.stats.avgOnFailed} value={formatShort(stats.avgSolveMsFail)} />
+                <StatCell label={t.stats.fastest} value={formatShort(stats.fastestSolveMs)} />
                 <StatCell
-                  label="PUZLES / HORA"
+                  label={t.stats.puzzlesPerHour}
                   value={formatPace(stats.timedAttempts, stats.totalTimeMs)}
                 />
                 <StatCell
-                  label="PUZLE MÁS DIFÍCIL"
+                  label={t.stats.hardestPuzzle}
                   value={stats.hardestSolvedElo > 0 ? String(stats.hardestSolvedElo) : '—'}
                 />
                 <StatCell
-                  label="ELO MEDIO RESUELTO"
+                  label={t.stats.eloAvgSolved}
                   value={stats.avgSolvedElo > 0 ? String(stats.avgSolvedElo) : '—'}
                 />
               </View>
@@ -299,10 +302,10 @@ export const StatsModal = React.memo(({
               {/* ============ TIEMPO / DIFICULTAD ============ */}
               <SectionTitle
                 icon="speedometer-outline"
-                title="ACIERTOS POR DIFICULTAD"
+                title={t.stats.sectionByDifficulty}
               />
               {stats.buckets.length === 0 ? (
-                <EmptyHint text="Necesitas más intentos para desglosar por dificultad." />
+                <EmptyHint text={t.stats.emptyDifficulty} />
               ) : (
                 stats.buckets.map(b => (
                   <MetricRow
@@ -321,20 +324,20 @@ export const StatsModal = React.memo(({
               )}
 
               {/* ============ TEMAS ============ */}
-              <SectionTitle icon="pricetags-outline" title="POR TEMA TÁCTICO" />
+              <SectionTitle icon="pricetags-outline" title={t.stats.sectionByTheme} />
 
               {(strongest || weakest) && (
                 <View style={styles.insightBox}>
                   {strongest && (
                     <Text style={styles.insightText}>
                       <Text style={{ color: PALETTE.success }}>▲ </Text>
-                      Mejor tema: <Text style={styles.insightStrong}>{strongest.name}</Text> ({pct(strongest.accuracy)})
+                      {t.stats.bestTheme(themeName(t, strongest.id))} ({pct(strongest.accuracy)})
                     </Text>
                   )}
                   {weakest && (
                     <Text style={styles.insightText}>
                       <Text style={{ color: PALETTE.error }}>▼ </Text>
-                      Peor tema: <Text style={styles.insightStrong}>{weakest.name}</Text> ({pct(weakest.accuracy)})
+                      {t.stats.worstTheme(themeName(t, weakest.id))} ({pct(weakest.accuracy)})
                     </Text>
                   )}
                 </View>
@@ -359,17 +362,17 @@ export const StatsModal = React.memo(({
               </View>
 
               {sortedThemes.length === 0 ? (
-                <EmptyHint text="Todavía no has jugado ningún tema en este periodo." />
+                <EmptyHint text={t.stats.emptyThemes} />
               ) : (
-                sortedThemes.map(t => (
+                sortedThemes.map(th => (
                   <MetricRow
-                    key={t.id}
-                    label={t.name}
-                    ratio={t.accuracy}
-                    tint={accuracyTint(t.accuracy)}
-                    value={pct(t.accuracy)}
-                    note={t.elo ? `${t.solved}/${t.attempts} · ${t.elo}` : `${t.solved}/${t.attempts}`}
-                    faded={t.attempts < MIN_THEME_ATTEMPTS}
+                    key={th.id}
+                    label={themeName(t, th.id)}
+                    ratio={th.accuracy}
+                    tint={accuracyTint(th.accuracy)}
+                    value={pct(th.accuracy)}
+                    note={th.elo ? `${th.solved}/${th.attempts} · ${th.elo}` : `${th.solved}/${th.attempts}`}
+                    faded={th.attempts < MIN_THEME_ATTEMPTS}
                   />
                 ))
               )}
@@ -379,25 +382,25 @@ export const StatsModal = React.memo(({
                 <>
                   <SectionTitle
                     icon="trophy-outline"
-                    title="OTROS MODOS DE JUEGO"
+                    title={t.stats.sectionOtherModes}
                   />
-                  {stats.clock.runs > 0 && <RunTable title="CONTRARRELOJ" rows={clockRows} />}
-                  {stats.survival.runs > 0 && <RunTable title="SUPERVIVENCIA" rows={survivalRows} />}
+                  {stats.clock.runs > 0 && <RunTable title={t.stats.tableClock} rows={clockRows} />}
+                  {stats.survival.runs > 0 && <RunTable title={t.stats.tableSurvival} rows={survivalRows} />}
                 </>
               )}
 
               {/* ============ ACTIVIDAD ============ */}
               <SectionTitle
                 icon="calendar-outline"
-                title="ACTIVIDAD"
-                hint={`últimos ${ACTIVITY_DAYS} días`}
+                title={t.stats.sectionActivity}
+                hint={t.stats.lastNDays(ACTIVITY_DAYS)}
               />
               <ActivityBars days={stats.days} />
               <View style={styles.grid}>
-                <StatCell label="DÍAS ACTIVOS" value={`${stats.activeDays}/${ACTIVITY_DAYS}`} />
-                <StatCell label="RACHA DE DÍAS" value={String(stats.dayStreak)} />
+                <StatCell label={t.stats.activeDays} value={`${stats.activeDays}/${ACTIVITY_DAYS}`} />
+                <StatCell label={t.stats.dayStreak} value={String(stats.dayStreak)} />
                 <StatCell
-                  label="MEJOR DÍA"
+                  label={t.stats.bestDay}
                   value={stats.bestDay ? String(stats.bestDay.attempts) : '—'}
                 />
               </View>

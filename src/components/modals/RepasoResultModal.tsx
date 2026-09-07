@@ -4,6 +4,7 @@ import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { formatDuration } from '../../lib/time';
 import type { RepasoSummary } from '../../types/repaso';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface RepasoResultModalProps {
   visible: boolean;
@@ -25,6 +26,7 @@ const StatCell = React.memo(({ label, value, tint }: { label: string; value: str
 export const RepasoResultModal = React.memo(({
   visible, summary, remaining, onReviewAgain, onExit,
 }: RepasoResultModalProps) => {
+  const t = useT();
   if (!summary) return null;
 
   const elapsedMs = Math.max(0, summary.endedAt - summary.startedAt);
@@ -38,11 +40,11 @@ export const RepasoResultModal = React.memo(({
           {isClean && (
             <View style={styles.cleanBanner}>
               <Ionicons name="checkmark-done" size={14} color="#ffffff" />
-              <Text style={styles.cleanBannerText}>COLA VACÍA</Text>
+              <Text style={styles.cleanBannerText}>{t.repaso.emptyQueue}</Text>
             </View>
           )}
 
-          <Text style={styles.title}>REPASO TERMINADO</Text>
+          <Text style={styles.title}>{t.repaso.finished}</Text>
 
           <Text style={styles.bigNumber}>{summary.solved}</Text>
           <Text style={styles.bigLabel}>
@@ -50,13 +52,13 @@ export const RepasoResultModal = React.memo(({
           </Text>
 
           <View style={styles.statsGrid}>
-            <StatCell label="REPASADOS" value={String(summary.reviewed)} />
-            <StatCell label="FALLADOS" value={String(summary.failed)} tint={summary.failed > 0 ? PALETTE.error : undefined} />
-            <StatCell label="SALTADOS" value={String(summary.skipped)} />
-            <StatCell label="TIEMPO" value={formatDuration(elapsedMs)} />
-            <StatCell label="QUEDAN" value={String(remaining)} />
+            <StatCell label={t.repaso.reviewed} value={String(summary.reviewed)} />
+            <StatCell label={t.repaso.failed} value={String(summary.failed)} tint={summary.failed > 0 ? PALETTE.error : undefined} />
+            <StatCell label={t.repaso.skipped} value={String(summary.skipped)} />
+            <StatCell label={t.repaso.time} value={formatDuration(elapsedMs)} />
+            <StatCell label={t.repaso.remaining} value={String(remaining)} />
             <StatCell
-              label="PRECISIÓN"
+              label={t.stats.accuracy}
               value={summary.reviewed > 0 ? `${Math.round((summary.solved / summary.reviewed) * 100)}%` : '—'}
             />
           </View>
@@ -70,7 +72,7 @@ export const RepasoResultModal = React.memo(({
           {!isClean && (
             <TouchableOpacity style={styles.primaryBtn} onPress={onReviewAgain}>
               <Ionicons name="repeat" size={18} color="#ffffff" />
-              <Text style={styles.primaryText}>SEGUIR REPASANDO</Text>
+              <Text style={styles.primaryText}>{t.repaso.keepGoing}</Text>
             </TouchableOpacity>
           )}
 
@@ -79,8 +81,8 @@ export const RepasoResultModal = React.memo(({
             onPress={onExit}
           >
             {isClean
-              ? <Text style={styles.primaryText}>VOLVER A PUZLES</Text>
-              : <Text style={styles.secondaryText}>Volver a puzles</Text>}
+              ? <Text style={styles.primaryText}>{t.repaso.backToPuzzles}</Text>
+              : <Text style={styles.secondaryText}>{t.common.backToPuzzles}</Text>}
           </TouchableOpacity>
         </View>
       </View>

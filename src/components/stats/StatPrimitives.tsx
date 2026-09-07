@@ -3,6 +3,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { DayStat } from '../../lib/statsQueries';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -108,13 +109,15 @@ export interface RunTableRow {
   totalSolved: number;
 }
 
-export const RunTable = React.memo(({ title, rows }: { title: string; rows: RunTableRow[] }) => (
+export const RunTable = React.memo(({ title, rows }: { title: string; rows: RunTableRow[] }) => {
+  const t = useT();
+  return (
   <View style={styles.runTable}>
     <View style={styles.runHead}>
       <Text style={[styles.runTitle, styles.runColLabel]} numberOfLines={1}>{title}</Text>
-      <Text style={[styles.runHeadCell, styles.runColNum]}>RÉCORD</Text>
-      <Text style={[styles.runHeadCell, styles.runColNum]}>PARTIDAS</Text>
-      <Text style={[styles.runHeadCell, styles.runColNum]}>TOTAL</Text>
+      <Text style={[styles.runHeadCell, styles.runColNum]}>{t.run.record}</Text>
+      <Text style={[styles.runHeadCell, styles.runColNum]}>{t.stats.tableGames}</Text>
+      <Text style={[styles.runHeadCell, styles.runColNum]}>{t.common.total}</Text>
     </View>
 
     {rows.map(row => {
@@ -135,7 +138,8 @@ export const RunTable = React.memo(({ title, rows }: { title: string; rows: RunT
       );
     })}
   </View>
-));
+  );
+});
 
 // =========================================================
 // ACTIVIDAD DIARIA

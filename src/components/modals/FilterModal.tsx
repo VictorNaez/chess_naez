@@ -98,7 +98,7 @@ export const FilterModal = React.memo(({
     <Modal visible={visible} animationType="slide" transparent={true}>
       <View style={styles.modalOverlay}>
         <View style={styles.filterModalContent}>
-          <Text style={styles.modalTitle}>FILTERS</Text>
+          <Text style={styles.modalTitle}>{t.puzzle.filters}</Text>
 
           <View style={[styles.availableContainer, { alignSelf: 'center', marginBottom: 20 }]}>
             <Text style={[
@@ -195,7 +195,7 @@ export const FilterModal = React.memo(({
 
           <View style={styles.modalFooter}>
             <TouchableOpacity style={[styles.modalBtn, styles.btnCancel]} onPress={onClose}>
-              <Text style={styles.btnText}>CANCELAR</Text>
+              <Text style={styles.btnText}>{t.common.cancel}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

@@ -3,6 +3,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { hapticImpact } from '../../lib/haptics';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface RepasoProgressPillProps {
   current: number;
@@ -12,11 +13,13 @@ interface RepasoProgressPillProps {
 
 // Ocupa el hueco de FILTERS + HISTORY, que en repaso no tienen sentido: la cola
 // decide qué puzles ves y en qué orden.
-export const RepasoProgressPill = React.memo(({ current, total, onExit }: RepasoProgressPillProps) => (
+export const RepasoProgressPill = React.memo(({ current, total, onExit }: RepasoProgressPillProps) => {
+  const t = useT();
+  return (
   <View style={styles.wrap}>
     <View style={styles.pill}>
       <Ionicons name="repeat" size={16} color={PALETTE.secondary} />
-      <Text style={styles.label}>REPASO</Text>
+      <Text style={styles.label}>{t.repaso.title}</Text>
       <Text style={styles.counter}>{current}/{total}</Text>
     </View>
 
@@ -28,7 +31,8 @@ export const RepasoProgressPill = React.memo(({ current, total, onExit }: Repaso
       <Ionicons name="close" size={18} color={PALETTE.chipText} />
     </TouchableOpacity>
   </View>
-));
+  );
+});
 
 const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },

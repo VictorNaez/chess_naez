@@ -6,6 +6,7 @@ import { hapticImpact } from '../../lib/haptics';
 import { DEFAULT_REPASO_ORDER, REPASO_ORDERS, formatRelativeDays } from '../../lib/repaso';
 import type { RepasoOrder, RepasoStats } from '../../types/repaso';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface RepasoStartModalProps {
   visible: boolean;
@@ -52,6 +53,7 @@ const ReasonChip = React.memo(({ icon, count, label, tint }: {
 export const RepasoStartModal = React.memo(({
   visible, stats, isPreparing, onClose, onStart,
 }: RepasoStartModalProps) => {
+  const t = useT();
   const [order, setOrder] = useState<RepasoOrder>(DEFAULT_REPASO_ORDER);
   const isEmpty = stats.count === 0;
 
@@ -62,7 +64,7 @@ export const RepasoStartModal = React.memo(({
 
         <View style={styles.card}>
           <Ionicons name="repeat" size={34} color={PALETTE.secondary} />
-          <Text style={styles.title}>REPASO</Text>
+          <Text style={styles.title}>{t.repaso.title}</Text>
           <Text style={styles.subtitle}>
             {isEmpty
               ? 'Aquí se guardan solos los puzles que falles o en los que pidas ayuda. Todavía no hay ninguno.'
@@ -77,22 +79,22 @@ export const RepasoStartModal = React.memo(({
           {!isEmpty && (
             <>
               <View style={styles.eloRow}>
-                <EloCell label="ELO MÍN" value={stats.minRating} />
-                <EloCell label="ELO MEDIO" value={stats.avgRating} />
-                <EloCell label="ELO MÁX" value={stats.maxRating} />
+                <EloCell label={t.stats.eloMin} value={stats.minRating} />
+                <EloCell label={t.stats.eloAvg} value={stats.avgRating} />
+                <EloCell label={t.stats.eloMax} value={stats.maxRating} />
               </View>
 
               <View style={styles.reasonRow}>
-                <ReasonChip icon="close-circle-outline" count={stats.byReason.fail} label="FALLADOS" tint={PALETTE.error} />
-                <ReasonChip icon="eye-outline" count={stats.byReason.solution} label="SOLUCIÓN" tint={PALETTE.warning} />
-                <ReasonChip icon="bulb-outline" count={stats.byReason.hint} label="PISTA" tint={PALETTE.primary} />
+                <ReasonChip icon="close-circle-outline" count={stats.byReason.fail} label={t.repaso.failed} tint={PALETTE.error} />
+                <ReasonChip icon="eye-outline" count={stats.byReason.solution} label={t.repaso.reasonSolution} tint={PALETTE.warning} />
+                <ReasonChip icon="bulb-outline" count={stats.byReason.hint} label={t.repaso.reasonHint} tint={PALETTE.primary} />
               </View>
 
               <Text style={styles.oldestText}>
                 El más antiguo entró {formatRelativeDays(stats.oldestAt)}
               </Text>
 
-              <Text style={styles.optionsLabel}>ORDEN</Text>
+              <Text style={styles.optionsLabel}>{t.repaso.order}</Text>
               <View style={styles.orderRow}>
                 {REPASO_ORDERS.map(o => (
                   <TouchableOpacity
@@ -119,7 +121,7 @@ export const RepasoStartModal = React.memo(({
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-            <Text style={styles.cancelText}>Volver</Text>
+            <Text style={styles.cancelText}>{t.common.back}</Text>
           </TouchableOpacity>
         </View>
       </View>

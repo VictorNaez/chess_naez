@@ -3,6 +3,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface BoardControlsProps {
   viewIndex: number;
@@ -37,6 +38,7 @@ export const BoardControls = React.memo(({
   onHint,
   isNextDisabled,
 }: BoardControlsProps) => {
+  const t = useT();
   const isError = message.includes('❌') && !isAnalysisMode;
   const isSuccess = message.includes('✅') || isAnalysisMode;
   const isPlaying = !message.includes('❌') && !message.includes('✅') && !isAnalysisMode;
@@ -81,7 +83,7 @@ export const BoardControls = React.memo(({
                   <View style={styles.iconContainer}>
                     <Ionicons name="eye-outline" size={20} color={PALETTE.primary} />
                   </View>
-                  <Text style={[styles.iconTextBtnText, styles.btnSolutionText]} numberOfLines={1} adjustsFontSizeToFit>Solution</Text>
+                  <Text style={[styles.iconTextBtnText, styles.btnSolutionText]} numberOfLines={1} adjustsFontSizeToFit>{t.puzzle.solution}</Text>
                 </TouchableOpacity>
               )}
 
@@ -89,21 +91,21 @@ export const BoardControls = React.memo(({
                 <View style={styles.iconContainer}>
                   <Ionicons name="analytics" size={20} color={PALETTE.primary} />
                 </View>
-                <Text style={[styles.iconTextBtnText, styles.btnHintText]} numberOfLines={1} adjustsFontSizeToFit>Analysis</Text>
+                <Text style={[styles.iconTextBtnText, styles.btnHintText]} numberOfLines={1} adjustsFontSizeToFit>{t.puzzle.analysis}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={[styles.iconTextBtn, styles.btnErrorFilled]} onPress={onRetry}>
                 <View style={styles.iconContainer}>
                   <Ionicons name="refresh-circle" size={20} color={PALETTE.accent} />
                 </View>
-                <Text style={[styles.iconTextBtnText, styles.btnErrorFilledText]} numberOfLines={1} adjustsFontSizeToFit>Retry</Text>
+                <Text style={[styles.iconTextBtnText, styles.btnErrorFilledText]} numberOfLines={1} adjustsFontSizeToFit>{t.common.retry}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={[styles.iconTextBtn, styles.btnSuccessFilled]} onPress={onNextPuzzle}>
                 <View style={styles.iconContainer}>
                   <Ionicons name="arrow-forward-circle" size={20} color={PALETTE.accent} />
                 </View>
-                <Text style={[styles.iconTextBtnText, styles.btnSuccessFilledText]} numberOfLines={1} adjustsFontSizeToFit>Next</Text>
+                <Text style={[styles.iconTextBtnText, styles.btnSuccessFilledText]} numberOfLines={1} adjustsFontSizeToFit>{t.common.next}</Text>
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -116,14 +118,14 @@ export const BoardControls = React.memo(({
                   <View style={styles.iconContainer}>
                     <Ionicons name="close-circle-outline" size={20} color={PALETTE.primary} />
                   </View>
-                  <Text style={[styles.iconTextBtnText, styles.btnHintText]} numberOfLines={1} adjustsFontSizeToFit>Exit Analysis</Text>
+                  <Text style={[styles.iconTextBtnText, styles.btnHintText]} numberOfLines={1} adjustsFontSizeToFit>{t.puzzle.exitAnalysis}</Text>
                 </TouchableOpacity>
               ) : message.includes('✅') && (
                 <TouchableOpacity style={[styles.iconTextBtn, styles.btnHint]} onPress={onStartAnalysis}>
                   <View style={styles.iconContainer}>
                     <Ionicons name="analytics" size={20} color={PALETTE.primary} />
                   </View>
-                  <Text style={[styles.iconTextBtnText, styles.btnHintText]}>Analyze</Text>
+                  <Text style={[styles.iconTextBtnText, styles.btnHintText]}>{t.puzzle.analyze}</Text>
                 </TouchableOpacity>
               )}
 
@@ -138,7 +140,7 @@ export const BoardControls = React.memo(({
                 <View style={styles.iconContainer}>
                   <Ionicons name="arrow-forward-circle" size={20} color={PALETTE.accent} />
                 </View>
-                <Text style={[styles.iconTextBtnText, styles.btnSuccessFilledText]} numberOfLines={1} adjustsFontSizeToFit>Next Puzzle</Text>
+                <Text style={[styles.iconTextBtnText, styles.btnSuccessFilledText]} numberOfLines={1} adjustsFontSizeToFit>{t.puzzle.nextPuzzle}</Text>
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -156,7 +158,7 @@ export const BoardControls = React.memo(({
                   <View style={styles.iconContainer}>
                     <Ionicons name="bulb-outline" size={20} color={PALETTE.primary} />
                   </View>
-                  <Text style={[styles.iconTextBtnText, styles.btnHintText]} numberOfLines={1} adjustsFontSizeToFit>Hint</Text>
+                  <Text style={[styles.iconTextBtnText, styles.btnHintText]} numberOfLines={1} adjustsFontSizeToFit>{t.puzzle.hint}</Text>
                 </TouchableOpacity>
               )}
 
@@ -181,7 +183,7 @@ export const BoardControls = React.memo(({
                   styles.iconTextBtnText,
                   styles.btnSkipText,
                   isNextDisabled && styles.btnDisabledText
-                ]} numberOfLines={1} adjustsFontSizeToFit>Skip</Text>
+                ]} numberOfLines={1} adjustsFontSizeToFit>{t.puzzle.skip}</Text>
               </TouchableOpacity>
             </Animated.View>
           )}

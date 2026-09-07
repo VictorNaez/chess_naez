@@ -53,6 +53,7 @@ import type { AppMode } from '../src/types/mode';
 import { isRunModeId } from '../src/types/mode';
 import type { Puzzle } from '../src/types/puzzle';
 import type { RepasoOrder } from '../src/types/repaso';
+import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -62,13 +63,16 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // ajustes (useSounds, useAnalysisEngine, la propia App) viven dentro de App.
 export default function AppRoot() {
   return (
-    <SettingsProvider>
-      <App />
-    </SettingsProvider>
+    <I18nProvider>
+      <SettingsProvider>
+        <App />
+      </SettingsProvider>
+    </I18nProvider>
   );
 }
 
 function App() {
+  const t = useT();
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
   const [currentPuzzle, setCurrentPuzzle] = useState<Puzzle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1717,7 +1721,7 @@ return (
           <TouchableOpacity style={styles.openFiltersBtn} onPress={() => setIsFilterModalVisible(true)}>
             <View style={styles.filterLeftGroup}>
               <Ionicons name="options-outline" size={16} color={PALETTE.primary} />
-              <Text style={styles.openFiltersText}>FILTERS</Text>
+              <Text style={styles.openFiltersText}>{t.puzzle.filters}</Text>
             </View>
 
             {selectedThemes.length > 0 && (
@@ -1733,7 +1737,7 @@ return (
           <TouchableOpacity style={styles.openFiltersBtn} onPress={() => openHistory()}>
             <View style={styles.filterLeftGroup}>
               <Ionicons name="stats-chart-outline" size={16} color={PALETTE.primary} />
-              <Text style={styles.openFiltersText}>HISTORY</Text>
+              <Text style={styles.openFiltersText}>{t.puzzle.history}</Text>
             </View>
           </TouchableOpacity>              
         )}
@@ -1746,7 +1750,7 @@ return (
           >
             <View style={styles.filterLeftGroup}>
               <Ionicons name="podium-outline" size={16} color={PALETTE.primary} />
-              <Text style={styles.openFiltersText}>RESULTADO</Text>
+              <Text style={styles.openFiltersText}>{t.puzzle.result}</Text>
             </View>
           </TouchableOpacity>
         )}
@@ -2041,8 +2045,8 @@ return (
       db={db}
       kind="clock"
       icon="timer-outline"
-      title="CONTRARRELOJ"
-      subtitle="Empiezas fácil. Cada acierto sube el nivel. Un fallo no te baja, pero te cuesta tiempo."
+      title={t.run.clockTitle}
+      subtitle={t.run.clockSubtitle}
       options={CLOCK_DURATIONS}
       defaultMs={DEFAULT_CLOCK_DURATION_MS}
       onClose={() => { clock.closeStart(); if (clock.phase === 'idle') setAppMode('puzzles'); }}
@@ -2064,8 +2068,8 @@ return (
       db={db}
       kind="survival"
       icon="skull-outline"
-      title="SUPERVIVENCIA"
-      subtitle="Tres vidas. Cada puzle tiene el mismo tiempo y cada acierto sube el nivel. Fallar o quedarte sin tiempo cuesta una vida."
+      title={t.run.survivalTitle}
+      subtitle={t.run.survivalSubtitle}
       options={SURVIVAL_SPEEDS}
       defaultMs={DEFAULT_SURVIVAL_MS}
       optionsLabel="TIEMPO POR PUZLE"

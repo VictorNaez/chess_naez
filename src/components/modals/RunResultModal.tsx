@@ -4,6 +4,7 @@ import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { formatDuration } from '../../lib/time';
 import type { RunKind, RunRanking, RunSummary } from '../../types/run';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface RunResultModalProps {
   visible: boolean;
@@ -28,6 +29,7 @@ const StatCell = React.memo(({ label, value }: { label: string; value: string })
 export const RunResultModal = React.memo(({
   visible, kind, summary, ranking, onPlayAgain, onExit, onClose,
 }: RunResultModalProps) => {
+  const t = useT();
   if (!summary) return null;
 
   const isSurvival = kind === 'survival';
@@ -56,7 +58,7 @@ export const RunResultModal = React.memo(({
           {isRecord && (
             <View style={styles.recordBanner}>
               <Ionicons name="trophy" size={14} color="#ffffff" />
-              <Text style={styles.recordBannerText}>NUEVO RÉCORD</Text>
+              <Text style={styles.recordBannerText}>{t.run.newRecord}</Text>
             </View>
           )}
 
@@ -65,19 +67,19 @@ export const RunResultModal = React.memo(({
           </Text>
 
           <Text style={styles.bigNumber}>{summary.solved}</Text>
-          <Text style={styles.bigLabel}>PUZLES RESUELTOS</Text>
+          <Text style={styles.bigLabel}>{t.stats.puzzlesSolved}</Text>
 
           <View style={styles.statsGrid}>
-            <StatCell label="PRECISIÓN" value={`${accuracyPct}%`} />
-            <StatCell label="INTENTOS" value={String(summary.attempts)} />
-            <StatCell label="ELO MEDIO" value={summary.avgSolvedRating > 0 ? String(summary.avgSolvedRating) : '—'} />
-            <StatCell label="ELO MÁX" value={summary.maxSolvedRating > 0 ? String(summary.maxSolvedRating) : '—'} />
-            <StatCell label="T. MEDIO" value={summary.avgSolveMs > 0 ? formatDuration(summary.avgSolveMs) : '—'} />
+            <StatCell label={t.stats.accuracy} value={`${accuracyPct}%`} />
+            <StatCell label={t.stats.attempts} value={String(summary.attempts)} />
+            <StatCell label={t.stats.eloAvg} value={summary.avgSolvedRating > 0 ? String(summary.avgSolvedRating) : '—'} />
+            <StatCell label={t.stats.eloMax} value={summary.maxSolvedRating > 0 ? String(summary.maxSolvedRating) : '—'} />
+            <StatCell label={t.run.avgTime} value={summary.avgSolveMs > 0 ? formatDuration(summary.avgSolveMs) : '—'} />
             {/* En supervivencia los fallos siempre son 3 (las vidas): lo que
                 de verdad informa es cuánto aguantaste. */}
             {isSurvival
-              ? <StatCell label="AGUANTASTE" value={formatDuration(survivedMs)} />
-              : <StatCell label="FALLOS" value={String(summary.failed)} />}
+              ? <StatCell label={t.run.survived} value={formatDuration(survivedMs)} />
+              : <StatCell label={t.stats.failed} value={String(summary.failed)} />}
           </View>
 
           {ranking && (
@@ -92,26 +94,26 @@ export const RunResultModal = React.memo(({
                 Mejor de esta semana: {ranking.bestSolvedThisWeek}   ·   Récord: {ranking.bestSolvedAllTime}
               </Text>
               {ranking.isWeekBest && !ranking.isPersonalBest && (
-                <Text style={styles.rankBadge}>MEJOR DE LA SEMANA</Text>
+                <Text style={styles.rankBadge}>{t.run.bestOfWeek}</Text>
               )}
             </View>
           )}
 
           <TouchableOpacity style={styles.primaryBtn} onPress={onPlayAgain}>
             <Ionicons name="refresh" size={18} color="#ffffff" />
-            <Text style={styles.primaryText}>JUGAR OTRA VEZ</Text>
+            <Text style={styles.primaryText}>{t.run.playAgain}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.reviewBtn} onPress={onClose}>
             <Ionicons name="search-outline" size={15} color={PALETTE.primary} />
-            <Text style={styles.reviewText}>REVISAR PUZLES</Text>
+            <Text style={styles.reviewText}>{t.repaso.review}</Text>
           </TouchableOpacity>
           <Text style={styles.reviewHint}>
             Toca cualquier cuadrado del marcador para volver a jugar ese puzle.
           </Text>
 
           <TouchableOpacity style={styles.secondaryBtn} onPress={onExit}>
-            <Text style={styles.secondaryText}>Volver a puzles</Text>
+            <Text style={styles.secondaryText}>{t.common.backToPuzzles}</Text>
           </TouchableOpacity>
 
           </ScrollView>

@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface ClockScoreBarProps {
   solved: number;
@@ -49,12 +50,14 @@ const LivesRow = React.memo(({ lives, maxLives }: { lives: number; maxLives: num
   );
 });
 
-export const ClockScoreBar = React.memo(({ solved, failed, lives, maxLives = 3 }: ClockScoreBarProps) => (
+export const ClockScoreBar = React.memo(({ solved, failed, lives, maxLives = 3 }: ClockScoreBarProps) => {
+  const t = useT();
+  return (
   <View style={styles.row}>
     <View style={styles.item}>
       <Ionicons name="checkmark-circle" size={15} color={PALETTE.success} />
       <Text style={[styles.value, { color: PALETTE.success }]}>{solved}</Text>
-      <Text style={styles.label}>ACIERTOS</Text>
+      <Text style={styles.label}>{t.puzzle.solved}</Text>
     </View>
 
     <View style={styles.divider} />
@@ -62,7 +65,7 @@ export const ClockScoreBar = React.memo(({ solved, failed, lives, maxLives = 3 }
     <View style={styles.item}>
       <Ionicons name="close-circle" size={15} color={PALETTE.error} />
       <Text style={[styles.value, { color: PALETTE.error }]}>{failed}</Text>
-      <Text style={styles.label}>FALLOS</Text>
+      <Text style={styles.label}>{t.puzzle.failed}</Text>
     </View>
 
     {lives !== undefined && (
@@ -70,12 +73,13 @@ export const ClockScoreBar = React.memo(({ solved, failed, lives, maxLives = 3 }
         <View style={styles.divider} />
         <View style={styles.item}>
           <LivesRow lives={lives} maxLives={maxLives} />
-          <Text style={styles.label}>VIDAS</Text>
+          <Text style={styles.label}>{t.puzzle.lives}</Text>
         </View>
       </>
     )}
   </View>
-));
+  );
+});
 
 const styles = StyleSheet.create({
   row: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },

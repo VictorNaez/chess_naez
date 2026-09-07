@@ -6,6 +6,8 @@ import { hapticImpact } from '../../lib/haptics';
 import { SCREEN_WIDTH } from '../../theme/layout';
 import type { AppMode } from '../../types/mode';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
+import type { Dictionary } from '../../i18n';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -28,11 +30,11 @@ interface MainMenuModalProps {
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.68, 320);
 const DRAWER_TOP_PAD = Platform.OS === 'ios' ? 60 : 44;
 
-const MODES: { id: AppMode; icon: IoniconName; label: string; available: boolean }[] = [
-  { id: 'puzzles', icon: 'extension-puzzle-outline', label: 'Modo puzles',       available: true  },
+const MODES: { id: AppMode; icon: IoniconName; labelKey: keyof Dictionary['menu']; available: boolean }[] = [
+  { id: 'puzzles',  icon: 'extension-puzzle-outline', labelKey: 'modePuzzles',  available: true },
 //  { id: 'rush',    icon: 'flash-outline',            label: 'Modo rush',         available: false },
-  { id: 'clock',   icon: 'timer-outline',            label: 'Modo contrarreloj', available: true  },
-  { id: 'survival', icon: 'skull-outline',           label: 'Supervivencia',     available: true  },
+  { id: 'clock',    icon: 'timer-outline',            labelKey: 'modeClock',    available: true },
+  { id: 'survival', icon: 'skull-outline',            labelKey: 'modeSurvival', available: true },
 ];
 
 // Sección de análisis. Las que llevan `mode` sí cambian la sesión (van por
@@ -41,12 +43,12 @@ const MODES: { id: AppMode; icon: IoniconName; label: string; available: boolean
 const ANALYSIS_ITEMS: {
   id: string;
   icon: IoniconName;
-  label: string;
+  labelKey: keyof Dictionary['menu'];
   available: boolean;
   mode?: AppMode;
 }[] = [
-  { id: 'stats',  icon: 'bar-chart-outline', label: 'Estadísticas', available: true },
-  { id: 'review', icon: 'repeat-outline',    label: 'Repaso',       available: true, mode: 'repaso' },
+  { id: 'stats',  icon: 'bar-chart-outline', labelKey: 'stats',      available: true },
+  { id: 'review', icon: 'repeat-outline',    labelKey: 'modeRepaso', available: true, mode: 'repaso' },
 ];
 
 // A nivel de módulo a propósito: definida dentro del render, React la trataría
@@ -107,6 +109,7 @@ export const MainMenuModal = React.memo(({
   onOpenSettings,
   repasoCount = 0,
 }: MainMenuModalProps) => {
+  const t = useT();
   // El Modal no puede desmontarse a la vez que 'visible' pasa a false o la
   // animación de salida no llega a verse. Lo apagamos en el callback del timing.
   const [isMounted, setIsMounted] = useState(visible);
@@ -139,18 +142,18 @@ export const MainMenuModal = React.memo(({
 
         <Animated.View style={[styles.drawer, drawerStyle]}>
           <View style={styles.drawerHeader}>
-            <Text style={styles.drawerTitle}>MENÚ</Text>
+            <Text style={styles.drawerTitle}>{t.menu.title}</Text>
           </View>
 
-          <Text style={styles.sectionTitle}>MODOS</Text>
+          <Text style={styles.sectionTitle}>{t.menu.modes}</Text>
           {MODES.map(mode => (
             <MenuRow
               key={mode.id}
               icon={mode.icon}
-              label={mode.label}
+              label={t.menu[mode.labelKey]}
               active={mode.id === currentMode}
               disabled={!mode.available}
-              badge={!mode.available ? 'PRONTO' : undefined}
+              badge={!mode.available ? t.common.soon : undefined}
               onPress={() => {
                 hapticImpact('light');
                 onSelectMode(mode.id);
@@ -158,17 +161,17 @@ export const MainMenuModal = React.memo(({
             />
           ))}
 
-          <Text style={[styles.sectionTitle, styles.sectionTitleSpaced]}>ANÁLISIS</Text>
+          <Text style={[styles.sectionTitle, styles.sectionTitleSpaced]}>{t.menu.analysisSection}</Text>
           {ANALYSIS_ITEMS.map(item => (
             <MenuRow
               key={item.id}
               icon={item.icon}
-              label={item.label}
+              label={t.menu[item.labelKey]}
               active={!!item.mode && item.mode === currentMode}
               disabled={!item.available}
               badge={
                 !item.available
-                  ? 'PRONTO'
+                  ? t.common.soon
                   : item.id === 'review' && repasoCount > 0
                     ? String(repasoCount)
                     : undefined
@@ -189,13 +192,13 @@ export const MainMenuModal = React.memo(({
 
           <MenuRow
             icon="heart-outline"
-            label="Donaciones"
+            label={t.menu.donations}
             tint={PALETTE.error}
             onPress={() => { hapticImpact('light'); onOpenSupport(); }}
           />
           <MenuRow
             icon="settings-outline"
-            label="Ajustes"
+            label={t.menu.settings}
             onPress={() => { hapticImpact('light'); onOpenSettings(); }}
           />
         </Animated.View>

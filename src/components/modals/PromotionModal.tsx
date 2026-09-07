@@ -2,6 +2,7 @@ import React from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SCREEN_WIDTH } from '../../theme/layout';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface PromotionModalProps {
   visible: boolean;
@@ -20,12 +21,13 @@ export const PromotionModal = React.memo(({
   onSelect,
   onCancel,
 }: PromotionModalProps) => {
+  const t = useT();
   if (!visible) return null;
 
   return (
     <View style={styles.promotionOverlay}>
       <View style={styles.promotionGlassCard}>
-        <Text style={styles.promotionTitle}>CORONACIÓN</Text>
+        <Text style={styles.promotionTitle}>{t.puzzle.promotion}</Text>
 
         <View style={styles.promotionRow}>
           {PROMOTION_PIECES.map((p) => (
@@ -49,7 +51,7 @@ export const PromotionModal = React.memo(({
         </View>
 
         <TouchableOpacity style={styles.cancelPromotion} onPress={onCancel}>
-          <Text style={styles.cancelText}>CANCELAR</Text>
+          <Text style={styles.cancelText}>{t.common.cancel}</Text>
         </TouchableOpacity>
       </View>
     </View>

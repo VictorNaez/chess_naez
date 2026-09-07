@@ -12,6 +12,10 @@ export const en: Dictionary = {
     retry: 'Retry',
     next: 'Next',
     error: 'The operation could not be completed.',
+    back: 'Back',
+    backToPuzzles: 'Back to puzzles',
+    soon: 'SOON',
+    total: 'TOTAL',
   },
 
   menu: {
@@ -25,6 +29,7 @@ export const en: Dictionary = {
     stats: 'Statistics',
     settings: 'Settings',
     donations: 'Donations',
+    analysisSection: 'ANALYSIS',
   },
 
   settings: {
@@ -93,6 +98,23 @@ export const en: Dictionary = {
     period30d: '30D',
     periodAll: 'ALL',
     periodWeek: 'THIS WEEK',
+
+    totalTime: 'TOTAL TIME',
+    currentStreak: 'CURRENT STREAK',
+    fastest: 'FASTEST',
+    puzzlesPerHour: 'PUZZLES / HOUR',
+    hardestPuzzle: 'HARDEST PUZZLE',
+    sectionByType: 'ACCURACY BY PUZZLE TYPE',
+    sectionSolveTime: 'SOLVE TIME',
+    sectionByDifficulty: 'ACCURACY BY DIFFICULTY',
+    sectionByTheme: 'BY TACTICAL THEME',
+    sectionOtherModes: 'OTHER GAME MODES',
+    sectionActivity: 'ACTIVITY',
+    emptyDifficulty: 'You need more attempts to break this down by difficulty.',
+    emptyThemes: 'No themes played in this period yet.',
+    tableClock: 'TIME ATTACK',
+    tableSurvival: 'SURVIVAL',
+    tableGames: 'GAMES',
   },
 
   puzzle: {
@@ -105,6 +127,16 @@ export const en: Dictionary = {
     promotion: 'PROMOTION',
     currentRating: 'Current rating:',
     globalElo: 'Global ELO',
+    analyze: 'Analyze',
+    solved: 'SOLVED',
+    failed: 'MISSED',
+    lives: 'LIVES',
+    filters: 'FILTERS',
+    history: 'HISTORY',
+    result: 'RESULT',
+    currentRatingLabel: 'Current rating:',
+    noActivityPeriod: 'No activity in this period',
+    noPuzzlesYet: 'No puzzles solved yet',
   },
 
   filters: {
@@ -122,6 +154,11 @@ export const en: Dictionary = {
     bestOfWeek: 'BEST OF THE WEEK',
     games: 'GAMES',
     survived: 'YOU SURVIVED',
+    avgTime: 'AVG TIME',
+    clockTitle: 'TIME ATTACK',
+    clockSubtitle: 'You start easy. Every solve raises the level. A miss will not lower it, but it costs you time.',
+    survivalTitle: 'SURVIVAL',
+    survivalSubtitle: 'Three lives. Every puzzle gets the same time and every solve raises the level. Missing or running out of time costs a life.',
   },
 
   repaso: {
@@ -131,10 +168,23 @@ export const en: Dictionary = {
     keepGoing: 'KEEP REVIEWING',
     emptyQueue: 'QUEUE EMPTY',
     failed: 'MISSED',
+    reviewed: 'REVIEWED',
+    skipped: 'SKIPPED',
+    remaining: 'REMAINING',
+    time: 'TIME',
+    order: 'ORDER',
+    backToPuzzles: 'BACK TO PUZZLES',
+    reasonSolution: 'SOLUTION',
+    reasonHint: 'HINT',
   },
 
   support: {
     title: 'SUPPORT THE APP',
+    thanks: 'Thank you, really! Your support helps keep the app improving.',
+    subtitle: 'This app is free and ad-free. If you find it useful, you can support its development. It does not unlock any extra feature: it is just a gesture.',
+    unavailable: 'Payments are not available right now. Please try again later.',
+    close: 'CLOSE',
+    notNow: 'NOT NOW',
   },
 
   themes: {

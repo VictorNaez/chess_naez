@@ -2,11 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-wagmi-charts';
-import { getThemeNames } from '../../lib/puzzleQueries';
+import { themeNames as resolveThemeNames } from '../chess_themes';
 import { formatDuration } from '../../lib/time';
 import { SCREEN_WIDTH } from '../../theme/layout';
 import { MiniBoardPreview } from '../ChessBoard';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface EloPoint {
   value: number;
@@ -64,6 +65,7 @@ export const HistoryModal = React.memo(({
   selectedHistoryItem,
   onSelectPuzzle,
 }: HistoryModalProps) => {
+  const t = useT();
 
 // El mensaje de "vacío" solo se permite cuando la carga ha terminado de verdad
 // y ha pasado un pequeño margen. Así el spinner nunca parpadea al abrir.
@@ -168,8 +170,8 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
 
           {/* CABECERA DEL MODAL */}
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>HISTORY</Text>
-            <Text style={styles.footerLabel}>Current Rating:</Text>
+            <Text style={styles.modalTitle}>{t.puzzle.history}</Text>
+            <Text style={styles.footerLabel}>{t.puzzle.currentRatingLabel}</Text>
             <Text style={styles.footerValue}>{globalElo} ELO</Text>
             <TouchableOpacity style={styles.closeModalBtn} onPress={onClose}>
               <Ionicons name="close" size={20} color="#FFF" />
@@ -199,7 +201,7 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
           <View style={styles.chartContainer}>
             {chartData.length === 0 ? (
               <View style={styles.chartEmptyState}>
-                <Text style={styles.historyEmptyText}>No activity in this period</Text>
+                <Text style={styles.historyEmptyText}>{t.puzzle.noActivityPeriod}</Text>
               </View>
             ) : (
               <LineChart.Provider data={chartData} xDomain={timeRange === 'all' ? eloChartXDomain : undefined}>
@@ -262,7 +264,7 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
                 <ActivityIndicator size="small" color={PALETTE.primary} />
               </View>
             ) : recentPuzzles.length === 0 ? (
-              <Text style={styles.historyEmptyText}>No puzzles solved yet</Text>
+              <Text style={styles.historyEmptyText}>{t.puzzle.noPuzzlesYet}</Text>
             ) : (
               recentPuzzles.map((puzzleData) => {
                 const isSelected = selectedHistoryItem?.id === puzzleData?.id;
@@ -270,7 +272,7 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
                 const eloChangeText = puzzleData.elo_change >= 0
                   ? `+${puzzleData.elo_change}`
                   : `${puzzleData.elo_change}`;
-                const themeNames = getThemeNames(puzzleData.puzzle_themes);
+                const themeNames = resolveThemeNames(t, puzzleData.puzzle_themes);
                 const solveMs = puzzleData.solve_ms || 0;
 
                 return (

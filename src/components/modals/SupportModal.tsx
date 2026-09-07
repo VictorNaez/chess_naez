@@ -3,6 +3,7 @@ import React from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { DonationStatus } from '../../hooks/useDonations';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 interface SupportModalProps {
   visible: boolean;
@@ -17,6 +18,7 @@ interface SupportModalProps {
 export const SupportModal = React.memo(({
   visible, onClose, products, status, isAvailable, connected, onDonate,
 }: SupportModalProps) => {
+  const t = useT();
 
   const busy = status === 'purchasing';
 
@@ -29,22 +31,21 @@ const cleanTitle = (raw: string) =>
         <View style={styles.supportModalContent}>
 
           <Ionicons name="heart" size={34} color={PALETTE.error} style={{ alignSelf: 'center' }} />
-          <Text style={styles.modalTitle}>SUPPORT THE APP</Text>
+          <Text style={styles.modalTitle}>{t.support.title}</Text>
 
           {status === 'thanks' ? (
             <Text style={styles.thanksText}>
-              ¡Gracias de verdad! Tu apoyo ayuda a seguir mejorando la app.
+              {t.support.thanks}
             </Text>
           ) : (
             <>
               <Text style={styles.subtitle}>
-                Esta app es gratuita y sin anuncios. Si te resulta útil, puedes apoyar su
-                desarrollo. No desbloquea ninguna función extra: es solo un gesto.
+                {t.support.subtitle}
               </Text>
 
               {!isAvailable || !connected ? (
                 <Text style={styles.errorText}>
-                  Los pagos no están disponibles ahora mismo. Inténtalo más tarde.
+                  {t.support.unavailable}
                 </Text>
               ) : products.length === 0 ? (
                 <ActivityIndicator color={PALETTE.secondary} style={{ marginVertical: 25 }} />
@@ -66,13 +67,13 @@ const cleanTitle = (raw: string) =>
               )}
 
               {status === 'error' && (
-                <Text style={styles.errorText}>No se pudo completar la operación.</Text>
+                <Text style={styles.errorText}>{t.common.error}</Text>
               )}
             </>
           )}
 
           <TouchableOpacity style={styles.closeBtn} onPress={onClose} disabled={busy}>
-            <Text style={styles.btnText}>{status === 'thanks' ? 'CERRAR' : 'AHORA NO'}</Text>
+            <Text style={styles.btnText}>{status === 'thanks' ? t.support.close : t.support.notNow}</Text>
           </TouchableOpacity>
         </View>
       </View>

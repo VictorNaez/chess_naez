@@ -20,6 +20,10 @@ export const es = {
     retry: 'Reintentar',
     next: 'Siguiente',
     error: 'No se pudo completar la operación.',
+    back: 'Volver',
+    backToPuzzles: 'Volver a puzles',
+    soon: 'PRONTO',
+    total: 'TOTAL',
   },
 
   menu: {
@@ -33,6 +37,7 @@ export const es = {
     stats: 'Estadísticas',
     settings: 'Ajustes',
     donations: 'Donaciones',
+    analysisSection: 'ANÁLISIS',
   },
 
   settings: {
@@ -104,6 +109,23 @@ export const es = {
     period30d: '30D',
     periodAll: 'TODO',
     periodWeek: 'ESTA SEMANA',
+
+    totalTime: 'TIEMPO TOTAL',
+    currentStreak: 'RACHA ACTUAL',
+    fastest: 'MÁS RÁPIDO',
+    puzzlesPerHour: 'PUZLES / HORA',
+    hardestPuzzle: 'PUZLE MÁS DIFÍCIL',
+    sectionByType: 'ACIERTOS POR TIPO DE PUZLE',
+    sectionSolveTime: 'TIEMPO DE RESOLUCIÓN',
+    sectionByDifficulty: 'ACIERTOS POR DIFICULTAD',
+    sectionByTheme: 'POR TEMA TÁCTICO',
+    sectionOtherModes: 'OTROS MODOS DE JUEGO',
+    sectionActivity: 'ACTIVIDAD',
+    emptyDifficulty: 'Necesitas más intentos para desglosar por dificultad.',
+    emptyThemes: 'Todavía no has jugado ningún tema en este periodo.',
+    tableClock: 'CONTRARRELOJ',
+    tableSurvival: 'SUPERVIVENCIA',
+    tableGames: 'PARTIDAS',
   },
 
   puzzle: {
@@ -116,6 +138,16 @@ export const es = {
     promotion: 'CORONACIÓN',
     currentRating: 'ELO actual:',
     globalElo: 'ELO global',
+    analyze: 'Analizar',
+    solved: 'ACIERTOS',
+    failed: 'FALLOS',
+    lives: 'VIDAS',
+    filters: 'FILTROS',
+    history: 'HISTORIAL',
+    result: 'RESULTADO',
+    currentRatingLabel: 'ELO actual:',
+    noActivityPeriod: 'Sin actividad en este periodo',
+    noPuzzlesYet: 'Todavía no has resuelto ningún puzle',
   },
 
   filters: {
@@ -133,6 +165,11 @@ export const es = {
     bestOfWeek: 'MEJOR DE LA SEMANA',
     games: 'PARTIDAS',
     survived: 'AGUANTASTE',
+    avgTime: 'T. MEDIO',
+    clockTitle: 'CONTRARRELOJ',
+    clockSubtitle: 'Empiezas fácil. Cada acierto sube el nivel. Un fallo no te baja, pero te cuesta tiempo.',
+    survivalTitle: 'SUPERVIVENCIA',
+    survivalSubtitle: 'Tres vidas. Cada puzle tiene el mismo tiempo y cada acierto sube el nivel. Fallar o quedarte sin tiempo cuesta una vida.',
   },
 
   repaso: {
@@ -142,10 +179,23 @@ export const es = {
     keepGoing: 'SEGUIR REPASANDO',
     emptyQueue: 'COLA VACÍA',
     failed: 'FALLADOS',
+    reviewed: 'REPASADOS',
+    skipped: 'SALTADOS',
+    remaining: 'QUEDAN',
+    time: 'TIEMPO',
+    order: 'ORDEN',
+    backToPuzzles: 'VOLVER A PUZLES',
+    reasonSolution: 'SOLUCIÓN',
+    reasonHint: 'PISTA',
   },
 
   support: {
     title: 'APOYA LA APP',
+    thanks: '¡Gracias de verdad! Tu apoyo ayuda a seguir mejorando la app.',
+    subtitle: 'Esta app es gratuita y sin anuncios. Si te resulta útil, puedes apoyar su desarrollo. No desbloquea ninguna función extra: es solo un gesto.',
+    unavailable: 'Los pagos no están disponibles ahora mismo. Inténtalo más tarde.',
+    close: 'CERRAR',
+    notNow: 'AHORA NO',
   },
 
   // Nombres de temas tácticos, indexados por el MISMO id numérico que guarda

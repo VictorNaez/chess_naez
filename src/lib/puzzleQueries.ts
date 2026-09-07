@@ -1,4 +1,3 @@
-import { CHESS_THEMES } from '../components/chess_themes';
 
 // Construye la condición SQL para filtrar puzzles por temas.
 // Un puzzle debe contener TODOS los temas seleccionados (AND, no OR).
@@ -22,13 +21,3 @@ export const arraysEqualUnordered = (a: string[], b: string[]): boolean => {
   return sortedA.every((val, i) => val === sortedB[i]);
 };
 
-export const getThemeNames = (themeIdsString: string): string => {
-  if (!themeIdsString) return "";
-  if (themeIdsString === 'global') return "Global ELO";
-
-  const ids = themeIdsString.split(" ");
-  return ids
-    .map(id => CHESS_THEMES.find(t => t.id === id)?.name)
-    .filter(Boolean)
-    .join(", ");
-};

@@ -7,6 +7,7 @@ import { hapticImpact } from '../../lib/haptics';
 import type { RunKind, RunRecords } from '../../types/run';
 import { getRunRecords } from '../../types/runs';
 import { PALETTE } from '../colors';
+import { useT } from '../../i18n/I18nProvider';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -52,6 +53,7 @@ const RecordValue = React.memo(({ value }: { value: number }) => (
 export const RunStartModal = React.memo(({
   visible, db, kind, icon, title, subtitle, options, defaultMs, optionsLabel, onClose, onStart,
 }: RunStartModalProps) => {
+  const t = useT();
   const [selected, setSelected] = useState<number>(defaultMs);
   const [records, setRecords] = useState<RunRecords>(EMPTY);
 
@@ -102,15 +104,15 @@ export const RunStartModal = React.memo(({
           <View style={styles.recordsRow}>
             <View style={styles.recordItem}>
               <RecordValue value={records.bestAllTime} />
-              <Text style={styles.recordLabel}>RÉCORD</Text>
+              <Text style={styles.recordLabel}>{t.run.record}</Text>
             </View>
             <View style={styles.recordItem}>
               <RecordValue value={records.bestThisWeek} />
-              <Text style={styles.recordLabel}>ESTA SEMANA</Text>
+              <Text style={styles.recordLabel}>{t.stats.periodWeek}</Text>
             </View>
             <View style={styles.recordItem}>
               <RecordValue value={records.total} />
-              <Text style={styles.recordLabel}>PARTIDAS</Text>
+              <Text style={styles.recordLabel}>{t.run.games}</Text>
             </View>
           </View>
 
@@ -119,11 +121,11 @@ export const RunStartModal = React.memo(({
             onPress={() => { hapticImpact('medium'); onStart(selected); }}
           >
             <Ionicons name="play" size={20} color="#ffffff" />
-            <Text style={styles.startText}>EMPEZAR</Text>
+            <Text style={styles.startText}>{t.run.start}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-            <Text style={styles.cancelText}>Cancelar</Text>
+            <Text style={styles.cancelText}>{t.common.cancel}</Text>
           </TouchableOpacity>
         </View>
       </View>
