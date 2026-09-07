@@ -1,13 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { CLOCK_DURATIONS } from '../../lib/clock';
 import {
   ACTIVITY_DAYS,
   STATS_RANGE_OPTIONS,
+  type RunModeStat,
   type StatsRange,
   type StatsSnapshot,
   type ThemeStat,
 } from '../../lib/statsQueries';
+import { SURVIVAL_SPEEDS } from '../../lib/survival';
 import { PALETTE } from '../colors';
 import {
   accuracyTint,
@@ -15,9 +18,11 @@ import {
   EmptyHint,
   MetricRow,
   pct,
+  RunTable,
   SectionTitle,
   SplitBar,
   StatCell,
+  type RunTableRow,
 } from '../stats/StatPrimitives';
 
 interface StatsModalProps {
@@ -64,6 +69,46 @@ const formatTotal = (ms: number): string => {
 
 const signed = (n: number): string => (n > 0 ? `+${n}` : String(n));
 
+// Puzles por hora de juego efectivo. Solo cuentan los intentos con tiempo
+// creíble, que son los mismos que suman en totalTimeMs.
+const formatPace = (timedAttempts: number, totalMs: number): string => {
+  if (timedAttempts <= 0 || totalMs <= 0) return '—';
+  const perHour = timedAttempts / (totalMs / 3_600_000);
+  return perHour >= 100 ? String(Math.round(perHour)) : perHour.toFixed(1);
+};
+
+// Una fila por cubo de tiempo, en el orden en que aparecen en el menú de
+// inicio, jugados o no. Las partidas con una duración que ya no está en la
+// lista (por si algún día cambian los presets) se agrupan al final en vez de
+// desaparecer del panel.
+const buildRunRows = (
+  stat: RunModeStat,
+  presets: readonly { label: string; ms: number }[],
+): RunTableRow[] => {
+  const rows: RunTableRow[] = presets.map(p => {
+    const found = stat.byDuration.find(d => d.durationMs === p.ms);
+    return {
+      label: p.label,
+      runs: found?.runs ?? 0,
+      bestSolved: found?.bestSolved ?? 0,
+      totalSolved: found?.totalSolved ?? 0,
+    };
+  });
+
+  const known = new Set(presets.map(p => p.ms));
+  const others = stat.byDuration.filter(d => !known.has(d.durationMs));
+  if (others.length > 0) {
+    rows.push({
+      label: 'OTROS',
+      runs: others.reduce((n, d) => n + d.runs, 0),
+      bestSolved: others.reduce((n, d) => Math.max(n, d.bestSolved), 0),
+      totalSolved: others.reduce((n, d) => n + d.totalSolved, 0),
+    });
+  }
+
+  return rows;
+};
+
 export const StatsModal = React.memo(({
   visible,
   onClose,
@@ -76,12 +121,23 @@ export const StatsModal = React.memo(({
   const [themeSort, setThemeSort] = useState<ThemeSort>('accuracy');
 
   const sortedThemes = useMemo(() => {
-    const list = [...stats.themes];
-    switch (themeSort) {
-      case 'volume': return list.sort((a, b) => b.attempts - a.attempts);
-      case 'elo':    return list.sort((a, b) => (b.elo ?? 0) - (a.elo ?? 0));
-      default:       return list.sort((a, b) => b.accuracy - a.accuracy || b.attempts - a.attempts);
-    }
+    const key = (t: ThemeStat): number => {
+      switch (themeSort) {
+        case 'volume': return t.attempts;
+        case 'elo':    return t.elo ?? 0;
+        default:       return t.accuracy;
+      }
+    };
+
+    // Siempre de mayor a menor, pero los temas con muy poca muestra bajan al
+    // final: un 100% de 1/1 no debería encabezar la lista por delante de un
+    // 78% de cuarenta intentos.
+    return [...stats.themes].sort((a, b) => {
+      const aSolid = a.attempts >= MIN_THEME_ATTEMPTS ? 1 : 0;
+      const bSolid = b.attempts >= MIN_THEME_ATTEMPTS ? 1 : 0;
+      if (aSolid !== bSolid) return bSolid - aSolid;
+      return key(b) - key(a) || b.attempts - a.attempts;
+    });
   }, [stats.themes, themeSort]);
 
   // Fuerte y débil solo entre los temas con muestra suficiente.
@@ -92,11 +148,8 @@ export const StatsModal = React.memo(({
     return { strongest: byAccuracy[0], weakest: byAccuracy[byAccuracy.length - 1] };
   }, [stats.themes]);
 
-  // El ancho de las barras de dificultad es relativo al bucket más lento.
-  const slowestBucketMs = useMemo(
-    () => Math.max(1, ...stats.buckets.map(b => b.avgSolveMs)),
-    [stats.buckets]
-  );
+  const clockRows = useMemo(() => buildRunRows(stats.clock, CLOCK_DURATIONS), [stats.clock]);
+  const survivalRows = useMemo(() => buildRunRows(stats.survival, SURVIVAL_SPEEDS), [stats.survival]);
 
   const showModeSplit = stats.auto.attempts + stats.manual.attempts + stats.untracked.attempts > 0;
   const hasRuns = stats.clock.runs > 0 || stats.survival.runs > 0;
@@ -219,46 +272,20 @@ export const StatsModal = React.memo(({
                     note={`${stats.manual.solved}/${stats.manual.attempts}`}
                     faded={stats.manual.attempts === 0}
                   />
-                  {stats.untracked.attempts > 0 && (
-                    <MetricRow
-                      label="Sin registrar"
-                      ratio={stats.untracked.accuracy}
-                      tint={PALETTE.chipText}
-                      value={pct(stats.untracked.accuracy)}
-                      note={`${stats.untracked.solved}/${stats.untracked.attempts}`}
-                      faded
-                    />
-                  )}
-                  {stats.untracked.attempts > 0 && (
-                    <Text style={styles.footnote}>
-                      Los intentos anteriores a esta versión no guardaban con qué modo se jugaron.
-                    </Text>
-                  )}
-                </>
-              )}
 
-              {/* ============ PARTIDAS ============ */}
-              {hasRuns && (
-                <>
-                  <SectionTitle icon="trophy-outline" title="OTROS MODOS DE JUEGO" />
-                  <View style={styles.grid}>
-                    <StatCell label="CONTRARRELOJ" value={String(stats.clock.runs)} />
-                    <StatCell label="RÉCORD C.RELOJ" value={String(stats.clock.bestSolved)} />
-                    <StatCell label="RESUELTOS" value={String(stats.clock.totalSolved)} />
-                    <StatCell label="SUPERVIVENCIA" value={String(stats.survival.runs)} />
-                    <StatCell label="RÉCORD SUPERV." value={String(stats.survival.bestSolved)} />
-                    <StatCell label="RESUELTOS" value={String(stats.survival.totalSolved)} />
-                  </View>
                 </>
               )}
 
               {/* ============ TIEMPO ============ */}
               <SectionTitle icon="time-outline" title="TIEMPO DE RESOLUCIÓN" />
               <View style={styles.grid}>
-                <StatCell label="MEDIA (ACIERTOS)" value={formatShort(stats.medianSolveMs)} />
                 <StatCell label="MEDIA EN ACIERTOS" value={formatShort(stats.avgSolveMsSuccess)} />
                 <StatCell label="MEDIA EN FALLOS" value={formatShort(stats.avgSolveMsFail)} />
                 <StatCell label="MÁS RÁPIDO" value={formatShort(stats.fastestSolveMs)} />
+                <StatCell
+                  label="PUZLES / HORA"
+                  value={formatPace(stats.timedAttempts, stats.totalTimeMs)}
+                />
                 <StatCell
                   label="PUZLE MÁS DIFÍCIL"
                   value={stats.hardestSolvedElo > 0 ? String(stats.hardestSolvedElo) : '—'}
@@ -281,10 +308,14 @@ export const StatsModal = React.memo(({
                   <MetricRow
                     key={b.from}
                     label={`${b.from}–${b.to}`}
-                    ratio={b.avgSolveMs / slowestBucketMs}
+                    ratio={b.accuracy}
                     tint={accuracyTint(b.accuracy)}
-                    value={formatShort(b.avgSolveMs)}
-                    note={`${pct(b.accuracy)} · ${b.attempts}`}
+                    value={pct(b.accuracy)}
+                    note={
+                      b.avgSolveMs > 0
+                        ? `${b.solved}/${b.attempts} · ${formatShort(b.avgSolveMs)}`
+                        : `${b.solved}/${b.attempts}`
+                    }
                   />
                 ))
               )}
@@ -341,6 +372,18 @@ export const StatsModal = React.memo(({
                     faded={t.attempts < MIN_THEME_ATTEMPTS}
                   />
                 ))
+              )}
+
+              {/* ============ OTROS MODOS DE JUEGO ============ */}
+              {hasRuns && (
+                <>
+                  <SectionTitle
+                    icon="trophy-outline"
+                    title="OTROS MODOS DE JUEGO"
+                  />
+                  {stats.clock.runs > 0 && <RunTable title="CONTRARRELOJ" rows={clockRows} />}
+                  {stats.survival.runs > 0 && <RunTable title="SUPERVIVENCIA" rows={survivalRows} />}
+                </>
               )}
 
               {/* ============ ACTIVIDAD ============ */}

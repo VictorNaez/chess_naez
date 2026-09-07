@@ -87,10 +87,23 @@ export interface DayStat {
   solved: number;
 }
 
+// Desglose de un modo de partida por "cubo" de tiempo:
+//   contrarreloj  -> duración de la partida (1 / 3 / 5 min)
+//   supervivencia -> tiempo por puzle (15 / 30 / 60 s)
+// Comparar récords de cubos distintos no dice nada, así que el panel los
+// muestra por separado en vez de agregarlos en una sola cifra.
+export interface RunDurationStat {
+  durationMs: number;
+  runs: number;
+  bestSolved: number;
+  totalSolved: number;
+}
+
 export interface RunModeStat {
   runs: number;
   bestSolved: number;
   totalSolved: number;
+  byDuration: RunDurationStat[];   // solo los cubos con partidas jugadas
 }
 
 export interface StatsSnapshot {
@@ -117,9 +130,12 @@ export interface StatsSnapshot {
   avgSolveMs: number;
   avgSolveMsSuccess: number;
   avgSolveMsFail: number;
-  medianSolveMs: number;
   totalTimeMs: number;
   fastestSolveMs: number;
+  // Intentos con solve_ms creíble. Es el numerador del ritmo (puzles/hora):
+  // dividir `attempts` entre `totalTimeMs` mezclaría intentos que no aportan
+  // tiempo con un total que solo suma los que sí lo aportan.
+  timedAttempts: number;
 
   hardestSolvedElo: number;
   avgSolvedElo: number;
@@ -138,15 +154,15 @@ export interface StatsSnapshot {
 }
 
 const emptySplit = (): ModeSplit => ({ attempts: 0, solved: 0, failed: 0, accuracy: 0 });
-const emptyRun = (): RunModeStat => ({ runs: 0, bestSolved: 0, totalSolved: 0 });
+const emptyRun = (): RunModeStat => ({ runs: 0, bestSolved: 0, totalSolved: 0, byDuration: [] });
 
 export const EMPTY_STATS: StatsSnapshot = {
   hasData: false,
   currentElo: 1200, maxElo: 1200, minElo: 1200, bestStreak: 0, lifetimeAttempts: 0,
   attempts: 0, solved: 0, failed: 0, accuracy: 0, eloGain: 0,
   auto: emptySplit(), manual: emptySplit(), untracked: emptySplit(),
-  avgSolveMs: 0, avgSolveMsSuccess: 0, avgSolveMsFail: 0, medianSolveMs: 0,
-  totalTimeMs: 0, fastestSolveMs: 0,
+  avgSolveMs: 0, avgSolveMsSuccess: 0, avgSolveMsFail: 0,
+  totalTimeMs: 0, fastestSolveMs: 0, timedAttempts: 0,
   hardestSolvedElo: 0, avgSolvedElo: 0,
   themes: [], buckets: [],
   days: [], activeDays: 0, bestDay: null, dayStreak: 0,
@@ -255,10 +271,11 @@ export const loadStats = async (
       COALESCE(SUM(CASE WHEN h.solve_ms BETWEEN 1 AND ? THEN h.solve_ms END), 0) AS totalMs,
       COALESCE(MIN(CASE WHEN h.is_success = 1 AND h.solve_ms BETWEEN 1 AND ? THEN h.solve_ms END), 0) AS fastestMs,
       COALESCE(MAX(CASE WHEN h.is_success = 1 THEN h.puzzle_elo END), 0)         AS hardestSolved,
-      COALESCE(AVG(CASE WHEN h.is_success = 1 AND h.puzzle_elo > 0 THEN h.puzzle_elo END), 0) AS avgSolvedElo
+      COALESCE(AVG(CASE WHEN h.is_success = 1 AND h.puzzle_elo > 0 THEN h.puzzle_elo END), 0) AS avgSolvedElo,
+      COUNT(CASE WHEN h.solve_ms BETWEEN 1 AND ? THEN 1 END)                     AS timedAttempts
     FROM elo_history h
     WHERE h.puzzleID IS NOT NULL AND ${TS_MS('h')} >= ?
-  `, [cap, cap, cap, cap, cap, since]);
+  `, [cap, cap, cap, cap, cap, cap, since]);
 
   // --- 3. Reparto por modo de selección de ELO --------------------
   // is_recommended es NULL en las filas anteriores a que existiera la columna:
@@ -279,24 +296,7 @@ export const loadStats = async (
     modeRows = [];
   }
 
-  // --- 4. Mediana del tiempo de resolución (solo aciertos) ---------
-  // La media se dispara con los puzles que dejas a medias; la mediana es la
-  // que de verdad describe "lo que tardas".
-  const medianRow = await db.getFirstAsync<{ v: number }>(`
-    SELECT h.solve_ms AS v
-    FROM elo_history h
-    WHERE h.puzzleID IS NOT NULL AND h.is_success = 1
-      AND h.solve_ms BETWEEN 1 AND ? AND ${TS_MS('h')} >= ?
-    ORDER BY h.solve_ms
-    LIMIT 1
-    OFFSET (
-      SELECT COUNT(*) / 2 FROM elo_history h2
-      WHERE h2.puzzleID IS NOT NULL AND h2.is_success = 1
-        AND h2.solve_ms BETWEEN 1 AND ? AND ${TS_MS('h2')} >= ?
-    )
-  `, [cap, since, cap, since]);
-
-  // --- 5. Precisión por tema táctico ------------------------------
+  // --- 4. Precisión por tema táctico ------------------------------
   // Agrupamos por la cadena de temas (hay pocas combinaciones distintas) en vez
   // de traer una fila por intento, y luego repartimos en JS. Sumas en vez de
   // medias: hay que poder recombinar los grupos por tema.
@@ -351,7 +351,7 @@ export const loadStats = async (
     .filter(t => t.attempts > 0)
     .sort((a, b) => b.accuracy - a.accuracy || b.attempts - a.attempts);
 
-  // --- 6. Tiempo y precisión por dificultad del puzle --------------
+  // --- 5. Tiempo y precisión por dificultad del puzle --------------
   const bucketRows = await db.getAllAsync<{
     bucket: number; attempts: number; solved: number; msSum: number; msCount: number;
   }>(`
@@ -377,7 +377,7 @@ export const loadStats = async (
       avgSolveMs: r.msCount > 0 ? r.msSum / r.msCount : 0,
     }));
 
-  // --- 7. Actividad diaria (ventana fija) -------------------------
+  // --- 6. Actividad diaria (ventana fija) -------------------------
   const activitySince = Date.now() - 400 * DAY_MS;
   const dayRows = await db.getAllAsync<{ day: string; attempts: number; solved: number }>(`
     SELECT date(h.timestamp, 'localtime')  AS day,
@@ -398,18 +398,37 @@ export const loadStats = async (
     (best, r) => (r.attempts > 0 && (!best || r.attempts > best.attempts) ? r : best), null
   );
 
-  // --- 8. Partidas de contrarreloj y supervivencia -----------------
+  // --- 7. Partidas de contrarreloj y supervivencia -----------------
   const loadRuns = async (table: string): Promise<RunModeStat> => {
     try {
-      const row = await db.getFirstAsync<{ runs: number; best: number | null; total: number | null }>(
-        `SELECT COUNT(*) AS runs, MAX(solved) AS best, SUM(solved) AS total
-         FROM ${table} WHERE ended_at >= ?`,
+      const rows = await db.getAllAsync<{
+        durationMs: number; runs: number; best: number | null; total: number | null;
+      }>(
+        `SELECT duration_ms AS durationMs,
+                COUNT(*)    AS runs,
+                MAX(solved) AS best,
+                SUM(solved) AS total
+         FROM ${table}
+         WHERE ended_at >= ?
+         GROUP BY duration_ms
+         ORDER BY duration_ms ASC`,
         [since]
       );
+
+      const byDuration: RunDurationStat[] = rows.map(r => ({
+        durationMs: r.durationMs,
+        runs: r.runs,
+        bestSolved: r.best ?? 0,
+        totalSolved: r.total ?? 0,
+      }));
+
+      // Los agregados salen del desglose: una consulta menos y no hay forma de
+      // que el total y las filas se contradigan.
       return {
-        runs: row?.runs ?? 0,
-        bestSolved: row?.best ?? 0,
-        totalSolved: row?.total ?? 0,
+        runs: byDuration.reduce((n, d) => n + d.runs, 0),
+        bestSolved: byDuration.reduce((n, d) => Math.max(n, d.bestSolved), 0),
+        totalSolved: byDuration.reduce((n, d) => n + d.totalSolved, 0),
+        byDuration,
       };
     } catch {
       // Las tablas las crea useClockMode/useSurvivalMode al montar; si el
@@ -456,9 +475,9 @@ export const loadStats = async (
     avgSolveMs: Math.round(totalsRow?.avgMs ?? 0),
     avgSolveMsSuccess: Math.round(totalsRow?.avgMsOk ?? 0),
     avgSolveMsFail: Math.round(totalsRow?.avgMsKo ?? 0),
-    medianSolveMs: Math.round(medianRow?.v ?? 0),
     totalTimeMs: totalsRow?.totalMs ?? 0,
     fastestSolveMs: totalsRow?.fastestMs ?? 0,
+    timedAttempts: totalsRow?.timedAttempts ?? 0,
 
     hardestSolvedElo: totalsRow?.hardestSolved ?? 0,
     avgSolvedElo: Math.round(totalsRow?.avgSolvedElo ?? 0),

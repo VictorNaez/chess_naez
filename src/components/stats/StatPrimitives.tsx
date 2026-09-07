@@ -97,6 +97,47 @@ export const MetricRow = React.memo(({ label, ratio, tint, value, note, faded }:
 ));
 
 // =========================================================
+// TABLA DE RÉCORDS POR TIEMPO
+// Contrarreloj y supervivencia se juegan en tres "cubos" de tiempo distintos y
+// sus récords no son comparables entre sí, así que van uno por fila.
+// =========================================================
+export interface RunTableRow {
+  label: string;
+  runs: number;
+  bestSolved: number;
+  totalSolved: number;
+}
+
+export const RunTable = React.memo(({ title, rows }: { title: string; rows: RunTableRow[] }) => (
+  <View style={styles.runTable}>
+    <View style={styles.runHead}>
+      <Text style={[styles.runTitle, styles.runColLabel]} numberOfLines={1}>{title}</Text>
+      <Text style={[styles.runHeadCell, styles.runColNum]}>RÉCORD</Text>
+      <Text style={[styles.runHeadCell, styles.runColNum]}>PARTIDAS</Text>
+      <Text style={[styles.runHeadCell, styles.runColNum]}>TOTAL</Text>
+    </View>
+
+    {rows.map(row => {
+      const played = row.runs > 0;
+      return (
+        <View key={row.label} style={[styles.runRow, !played && styles.runRowFaded]}>
+          <Text style={[styles.runLabel, styles.runColLabel]} numberOfLines={1}>{row.label}</Text>
+          <Text style={[styles.runBest, styles.runColNum]}>
+            {played ? String(row.bestSolved) : '—'}
+          </Text>
+          <Text style={[styles.runNum, styles.runColNum]}>
+            {played ? String(row.runs) : '—'}
+          </Text>
+          <Text style={[styles.runNum, styles.runColNum]}>
+            {played ? String(row.totalSolved) : '—'}
+          </Text>
+        </View>
+      );
+    })}
+  </View>
+));
+
+// =========================================================
 // ACTIVIDAD DIARIA
 // Barra apilada por día: verde lo resuelto, rojo lo fallado.
 // =========================================================
@@ -164,9 +205,24 @@ const styles = StyleSheet.create({
   metricLabel: { color: PALETTE.accent, fontSize: 12, fontWeight: '700', marginBottom: 5 },
   metricTrack: { width: '100%', height: 6, borderRadius: 4, backgroundColor: PALETTE.chipBg, overflow: 'hidden' },
   metricFill: { height: '100%', borderRadius: 4 },
-  metricRight: { width: 62, alignItems: 'flex-end' },
+  metricRight: { width: 70, alignItems: 'flex-end' },
   metricValue: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
   metricNote: { color: PALETTE.chipText, fontSize: 9, fontWeight: '700', marginTop: 2, fontVariant: ['tabular-nums'] },
+
+  runTable: { width: '100%', marginBottom: 8 },
+  runHead: {
+    flexDirection: 'row', alignItems: 'flex-end', paddingBottom: 6,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  runTitle: { color: PALETTE.secondary, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  runHeadCell: { color: PALETTE.chipText, fontSize: 8, fontWeight: '800', letterSpacing: 0.6, textAlign: 'right' },
+  runColLabel: { flex: 1, minWidth: 0 },
+  runColNum: { width: 62, textAlign: 'right' },
+  runRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  runRowFaded: { opacity: 0.35 },
+  runLabel: { color: PALETTE.accent, fontSize: 12, fontWeight: '700' },
+  runBest: { color: PALETTE.primary, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  runNum: { color: PALETTE.accent, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
 
   activityWrap: { width: '100%' },
   activityRow: { flexDirection: 'row', alignItems: 'flex-end', height: 90, gap: 3 },
