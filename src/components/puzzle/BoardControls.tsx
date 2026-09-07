@@ -13,6 +13,9 @@ interface BoardControlsProps {
   solutionRevealed: boolean;
   onShowSolution: () => void;
   onStartAnalysis: () => void;
+  // Salir del análisis sin tener que cambiar de puzle. Descarta la variante
+  // explorada y devuelve el tablero a la posición desde la que se entró.
+  onExitAnalysis: () => void;
   onRetry: () => void;
   onNextPuzzle: () => void;
   onHint: () => void;
@@ -28,6 +31,7 @@ export const BoardControls = React.memo(({
   solutionRevealed,
   onShowSolution,
   onStartAnalysis,
+  onExitAnalysis,
   onRetry,
   onNextPuzzle,
   onHint,
@@ -37,6 +41,9 @@ export const BoardControls = React.memo(({
   const isSuccess = message.includes('✅') || isAnalysisMode;
   const isPlaying = !message.includes('❌') && !message.includes('✅') && !isAnalysisMode;
   const isAtLastMove = viewIndex === fenHistoryLength - 1;
+  // En el bloque de la derecha siempre hay un botón acompañando a "Next":
+  // "Analyze" cuando el puzle está resuelto, "Exit" mientras se analiza.
+  const hasSecondaryAction = isAnalysisMode || message.includes('✅');
 
   return (
     <View style={styles.footerSection}>
@@ -104,7 +111,14 @@ export const BoardControls = React.memo(({
           {/* CASO 2: ÉXITO o MODO ANÁLISIS */}
           {isSuccess && (
             <Animated.View entering={FadeIn.duration(250)} exiting={FadeOut.duration(150)} style={styles.modernActionButtonRow}>
-              {message.includes('✅') && (
+              {isAnalysisMode ? (
+                <TouchableOpacity style={[styles.iconTextBtn, styles.btnHint]} onPress={onExitAnalysis}>
+                  <View style={styles.iconContainer}>
+                    <Ionicons name="close-circle-outline" size={20} color={PALETTE.primary} />
+                  </View>
+                  <Text style={[styles.iconTextBtnText, styles.btnHintText]} numberOfLines={1} adjustsFontSizeToFit>Exit Analysis</Text>
+                </TouchableOpacity>
+              ) : message.includes('✅') && (
                 <TouchableOpacity style={[styles.iconTextBtn, styles.btnHint]} onPress={onStartAnalysis}>
                   <View style={styles.iconContainer}>
                     <Ionicons name="analytics" size={20} color={PALETTE.primary} />
@@ -117,7 +131,7 @@ export const BoardControls = React.memo(({
                 style={[
                   styles.iconTextBtn,
                   styles.btnSuccessFilled,
-                  { flex: message.includes('✅') ? 2 : 1, maxWidth: message.includes('✅') ? 200 : 260 }
+                  { flex: hasSecondaryAction ? 2 : 1, maxWidth: hasSecondaryAction ? 200 : 260 }
                 ]}
                 onPress={onNextPuzzle}
               >

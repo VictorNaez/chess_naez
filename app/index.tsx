@@ -35,7 +35,7 @@ import { BoardControls } from '../src/components/puzzle/BoardControls';
 import { MoveList } from '../src/components/puzzle/MoveList';
 import { RepasoProgressPill } from '../src/components/repaso/RepasoProgressPill';
 import { Skeleton } from '../src/components/ui/Skeleton';
-import { getMaxRowid, openPuzzleDatabase } from '../src/data/puzzleDatabase';
+import { getMaxRowid, getPuzzleById, openPuzzleDatabase } from '../src/data/puzzleDatabase';
 import { useAnalysisEngine } from '../src/hooks/useAnalysisEngine';
 import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
@@ -132,6 +132,20 @@ function App() {
   const isRunMode = isRunModeId(appMode);
   const runPhaseRef = isSurvivalMode ? survival.phaseRef : clock.phaseRef;
   const runPhase = isSurvivalMode ? survival.phase : clock.phase;
+
+  // --- REPASO POST-PARTIDA (contrarreloj / supervivencia) ---
+  // Al terminar la partida el marcador de arriba se vuelve clicable: cada
+  // cuadradito abre su puzle en el tablero para analizarlo con calma.
+  // `reviewAttemptIndex` es el índice dentro de attempts del puzle abierto, o
+  // null si solo estamos viendo el resultado.
+  const runAttempts = isSurvivalMode ? survival.attempts : clock.attempts;
+  const [reviewAttemptIndex, setReviewAttemptIndex] = useState<number | null>(null);
+  const isRunFinished = isRunMode && runPhase === 'finished';
+  const isRunReview = isRunFinished && reviewAttemptIndex !== null;
+  // Partida EN CURSO: es lo que activa los recortes de tiempo, el tablero que
+  // se sustituye solo y el footer sin controles. Durante el repaso el puzle
+  // tiene que comportarse exactamente igual que en modo normal.
+  const isRunPlaying = isRunMode && !isRunReview;
   const [isRecommendedMode, setIsRecommendedMode] = useState(false);
   const [isHistoryMode, setIsHistoryMode] = useState<boolean>(false);
   // Sólo alimentan la cola de repaso los intentos "de verdad": modo puzles, no
@@ -810,7 +824,10 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           setSuccessSquare(to);
 
           if (currentPuzzle) {
-            if (isClockMode) {
+            if (isRunReview) {
+              // Repaso post-partida: el puzle es solo para analizar. Ni ELO ni
+              // escalera ni carga automática del siguiente.
+            } else if (isClockMode) {
               // Contrarreloj: no toca el ELO global, alimenta la escalera de la partida
               const { nextRange, timeUp } = clock.registerResult(true, currentPuzzle.id, currentPuzzle.rating, solveMs);
               if (!timeUp) swapRunPuzzle(nextRange, CLOCK_TIMING.afterSolve);
@@ -840,7 +857,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             setMessage("✅"); 
             setPuzzleSolved(true); 
             setIsBoardLocked(false);
-          }, isRunMode ? 80 : 250);
+          }, isRunPlaying ? 80 : 250);
         } else {
           // MOVIMIENTO CORRECTO (pero el puzzle sigue): Vibración de movimiento
           if (isCapture) {
@@ -884,7 +901,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             });
 
             setIsBoardLocked(false); 
-          }, isRunMode ? CLOCK_TIMING.machineReply : 450);
+          }, isRunPlaying ? CLOCK_TIMING.machineReply : 450);
         }
       } else {
         // MOVIMIENTO INCORRECTO: Vibración de error
@@ -900,7 +917,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         setErrorSquare(to);
         // En contrarreloj no hay footer ni retry: el puzzle se sustituye solo,
         // así que el tablero debe seguir bloqueado hasta que cargue el siguiente.
-        if (!isRunMode) {
+        if (!isRunPlaying) {
           setTimeout(() => {
             setMessage("❌");
             setIsBoardLocked(false);
@@ -908,7 +925,9 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         }
 
         if (currentPuzzle) {
-          if (isClockMode) {
+          if (isRunReview) {
+            // Repaso post-partida: fallar aquí no cuesta nada, solo se analiza.
+          } else if (isClockMode) {
             // Fallo: NO baja de nivel, pero cambia de puzle al mismo rango
             const { nextRange, timeUp } = clock.registerResult(false, currentPuzzle.id, currentPuzzle.rating, solveMs);
             if (!timeUp) swapRunPuzzle(nextRange, CLOCK_TIMING.afterFail);
@@ -1072,6 +1091,11 @@ const handleHint = () => {
   }
 };
 
+// Foto del puzle en el momento de entrar en análisis. Al salir hay que
+// descartar la variante explorada: si no, las jugadas de análisis se quedan
+// mezcladas con la solución en el historial SAN y Retry/Next se vuelven locos.
+const analysisBaseRef = useRef<{ fens: string[]; moves: string[]; index: number } | null>(null);
+
 // Función para activar el modo análisis
 const startAnalysis = () => { 
   analysisEngine.enterAnalysisMode();
@@ -1081,7 +1105,49 @@ const startAnalysis = () => {
   setSuccessSquare(null);
 
   const targetIndex = fenHistory.length - 1;
+  analysisBaseRef.current = { fens: [...fenHistory], moves: [...moveHistory], index: targetIndex };
   setViewIndex(targetIndex);
+};
+
+// Salir del análisis sin cambiar de puzle: apaga el motor y devuelve el tablero
+// exactamente a como estaba al entrar.
+const exitAnalysis = () => {
+  analysisEngine.exitAnalysisMode();
+  analysisEngine.clearBestMove();
+  clearSelection();
+  setHintSquare(null);
+  setHintMove(null);
+
+  const base = analysisBaseRef.current;
+  analysisBaseRef.current = null;
+  if (!base || base.fens.length === 0) return;
+
+  // Durante el análisis se puede retroceder y jugar otra cosa, lo que RECORTA
+  // fenHistory: el índice guardado puede haberse quedado fuera de rango.
+  const index = Math.min(base.index, base.fens.length - 1);
+  const restored = new Chess(base.fens[index]);
+
+  seedIdentityMap(restored);
+  setGame(restored);
+  syncPiecesFromGame(restored);
+  setTimeout(() => syncPiecesFromGame(restored), 10);
+
+  setFenHistory(base.fens);
+  setMoveHistory(base.moves);
+  setViewIndex(index);
+  setIsReviewMode(false);
+  setErrorSquare(null);
+  setSuccessSquare(null);
+
+  const lastMove = index > 0 ? getMoveBetweenFens(base.fens[index - 1], base.fens[index]) : null;
+  setLastMoveFrom(lastMove?.from ?? null);
+  setLastMoveTo(lastMove?.to ?? null);
+
+  // startAnalysis desbloqueó el tablero. Si sales sin haber movido nada, ni
+  // viewIndex ni fenHistory.length cambian y el efecto del candado no se
+  // vuelve a disparar: en un puzle resuelto podrías seguir moviendo y el
+  // movimiento contaría como fallo (con su pérdida de ELO).
+  setIsBoardLocked(puzzleSolved);
 };
 
 // Efecto para guardar el rango de ELO, temas seleccionados, modo recomendado y el puzzle 
@@ -1111,9 +1177,10 @@ useEffect(() => {
 
 // Efecto para bloquear el tablero si estamos viendo un movimiento anterior o si el puzzle ya fue resuelto
 useEffect(() => {
-  // Partida terminada (contrarreloj o supervivencia): el tablero queda muerto
-  // pase lo que pase.
-  if (isRunMode && runPhase === 'finished') {
+  // Partida terminada (contrarreloj o supervivencia) sin ningún puzle abierto
+  // para repasar: el tablero queda muerto. Si el usuario ha abierto uno desde
+  // el marcador, manda la lógica normal.
+  if (isRunFinished && !isRunReview) {
     setIsBoardLocked(true);
     return;
   }
@@ -1122,7 +1189,7 @@ useEffect(() => {
   } else {
     setIsBoardLocked(true);
   }
-}, [viewIndex, fenHistory.length, puzzleSolved, isRunMode, runPhase]);
+}, [viewIndex, fenHistory.length, puzzleSolved, isRunFinished, isRunReview]);
 
 // Efecto para ajustar el rango de ELO recomendado cuando se active el modo recomendado o cambie el ELO global del usuario
 useEffect(() => {
@@ -1168,7 +1235,9 @@ useEffect(() => {
 const eloRowAnimatedStyle = useAnimatedStyle(() => ({
   height: (isRunMode ? CLOCK_ROW_HEIGHT : ELO_ROW_HEIGHT + STREAK_SLOT_HEIGHT) * eloRowProgress.value,
   opacity: eloRowProgress.value,
-  marginBottom: 12 * eloRowProgress.value,
+  // El recuadro de la partida ya es más alto que la fila de ELO: el aire de
+  // debajo se recorta para no empujar el tablero (y con él el footer).
+  marginBottom: (isRunMode ? 6 : 12) * eloRowProgress.value,
 }), [isRunMode]);
 
 // --- TRANSICIÓN DE TABLERO EN CONTRARRELOJ ---
@@ -1313,16 +1382,54 @@ const handleSurvivalTimeout = useCallback(({ nextRange, gameOver }: { nextRange:
 
 useEffect(() => { survivalTimeoutRef.current = handleSurvivalTimeout; }, [handleSurvivalTimeout]);
 
+// --- REPASO POST-PARTIDA ---
+// Abre en el tablero el puzle de un intento de la partida ya terminada. Se
+// trata como un puzle del historial (isHistory = true): pistas, solución,
+// reintentar y análisis funcionan igual que en modo normal, pero no toca el ELO
+// ni la cola de repaso.
+const openRunAttempt = async (index: number) => {
+  const attempt = runAttempts[index];
+  if (!db || !attempt) return;
+
+  const puzzle = await getPuzzleById(db, attempt.puzzleId);
+  if (!puzzle) {
+    console.warn('[REPASO PARTIDA] no se encontró el puzle', attempt.puzzleId);
+    return;
+  }
+
+  // resetPuzzleState no toca solutionRevealed: sin esto, revelar la solución de
+  // un puzle escondería el botón en todos los siguientes del repaso.
+  setSolutionRevealed(false);
+  setReviewAttemptIndex(index);
+  setCurrentPuzzle(puzzle);
+  resetPuzzleState(puzzle, false, false, true);
+};
+
+// Ref + callback estable: ClockProgressGrid es React.memo y un handler nuevo en
+// cada render lo re-renderizaría entero durante la partida.
+const openRunAttemptRef = useRef(openRunAttempt);
+useEffect(() => { openRunAttemptRef.current = openRunAttempt; });
+const stableOpenRunAttempt = useCallback((index: number) => {
+  openRunAttemptRef.current(index);
+}, []);
+
 // Modo puzles: Next y Skip. En repaso el "siguiente" no es aleatorio: sale de
-// la cola, así que se desvía a handleNextRepasoPuzzle.
+// la cola, así que se desvía a handleNextRepasoPuzzle. En el repaso
+// post-partida recorre los puzles de la partida, de forma cíclica.
 const handleNextPuzzle = useCallback(() => {
+  if (isRunReview) {
+    if (runAttempts.length === 0) return;
+    stableOpenRunAttempt(((reviewAttemptIndex ?? 0) + 1) % runAttempts.length);
+    return;
+  }
   if (isNextDisabled) return;
   if (isRepasoMode) {
     handleNextRepasoPuzzle();
     return;
   }
   slidePuzzle(() => loadSinglePuzzle(db));
-}, [db, isNextDisabled, isRepasoMode, handleNextRepasoPuzzle, slidePuzzle]);
+}, [db, isNextDisabled, isRepasoMode, handleNextRepasoPuzzle, slidePuzzle,
+    isRunReview, reviewAttemptIndex, runAttempts.length, stableOpenRunAttempt]);
 
 const streakSlotAnimatedStyle = useAnimatedStyle(() => ({
   height: STREAK_SLOT_HEIGHT * eloRowProgress.value,
@@ -1471,6 +1578,7 @@ useEffect(() => {
 
 // Carga el primer puzle de una partida, usando el precargado si el rango coincide.
 const startRunWithRange = useCallback((range: [number, number]) => {
+  setReviewAttemptIndex(null);   // partida nueva: se acabó el repaso de la anterior
   const cached = clockPrefetchRef.current;
 
   if (cached && cached.range[0] === range[0] && cached.range[1] === range[1]) {
@@ -1491,6 +1599,7 @@ const handleStartSurvivalRun = useCallback((ms: number) => {
 }, [startRunWithRange]);
 
 const handleExitRun = useCallback(() => {
+  setReviewAttemptIndex(null);
   clock.abortRun();
   survival.abortRun();
   setAppMode('puzzles');
@@ -1499,7 +1608,16 @@ const handleExitRun = useCallback(() => {
 
 const handleSelectMode = useCallback((mode: AppMode) => {
   setIsMenuVisible(false);
-  if (mode === appMode) return;
+
+  if (mode === appMode) {
+    // Con una partida terminada, volver a elegir el mismo modo es "jugar otra
+    // vez". Sin esto el menú no hace nada y parece roto.
+    if (mode === 'clock' && clock.phase === 'finished') setTimeout(() => clock.openStart(), 220);
+    if (mode === 'survival' && survival.phase === 'finished') setTimeout(() => survival.openStart(), 220);
+    return;
+  }
+
+  setReviewAttemptIndex(null);
   setAppMode(mode);
 
   // 220ms: abrir un modal mientras el drawer se cierra parpadea en Android
@@ -1521,7 +1639,7 @@ const handleSelectMode = useCallback((mode: AppMode) => {
     repaso.abortSession();
     loadSinglePuzzle(db);
   }
-}, [appMode, db]);
+}, [appMode, db, clock.phase, survival.phase]);
 
 // Carga inicial de la base de datos y primer puzzle
 useEffect(() => {
@@ -1620,6 +1738,19 @@ return (
           </TouchableOpacity>              
         )}
 
+        {/* PARTIDA TERMINADA: volver a abrir el resumen que se cerró */}
+        {isRunFinished && (
+          <TouchableOpacity
+            style={styles.openFiltersBtn}
+            onPress={isSurvivalMode ? survival.openResult : clock.openResult}
+          >
+            <View style={styles.filterLeftGroup}>
+              <Ionicons name="podium-outline" size={16} color={PALETTE.primary} />
+              <Text style={styles.openFiltersText}>RESULTADO</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* PROGRESO DEL REPASO: ocupa el hueco de filtros + historial, que aquí
             no pintan nada porque la cola decide qué puzles ves */}
         {isRepasoMode && (
@@ -1635,7 +1766,12 @@ return (
       {/* ELO Global + evolución de la sesión (se colapsa en modo análisis) */}
       <Animated.View style={[styles.eloSessionRowOuter, eloRowAnimatedStyle]}>
         {isRunMode ? (
-          <ClockProgressGrid attempts={isSurvivalMode ? survival.attempts : clock.attempts} />
+          <ClockProgressGrid
+            attempts={runAttempts}
+            interactive={isRunFinished}
+            selectedIndex={reviewAttemptIndex}
+            onSelectAttempt={stableOpenRunAttempt}
+          />
         ) : (
           <>
             <View style={styles.eloSessionRow}>
@@ -1659,13 +1795,15 @@ return (
         )}
       </Animated.View>
 
-      <View style={styles.containerMainContent}>
+      <View style={[styles.containerMainContent, isRunMode && styles.containerMainContentRun]}>
 
 
         {/* 2. CRONÓMETRO + INDICADOR DE TURNO */}
         <View style={styles.turnRow}>
           <View style={styles.turnRowSide}>
-            {isClockMode ? (
+            {/* Repasando una partida terminada no hay nada que cronometrar:
+                ni la cuenta atrás (ya expiró) ni el crono del puzle. */}
+            {isRunReview ? null : isClockMode ? (
               <CountdownTimer
                 endsAt={clock.endsAt}
                 durationMs={clock.durationMs}
@@ -1735,7 +1873,7 @@ return (
                 centipawnScore={analysisEngine.centiPawnScore}
                 mateInMoves={analysisEngine.mateInMoves}
                 showLegalMoves={settings.showLegalMoves}
-                moveDurationMs={isRunMode ? CLOCK_TIMING.pieceMove : undefined}
+                moveDurationMs={isRunPlaying ? CLOCK_TIMING.pieceMove : undefined}
               />
             </Animated.View>
           </View>
@@ -1765,7 +1903,7 @@ return (
 
             {/* 4. ÁREA DINÁMICA: HISTORIAL SAN o MULTI-PV */}
             <Animated.View style={[styles.moveListWrapper, analysisEngine.isAnalysisMode && styles.multiPvWrapper, moveListWrapperAnimatedStyle]}>
-              {isRunMode ? (
+              {isRunPlaying ? (
                 // Sin entering/exiting: el modo no cambia a mitad de partida y una animación
                 // anidada bloquearía el exiting del padre
                 <ClockScoreBar
@@ -1791,7 +1929,7 @@ return (
 
         </View>
 
-        {isRunMode ? (
+        {isRunPlaying ? (
           <View style={styles.clockFooterSpacer} />
         ) : (
           <BoardControls
@@ -1803,6 +1941,7 @@ return (
             solutionRevealed={solutionRevealed}
             onShowSolution={showSolution}
             onStartAnalysis={startAnalysis}
+            onExitAnalysis={exitAnalysis}
             onRetry={handleRetry}
             onNextPuzzle={handleNextPuzzle}
             onHint={handleHint}
@@ -1975,6 +2114,10 @@ const styles = StyleSheet.create({
 container: { flex: 1, backgroundColor: PALETTE.background },
 mainWrapper: { flex: 1, paddingTop: 40, paddingBottom: 10, alignItems: 'center' },
 containerMainContent: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', marginTop: 60, marginBottom: 30 },
+// En contrarreloj/supervivencia el recuadro de puzles resueltos mide 136px
+// frente a los 118 de la fila de ELO. Con los mismos 60px de margen el tablero
+// bajaba y el footer se quedaba sin sitio: aquí se recorta ese hueco.
+containerMainContentRun: { marginTop: 20 },
 
   // --- CABECERA Y META-DATA ---
 headerRow: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', gap: 10, width: SCREEN_WIDTH * 0.95, alignSelf: 'center', marginTop: Platform.OS === 'ios' ? 10 : 20, marginBottom: 15, paddingHorizontal: 5 },

@@ -2,22 +2,22 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
-    ACTIVITY_DAYS,
-    STATS_RANGE_OPTIONS,
-    type StatsRange,
-    type StatsSnapshot,
-    type ThemeStat,
+  ACTIVITY_DAYS,
+  STATS_RANGE_OPTIONS,
+  type StatsRange,
+  type StatsSnapshot,
+  type ThemeStat,
 } from '../../lib/statsQueries';
 import { PALETTE } from '../colors';
 import {
-    accuracyTint,
-    ActivityBars,
-    EmptyHint,
-    MetricRow,
-    pct,
-    SectionTitle,
-    SplitBar,
-    StatCell,
+  accuracyTint,
+  ActivityBars,
+  EmptyHint,
+  MetricRow,
+  pct,
+  SectionTitle,
+  SplitBar,
+  StatCell,
 } from '../stats/StatPrimitives';
 
 interface StatsModalProps {
@@ -186,9 +186,9 @@ export const StatsModal = React.memo(({
               </View>
 
               <View style={styles.grid}>
-                <StatCell label="INTENTOS" value={String(stats.attempts)} />
+                <StatCell label="PUZZLES RESUELTOS" value={String(stats.attempts)} />
                 <StatCell
-                  label="ELO EN EL PERIODO"
+                  label="ELO GANADO / PERDIDO"
                   value={signed(stats.eloGain)}
                   tint={stats.eloGain >= 0 ? PALETTE.success : PALETTE.error}
                 />
@@ -201,7 +201,7 @@ export const StatsModal = React.memo(({
               {/* ============ MODO DE SELECCIÓN DE ELO ============ */}
               {showModeSplit && (
                 <>
-                  <SectionTitle icon="options-outline" title="SELECCIÓN DE PUZLES" />
+                  <SectionTitle icon="options-outline" title="ACIERTOS POR TIPO DE PUZLE" />
 
                   <MetricRow
                     label="ELO automático"
@@ -212,7 +212,7 @@ export const StatsModal = React.memo(({
                     faded={stats.auto.attempts === 0}
                   />
                   <MetricRow
-                    label="Rango manual"
+                    label="ELO manual"
                     ratio={stats.manual.accuracy}
                     tint={accuracyTint(stats.manual.accuracy)}
                     value={stats.manual.attempts > 0 ? pct(stats.manual.accuracy) : '—'}
@@ -240,7 +240,7 @@ export const StatsModal = React.memo(({
               {/* ============ PARTIDAS ============ */}
               {hasRuns && (
                 <>
-                  <SectionTitle icon="trophy-outline" title="PARTIDAS" hint="No afectan al ELO" />
+                  <SectionTitle icon="trophy-outline" title="OTROS MODOS DE JUEGO" />
                   <View style={styles.grid}>
                     <StatCell label="CONTRARRELOJ" value={String(stats.clock.runs)} />
                     <StatCell label="RÉCORD C.RELOJ" value={String(stats.clock.bestSolved)} />
@@ -255,7 +255,7 @@ export const StatsModal = React.memo(({
               {/* ============ TIEMPO ============ */}
               <SectionTitle icon="time-outline" title="TIEMPO DE RESOLUCIÓN" />
               <View style={styles.grid}>
-                <StatCell label="MEDIANA (ACIERTOS)" value={formatShort(stats.medianSolveMs)} />
+                <StatCell label="MEDIA (ACIERTOS)" value={formatShort(stats.medianSolveMs)} />
                 <StatCell label="MEDIA EN ACIERTOS" value={formatShort(stats.avgSolveMsSuccess)} />
                 <StatCell label="MEDIA EN FALLOS" value={formatShort(stats.avgSolveMsFail)} />
                 <StatCell label="MÁS RÁPIDO" value={formatShort(stats.fastestSolveMs)} />
@@ -272,8 +272,7 @@ export const StatsModal = React.memo(({
               {/* ============ TIEMPO / DIFICULTAD ============ */}
               <SectionTitle
                 icon="speedometer-outline"
-                title="POR DIFICULTAD"
-                hint="barra = tiempo medio"
+                title="ACIERTOS POR DIFICULTAD"
               />
               {stats.buckets.length === 0 ? (
                 <EmptyHint text="Necesitas más intentos para desglosar por dificultad." />
@@ -304,7 +303,7 @@ export const StatsModal = React.memo(({
                   {weakest && (
                     <Text style={styles.insightText}>
                       <Text style={{ color: PALETTE.error }}>▼ </Text>
-                      A entrenar: <Text style={styles.insightStrong}>{weakest.name}</Text> ({pct(weakest.accuracy)})
+                      Peor tema: <Text style={styles.insightStrong}>{weakest.name}</Text> ({pct(weakest.accuracy)})
                     </Text>
                   )}
                 </View>
@@ -343,10 +342,6 @@ export const StatsModal = React.memo(({
                   />
                 ))
               )}
-              <Text style={styles.footnote}>
-                Los temas atenuados tienen menos de {MIN_THEME_ATTEMPTS} intentos: el porcentaje aún no es fiable.
-                Un puzle suma a todos sus temas, por eso la suma supera al total de intentos.
-              </Text>
 
               {/* ============ ACTIVIDAD ============ */}
               <SectionTitle
