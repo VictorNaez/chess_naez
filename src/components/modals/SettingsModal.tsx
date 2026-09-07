@@ -3,6 +3,8 @@ import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { AppSettings, DEFAULT_SETTINGS, useSettings } from '../../hooks/useSettings';
+import { useI18n } from '../../i18n/I18nProvider';
+import { AVAILABLE_LOCALES, type LocalePreference } from '../../i18n';
 import { SCREEN_WIDTH } from '../../theme/layout';
 import { PALETTE } from '../colors';
 
@@ -68,11 +70,46 @@ const SegmentedRow = React.memo(({ label, hint, options, value, onChange }: {
   </View>
 ));
 
+const LocaleRow = React.memo(({ label, hint, options, value, onChange }: {
+  label: string; hint?: string;
+  options: { label: string; value: LocalePreference }[];
+  value: LocalePreference; onChange: (v: LocalePreference) => void;
+}) => (
+  <View style={styles.segmentedBlock}>
+    <Text style={styles.rowLabel}>{label}</Text>
+    {!!hint && <Text style={styles.rowHint}>{hint}</Text>}
+    <View style={styles.segmentedRow}>
+      {options.map(opt => {
+        const active = opt.value === value;
+        return (
+          <TouchableOpacity
+            key={opt.value}
+            style={[styles.segment, active && styles.segmentActive]}
+            onPress={() => onChange(opt.value)}
+          >
+            <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  </View>
+));
+
 export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: SettingsModalProps) => {
   const {
     soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves,
     engineDepth, engineMultiPV, setSetting, resetSettings,
   } = useSettings();
+  const { t, preference, setPreference } = useI18n();
+
+  // El idioma NO entra en el snapshot de Cancelar ni en Restablecer: vive en su
+  // propio provider y se aplica al instante, como en cualquier app del sistema.
+  const localeOptions: { label: string; value: LocalePreference }[] = [
+    { label: t.settings.languageSystem, value: 'system' },
+    ...AVAILABLE_LOCALES.map(l => ({ label: l.label, value: l.code as LocalePreference })),
+  ];
 
   // Los sliders se editan en local y se confirman al soltar: si escribiéramos en
   // los ajustes en cada frame del arrastre, cada frame acabaría en AsyncStorage.
@@ -128,26 +165,38 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Ionicons name="refresh-outline" size={13} color={PALETTE.chipText} />
-              <Text style={styles.resetBtnText}>Restablecer</Text>
+              <Text style={styles.resetBtnText}>{t.common.reset}</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>AJUSTES</Text>
+            <Text style={styles.modalTitle}>{t.settings.title}</Text>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ width: '100%' }}>
 
+            {/* --- IDIOMA --- */}
+            <Text style={styles.sectionTitle}>{t.settings.sectionLanguage}</Text>
+            <View style={styles.card}>
+              <LocaleRow
+                label={t.settings.language}
+                hint={t.settings.languageHint}
+                value={preference}
+                onChange={setPreference}
+                options={localeOptions}
+              />
+            </View>
+
             {/* --- SONIDO --- */}
-            <Text style={styles.sectionTitle}>SONIDO</Text>
+            <Text style={styles.sectionTitle}>{t.settings.sectionSound}</Text>
             <View style={styles.card}>
               <ToggleRow
                 icon="volume-high-outline"
-                label="Efectos de sonido"
+                label={t.settings.soundEffects}
                 value={soundEnabled}
                 onChange={(v) => setSetting('soundEnabled', v)}
               />
 
               <View style={[styles.volumeBlock, !soundEnabled && { opacity: 0.35 }]}>
                 <View style={styles.volumeHeader}>
-                  <Text style={styles.rowHint}>Volumen</Text>
+                  <Text style={styles.rowHint}>{t.settings.volume}</Text>
                   <Text style={styles.volumeValue}>{tempVolume}%</Text>
                 </View>
                 <View pointerEvents={soundEnabled ? 'auto' : 'none'} style={{ alignItems: 'center' }}>
@@ -172,53 +221,53 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
             </View>
 
             {/* --- VIBRACIÓN --- */}
-            <Text style={styles.sectionTitle}>VIBRACIÓN</Text>
+            <Text style={styles.sectionTitle}>{t.settings.sectionHaptics}</Text>
             <View style={styles.card}>
               <ToggleRow
                 icon="phone-portrait-outline"
-                label="Vibración"
-                hint="Feedback al mover, capturar, acertar o fallar"
+                label={t.settings.haptics}
+                hint={t.settings.hapticsHint}
                 value={hapticsEnabled}
                 onChange={(v) => setSetting('hapticsEnabled', v)}
               />
             </View>
 
             {/* --- TABLERO --- */}
-            <Text style={styles.sectionTitle}>TABLERO</Text>
+            <Text style={styles.sectionTitle}>{t.settings.sectionBoard}</Text>
             <View style={styles.card}>
               <ToggleRow
                 icon="time-outline"
-                label="Cronómetro"
-                hint="El tiempo se sigue registrando aunque lo ocultes"
+                label={t.settings.timer}
+                hint={t.settings.timerHint}
                 value={showTimer}
                 onChange={(v) => setSetting('showTimer', v)}
               />
               <View style={styles.divider} />
               <ToggleRow
                 icon="radio-button-on-outline"
-                label="Movimientos legales"
-                hint="Muestra los movimientos legales de la pieza seleccionada"
+                label={t.settings.legalMoves}
+                hint={t.settings.legalMovesHint}
                 value={showLegalMoves}
                 onChange={(v) => setSetting('showLegalMoves', v)}
               />
             </View>
 
             {/* --- MOTOR --- */}
-            <Text style={styles.sectionTitle}>MOTOR (STOCKFISH)</Text>
+            <Text style={styles.sectionTitle}>{t.settings.sectionEngine}</Text>
             <View style={styles.card}>
               <View style={styles.depthBlock}>
                 <View style={styles.volumeHeader}>
-                  <Text style={styles.rowLabel}>Profundidad de análisis</Text>
+                  <Text style={styles.rowLabel}>{t.settings.depth}</Text>
                   <Text style={styles.volumeValue}>{tempDepth}</Text>
                 </View>
                 <Text style={styles.rowHint}>
-                  A mayor profundidad, mejores jugadas pero más lento y más batería
+                  {t.settings.depthHint}
                 </Text>
                 <View style={styles.depthSliderWrap}>
                   <View style={styles.depthGuide}>
-                    <Text style={[styles.depthGuideText, { textAlign: 'left' }]}>RÁPIDO</Text>
-                    <Text style={[styles.depthGuideText, { textAlign: 'center' }]}>NORMAL</Text>
-                    <Text style={[styles.depthGuideText, { textAlign: 'right' }]}>PROFUNDO</Text>
+                    <Text style={[styles.depthGuideText, { textAlign: 'left' }]}>{t.settings.depthFast}</Text>
+                    <Text style={[styles.depthGuideText, { textAlign: 'center' }]}>{t.settings.depthNormal}</Text>
+                    <Text style={[styles.depthGuideText, { textAlign: 'right' }]}>{t.settings.depthDeep}</Text>
                   </View>
                   <MultiSlider
                     values={[tempDepth]}
@@ -237,8 +286,8 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
               </View>
               <View style={styles.divider} />
               <SegmentedRow
-                label="Líneas de análisis"
-                hint="Variantes que muestra el motor a la vez"
+                label={t.settings.multipv}
+                hint={t.settings.multipvHint}
                 value={engineMultiPV}
                 onChange={(v) => setSetting('engineMultiPV', v)}
                 options={[
@@ -253,10 +302,10 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
 
           <View style={styles.modalFooter}>
             <TouchableOpacity style={[styles.modalBtn, styles.btnCancel]} onPress={handleCancel}>
-              <Text style={styles.btnText}>CANCELAR</Text>
+              <Text style={styles.btnText}>{t.common.cancel}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.modalBtn, styles.btnApply]} onPress={onClose}>
-              <Text style={styles.btnText}>GUARDAR</Text>
+              <Text style={styles.btnText}>{t.common.save}</Text>
             </TouchableOpacity>
           </View>
         </View>

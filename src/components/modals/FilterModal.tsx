@@ -5,7 +5,8 @@ import React, { useEffect, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { arraysEqualUnordered, buildThemeCondition, getRecommendedRange } from '../../lib/puzzleQueries';
 import { SCREEN_WIDTH } from '../../theme/layout';
-import { CHESS_THEMES, RADAR_CATEGORIES } from '../chess_themes';
+import { CHESS_THEMES, RADAR_CATEGORY_IDS, themeName } from '../chess_themes';
+import { useT } from '../../i18n/I18nProvider';
 import { PALETTE } from '../colors';
 
 interface FilterModalProps {
@@ -40,6 +41,7 @@ export const FilterModal = React.memo(({
   globalElo,
   onApply,
 }: FilterModalProps) => {
+  const t = useT();
   const [tempEloRange, setTempEloRange] = useState<[number, number]>(currentEloRange);
   const [tempSelectedThemes, setTempSelectedThemes] = useState<string[]>(currentSelectedThemes);
   const [tempIsRecommendedMode, setTempIsRecommendedMode] = useState(currentIsRecommendedMode);
@@ -157,22 +159,22 @@ export const FilterModal = React.memo(({
               <View style={styles.recommendedActivePanel}>
                 <Ionicons name="flash" size={18} color={PALETTE.secondary} />
                 <Text style={styles.recommendedActiveText}>
-                  Nivel dinámico basado en tu progreso actual
+                  {t.filters.dynamicLevel}
                 </Text>
               </View>
             )}
           </View>
 
-          <Text style={styles.filterTitle}>TEMAS TÁCTICOS</Text>
+          <Text style={styles.filterTitle}>{t.filters.themesTitle}</Text>
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ width: '100%' }}>
-            {RADAR_CATEGORIES.map((category) => (
-              <View key={category.id} style={{ marginBottom: 15 }}>
+            {RADAR_CATEGORY_IDS.map((categoryId) => (
+              <View key={categoryId} style={{ marginBottom: 15 }}>
                 <Text style={{ color: PALETTE.primary, fontSize: 12, fontWeight: '900', marginBottom: 8, opacity: 0.8, letterSpacing: 1 }}>
-                  {category.name}
+                  {t.themeCategories[categoryId]}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {CHESS_THEMES.filter(t => t.category === category.id).map((theme) => {
+                  {CHESS_THEMES.filter(th => th.categoryId === categoryId).map((theme) => {
                     const isSelected = tempSelectedThemes.includes(theme.id);
                     return (
                       <TouchableOpacity
@@ -181,7 +183,7 @@ export const FilterModal = React.memo(({
                         style={[styles.themeChip, isSelected && styles.themeChipActive]}
                       >
                         <Text style={[styles.themeChipText, isSelected && styles.themeChipTextActive]}>
-                          {theme.name}
+                          {themeName(t, theme.id)}
                         </Text>
                       </TouchableOpacity>
                     );

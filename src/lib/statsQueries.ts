@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { CHESS_THEMES } from '../components/chess_themes';
+import { CHESS_THEMES, type ThemeCategoryId } from '../components/chess_themes';
 
 // =========================================================
 // RANGOS TEMPORALES
@@ -63,8 +63,9 @@ export interface ModeSplit {
 
 export interface ThemeStat {
   id: string;
-  name: string;
-  category: string;
+  // Sin `name`: el nombre visible depende del idioma y se resuelve en el
+  // componente con themeName(t, id). La capa de datos solo maneja ids.
+  categoryId: ThemeCategoryId;
   attempts: number;
   solved: number;
   accuracy: number;   // 0..1
@@ -339,8 +340,7 @@ export const loadStats = async (
       const a = acc.get(t.id);
       return {
         id: t.id,
-        name: t.name,
-        category: t.category,
+        categoryId: t.categoryId,
         attempts: a?.attempts ?? 0,
         solved: a?.solved ?? 0,
         accuracy: a && a.attempts > 0 ? a.solved / a.attempts : 0,
