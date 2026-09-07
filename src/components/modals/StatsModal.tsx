@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useT } from '../../i18n/I18nProvider';
 import { CLOCK_DURATIONS } from '../../lib/clock';
 import {
   ACTIVITY_DAYS,
@@ -11,9 +12,8 @@ import {
   type ThemeStat,
 } from '../../lib/statsQueries';
 import { SURVIVAL_SPEEDS } from '../../lib/survival';
-import { PALETTE } from '../colors';
-import { useT } from '../../i18n/I18nProvider';
 import { themeName } from '../chess_themes';
+import { PALETTE } from '../colors';
 import {
   accuracyTint,
   ActivityBars,
@@ -204,12 +204,12 @@ export const StatsModal = React.memo(({
             <View style={styles.loadingBox}>
               <Ionicons name="bar-chart-outline" size={34} color={PALETTE.disabled} />
               <Text style={styles.emptyTitle}>
-                {stats.hasData ? 'Sin actividad en este periodo' : 'Aún no hay datos'}
+                {stats.hasData ? t.stats.noActivity : t.stats.noActivity_data}
               </Text>
               <Text style={styles.emptySub}>
                 {stats.hasData
-                  ? 'Prueba con un rango más amplio.'
-                  : 'Resuelve algunos puzles y aquí verás cómo evolucionas.'}
+                  ? t.stats.tryWiderTimeInterval
+                  : ' '}
               </Text>
             </View>
           ) : (

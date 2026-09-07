@@ -23,8 +23,8 @@ export const en: Dictionary = {
     modes: 'MODES',
     other: 'OTHER',
     modePuzzles: 'Puzzle mode',
-    modeClock: 'Time attack',
-    modeSurvival: 'Survival',
+    modeClock: 'Rush mode',
+    modeSurvival: 'Survival mode',
     modeRepaso: 'Review',
     stats: 'Statistics',
     settings: 'Settings',
@@ -61,7 +61,6 @@ export const en: Dictionary = {
     multipvHint: 'Variations the engine shows at once',
 
     language: 'App language',
-    languageHint: 'Tactical theme names change too',
     languageSystem: 'System',
   },
 
@@ -87,6 +86,8 @@ export const en: Dictionary = {
     bestStreak: 'BEST STREAK',
     noData: 'No puzzles solved yet',
     noActivity: 'No activity in this period',
+    noActivity_data: 'No data available yet',
+    tryWiderTimeInterval: 'Try a wider time interval.',
 
     lastNDays: (n: number) => `last ${n} days`,
     bestTheme: (name: string) => `Best theme: ${name}`,
@@ -137,6 +138,15 @@ export const en: Dictionary = {
     currentRatingLabel: 'Current rating:',
     noActivityPeriod: 'No activity in this period',
     noPuzzlesYet: 'No puzzles solved yet',
+  },
+
+    // Pestañas de rango temporal de la gráfica del historial.
+  historyRanges: {
+    all: 'ALL',
+    year: '1Y',
+    month: '30D',
+    week: '7D',
+    today: 'TODAY',
   },
 
   filters: {

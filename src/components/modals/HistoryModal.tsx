@@ -2,12 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-wagmi-charts';
-import { themeNames as resolveThemeNames } from '../chess_themes';
+import { useT } from '../../i18n/I18nProvider';
 import { formatDuration } from '../../lib/time';
 import { SCREEN_WIDTH } from '../../theme/layout';
+import { themeNames as resolveThemeNames } from '../chess_themes';
 import { MiniBoardPreview } from '../ChessBoard';
 import { PALETTE } from '../colors';
-import { useT } from '../../i18n/I18nProvider';
 
 interface EloPoint {
   value: number;
@@ -29,15 +29,7 @@ interface HistoryModalProps {
 // RANGOS TEMPORALES DE LA GRÁFICA
 // =========================================================
 type TimeRange = 'all' | 'year' | 'month' | 'week' | 'today';
-
-const RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
-  { key: 'all',   label: 'ALL'   },
-  { key: 'year',  label: '1Y'    },
-  { key: 'month', label: '30D'   },
-  { key: 'week',  label: '7D'    },
-  { key: 'today', label: 'TODAY' },
-];
-
+const RANGE_OPTIONS: TimeRange[] = ['all', 'year', 'month', 'week', 'today'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const getCutoff = (range: TimeRange): number => {
@@ -180,17 +172,17 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
 
           {/* SELECTOR DE RANGO TEMPORAL */}
           <View style={styles.rangeTabsRow}>
-            {RANGE_OPTIONS.map(opt => {
-              const isActive = timeRange === opt.key;
+            {RANGE_OPTIONS.map(key => {
+              const isActive = timeRange === key;
               return (
                 <TouchableOpacity
-                  key={opt.key}
+                  key={key}
                   activeOpacity={0.7}
-                  onPress={() => setTimeRange(opt.key)}
+                  onPress={() => setTimeRange(key)}
                   style={[styles.rangeTab, isActive && styles.rangeTabActive]}
                 >
                   <Text style={[styles.rangeTabText, isActive && styles.rangeTabTextActive]}>
-                    {opt.label}
+                    {t.historyRanges[key]}
                   </Text>
                 </TouchableOpacity>
               );

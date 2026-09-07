@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import {
   DICTIONARIES,
   FALLBACK_LOCALE,
+  isLocalePreference,
   resolveLocale,
   type Dictionary,
   type Locale,
@@ -31,10 +32,10 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw === 'es' || raw === 'en' || raw === 'system') {
-          setPreferenceState(raw);
-        }
+      const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      if (isLocalePreference(raw)) {
+        setPreferenceState(raw);
+      }
       } catch (e) {
         console.log('[i18n] Error cargando idioma:', e);
       } finally {

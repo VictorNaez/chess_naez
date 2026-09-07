@@ -69,7 +69,6 @@ export const es = {
     multipvHint: 'Variantes que muestra el motor a la vez',
 
     language: 'Idioma de la aplicación',
-    languageHint: 'Los nombres de los temas tácticos también cambian',
     languageSystem: 'Sistema',
   },
 
@@ -95,6 +94,8 @@ export const es = {
     bestStreak: 'MEJOR RACHA',
     noData: 'Todavía no has resuelto ningún puzle',
     noActivity: 'Sin actividad en este periodo',
+    noActivity_data: 'Aún no hay datos',
+    tryWiderTimeInterval: 'Prueba con un rango de tiempo más amplio.',
 
     // Interpolación tipada: el call site pasa un número, no un objeto suelto.
     lastNDays: (n: number) => `últimos ${n} días`,
@@ -150,6 +151,15 @@ export const es = {
     noPuzzlesYet: 'Todavía no has resuelto ningún puzle',
   },
 
+  // Pestañas de rango temporal de la gráfica del historial.
+  historyRanges: {
+    all: 'TODO',
+    year: '1A',
+    month: '30D',
+    week: '7D',
+    today: 'HOY',
+  },
+
   filters: {
     title: 'FILTROS',
     themesTitle: 'TEMAS TÁCTICOS',
@@ -168,7 +178,7 @@ export const es = {
     avgTime: 'T. MEDIO',
     clockTitle: 'CONTRARRELOJ',
     clockSubtitle: 'Empiezas fácil. Cada acierto sube el nivel. Un fallo no te baja, pero te cuesta tiempo.',
-    survivalTitle: 'SUPERVIVENCIA',
+    survivalTitle: 'MODO SUPERVIVENCIA',
     survivalSubtitle: 'Tres vidas. Cada puzle tiene el mismo tiempo y cada acierto sube el nivel. Fallar o quedarte sin tiempo cuesta una vida.',
   },
 
@@ -202,7 +212,7 @@ export const es = {
   // la columna `themes` de la base de datos. Nunca traduzcas la clave, solo el
   // valor: el id es lo que persiste en SQLite.
   themes: {
-    '1': 'Fork',
+    '1': 'Ataque doble',
     '8': 'Mate',
     '9': 'Desviación',
     '10': 'Peón Avanzado',

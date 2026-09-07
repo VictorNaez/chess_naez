@@ -3,8 +3,8 @@ import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { AppSettings, DEFAULT_SETTINGS, useSettings } from '../../hooks/useSettings';
-import { useI18n } from '../../i18n/I18nProvider';
 import { AVAILABLE_LOCALES, type LocalePreference } from '../../i18n';
+import { useI18n } from '../../i18n/I18nProvider';
 import { SCREEN_WIDTH } from '../../theme/layout';
 import { PALETTE } from '../colors';
 
@@ -177,7 +177,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
             <View style={styles.card}>
               <LocaleRow
                 label={t.settings.language}
-                hint={t.settings.languageHint}
+                //hint={t.settings.languageHint}
                 value={preference}
                 onChange={setPreference}
                 options={localeOptions}
