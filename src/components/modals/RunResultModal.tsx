@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useT } from '../../i18n/I18nProvider';
 import { formatDuration } from '../../lib/time';
 import type { RunKind, RunRanking, RunSummary } from '../../types/run';
 import { PALETTE } from '../colors';
-import { useT } from '../../i18n/I18nProvider';
 
 interface RunResultModalProps {
   visible: boolean;
@@ -108,10 +108,11 @@ export const RunResultModal = React.memo(({
             <Ionicons name="search-outline" size={15} color={PALETTE.primary} />
             <Text style={styles.reviewText}>{t.repaso.review}</Text>
           </TouchableOpacity>
+          {/* 
           <Text style={styles.reviewHint}>
             Toca cualquier cuadrado del marcador para volver a jugar ese puzle.
           </Text>
-
+          */}
           <TouchableOpacity style={styles.secondaryBtn} onPress={onExit}>
             <Text style={styles.secondaryText}>{t.common.backToPuzzles}</Text>
           </TouchableOpacity>

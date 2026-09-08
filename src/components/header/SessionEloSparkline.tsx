@@ -192,7 +192,7 @@ export const SessionEloSparkline = React.memo(({ data, globalElo }: { data: numb
               <Svg width={width} height={SPARKLINE_HEIGHT}>
                 <Defs>
                   <LinearGradient id="sparklineAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor={PALETTE.primary} stopOpacity={0.25} />
+                    <Stop offset="0" stopColor={PALETTE.primary} stopOpacity={0} />
                     <Stop offset="1" stopColor={PALETTE.primary} stopOpacity={0} />
                   </LinearGradient>
                 </Defs>

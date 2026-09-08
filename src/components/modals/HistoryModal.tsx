@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Stop } from 'react-native-svg';
 import { LineChart } from 'react-native-wagmi-charts';
 import { useT } from '../../i18n/I18nProvider';
 import { formatDuration } from '../../lib/time';
@@ -222,8 +223,12 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
 
                   <View style={{ paddingLeft: 45, width: '100%', height: 190 }}>
                     <LineChart width={SCREEN_WIDTH * 0.74} height={180}>
-                      <LineChart.Path color={PALETTE.primary} pathProps={{ strokeWidth: 3 }}>
-                        <LineChart.Gradient color={PALETTE.primary} opacity={1} />
+                      <LineChart.Path color={PALETTE.primary} pathProps={{ strokeWidth: 2 }}>
+                        <LineChart.Gradient color={PALETTE.primary}>
+                          <Stop offset="0%"   stopColor={PALETTE.primary} stopOpacity={0.5} />
+                          <Stop offset="50%"  stopColor={PALETTE.primary} stopOpacity={0.45} />
+                          <Stop offset="100%" stopColor={PALETTE.primary} stopOpacity={0} />
+                        </LineChart.Gradient>
                       </LineChart.Path>
                       <LineChart.Cursor type="crosshair">
                         <LineChart.Tooltip

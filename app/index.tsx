@@ -45,6 +45,7 @@ import { userProgress } from "../src/hooks/userProgress";
 import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
 import { useSounds } from '../src/hooks/useSounds';
 import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
+import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
@@ -53,7 +54,6 @@ import type { AppMode } from '../src/types/mode';
 import { isRunModeId } from '../src/types/mode';
 import type { Puzzle } from '../src/types/puzzle';
 import type { RepasoOrder } from '../src/types/repaso';
-import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -1446,6 +1446,8 @@ const handleEngineSequencePress = async (moves: string[]) => {
   // Si ya hay una secuencia en curso, ignoramos el nuevo clic en vez de
   // dejar que compita con la llamada anterior.
   if (analysisEngine.isSequencePlayingRef.current) return;
+
+  clearSelection(); // limpia casilla seleccionada y movimientos legales al instante, sin esperar a que termine la animación.
 
   // 0. Pausamos el motor mientras se reproduce la secuencia animada,
   // para que no reposicione ni busque en cada posición intermedia.
