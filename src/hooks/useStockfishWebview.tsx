@@ -71,23 +71,35 @@ async function ensureEngineFilesOnDisk(): Promise<string> {
 export function useStockfishWebview({
   onOutput,
   onError,
+  enabled = true,
 }: {
   onOutput: (output: string) => void;
   onError?: (error: string) => void;
+  // false hasta que el usuario entra en análisis. Sin esto, ensureEngineFilesOnDisk
+  // corría en el ARRANQUE de la app (useAnalysisEngine se monta dentro de App),
+  // haciendo I/O de disco antes del primer frame aunque nunca se abriera el motor.
+  enabled?: boolean;
 }) {
   const webviewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
   const queueRef = useRef<string[]>([]);
   const [engineUri, setEngineUri] = useState<string | null>(null);
+  const hasPreparedRef = useRef(false);
 
   useEffect(() => {
+    // Una sola vez por sesión: una vez preparados, salir de análisis no los
+    // descarta, así que la segunda entrada es instantánea.
+    if (!enabled || hasPreparedRef.current) return;
+    hasPreparedRef.current = true;
+
     ensureEngineFilesOnDisk()
       .then(setEngineUri)
       .catch((e) => {
+        hasPreparedRef.current = false;   // permite reintentar en la próxima entrada
         console.log('[SF] ❌ ensureEngineFilesOnDisk ERROR:', e);
         onError?.('No se pudieron preparar los ficheros del motor: ' + e);
       });
-  }, []);
+  }, [enabled]);
 
   const flushQueue = useCallback(() => {
     queueRef.current.forEach((cmd) => webviewRef.current?.postMessage(cmd));

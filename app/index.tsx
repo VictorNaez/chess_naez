@@ -50,6 +50,7 @@ import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
+import { PUZZLE_TIMING } from '../src/lib/timing';
 import type { AppMode } from '../src/types/mode';
 import { isRunModeId } from '../src/types/mode';
 import type { Puzzle } from '../src/types/puzzle';
@@ -241,10 +242,18 @@ const queryPuzzle = useCallback(async (
   // Arrancamos en un rowid aleatorio y buscamos la primera fila que cumpla
   // el filtro a partir de ahí. El coste depende de lo cerca que esté la
   // coincidencia más próxima, no del total de filas que cumplan el filtro.
+  //
+  // El '+' de '+rating' NO es un error tipográfico: desactiva el uso del índice
+  // para esa columna. Sin él, SQLite prefiere idx_puzzles_rating y luego tiene
+  // que construir un B-tree temporal para el ORDER BY rowid, que es justo lo
+  // que este diseño quería evitar. Medido sobre 100k filas:
+  //   sin '+': SEARCH USING INDEX idx_puzzles_rating + USE TEMP B-TREE -> 3 ms
+  //            (25 ms si además hay filtro de temas)
+  //   con '+': SEARCH USING INTEGER PRIMARY KEY (rowid>?)              -> 0,02 ms
   for (let attempt = 0; attempt < 4; attempt++) {
     const startRowid = Math.floor(Math.random() * maxRowid) + 1;
     const r = await database.getFirstAsync<any>(
-      `SELECT * FROM puzzles WHERE rowid >= ? AND rating BETWEEN ? AND ? ${themeCond} ORDER BY rowid LIMIT 1`,
+      `SELECT * FROM puzzles WHERE rowid >= ? AND +rating BETWEEN ? AND ? ${themeCond} ORDER BY rowid LIMIT 1`,
       [startRowid, range[0], range[1]]
     );
     if (r) return mapRow(r);
@@ -282,7 +291,7 @@ const syncPiecesFromGame = (chessGame: Chess) => {
 // Función para reiniciar el estado del puzzle, usada tanto al cargar un nuevo puzzle como al hacer Retry después de resolverlo
 // isRetry: true SOLO cuando se reinicia un puzzle que el usuario ya intentó.
 // Determina si el puzzle otorga ELO o no. Es explícito a propósito:
-const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false, isHistory = false, firstMoveDelayMs = 1000) => {
+const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false, isHistory = false, firstMoveDelayMs = PUZZLE_TIMING.firstMove) => {
   if (!puzzle) return;
   
   setIsRetryMode(isRetry);
@@ -437,7 +446,7 @@ const loadSinglePuzzle = async (
 
   if (p) {
     setCurrentPuzzle(p);
-    resetPuzzleState(p, false, false, false, isFast ? CLOCK_TIMING.firstMove : 1000);
+    resetPuzzleState(p, false, false, false, isFast ? CLOCK_TIMING.firstMove : PUZZLE_TIMING.firstMove);
    // Precarga el siguiente mientras el usuario resuelve este
     if (!isFast) prefetchNext(currentRange, themesToUse);
   } else {
@@ -448,7 +457,7 @@ const loadSinglePuzzle = async (
 
   setTimeout(() => {
     setIsNextDisabled(false);
-  }, isFast ? 150 : 500);
+  }, isFast ? 150 : PUZZLE_TIMING.nextLock);
 }
 
 // Aplica un puzzle del historial al tablero principal, sin otorgar/quitar ELO.
@@ -560,7 +569,7 @@ const handleRetry = async () => {
     setGame(new Chess(targetFen));
     syncPiecesFromGame(gameTarget);
 
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.rewindStep));
   }
 
   // Finalización del estado
@@ -615,7 +624,7 @@ const showSolution = async () => {
   setViewIndex(historyClean.length - 1);
 
   // 2. PAUSA DE ESPERA (800ms)
-  await new Promise(resolve => setTimeout(resolve, 800));
+  await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.solutionPause));
 
   // 3. COMPLETAR LA SOLUCIÓN DESDE DONDE ESTABA
   // Usamos 'solutionStep' para saber por qué movimiento iba el puzzle
@@ -641,7 +650,7 @@ const showSolution = async () => {
     setFenHistory(prev => [...prev, playbackGame.fen()]);
 
     // Pausa entre movimientos de la solución
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.solutionStep));
   }
 
   setPuzzleSolved(true);
@@ -861,7 +870,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             setMessage("✅"); 
             setPuzzleSolved(true); 
             setIsBoardLocked(false);
-          }, isRunPlaying ? 80 : 250);
+          }, isRunPlaying ? 80 : PUZZLE_TIMING.solvedFeedback);
         } else {
           // MOVIMIENTO CORRECTO (pero el puzzle sigue): Vibración de movimiento
           if (isCapture) {
@@ -905,7 +914,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             });
 
             setIsBoardLocked(false); 
-          }, isRunPlaying ? CLOCK_TIMING.machineReply : 450);
+          }, isRunPlaying ? CLOCK_TIMING.machineReply : PUZZLE_TIMING.machineReply);
         }
       } else {
         // MOVIMIENTO INCORRECTO: Vibración de error
@@ -925,7 +934,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           setTimeout(() => {
             setMessage("❌");
             setIsBoardLocked(false);
-          }, 250);
+          }, PUZZLE_TIMING.failFeedback);
         }
 
         if (currentPuzzle) {
@@ -1154,30 +1163,34 @@ const exitAnalysis = () => {
   setIsBoardLocked(puzzleSolved);
 };
 
-// Efecto para guardar el rango de ELO, temas seleccionados, modo recomendado y el puzzle 
-// actual de manera asinclrona para persistencia entre sesiones (abrir y cerrar app).
-useEffect(() => {
-    const savePersistentData = async () => {
-      try {
-        await AsyncStorage.setItem('@elo_range', JSON.stringify(eloRange));
-        await AsyncStorage.setItem('@selected_themes', JSON.stringify(selectedThemes));
-        await AsyncStorage.setItem('@is_recommended_mode', JSON.stringify(isRecommendedMode));
-        
-        // VOLVEMOS A DEJAR ESTA LÍNEA ACTIVA: Guardar el puzle activo al cambiar
-        // En repaso no: al reabrir la app volveríamos a modo puzles con un puzle
-        // de la cola en pantalla, y esta vez sí daría ELO.
-        if (currentPuzzle && !isRepasoMode) {
-          await AsyncStorage.setItem('@current_puzzle', JSON.stringify(currentPuzzle));
-        }
-      } catch (error) {
-        console.error("Error al guardar los datos en AsyncStorage:", error);
-      }
-    };
+// Persistencia entre sesiones. Antes esto era un único efecto que reescribía
+// las CUATRO claves cada vez que cambiaba `currentPuzzle`, es decir cuatro
+// escrituras en AsyncStorage (SQLite por debajo en Android) justo en el momento
+// de la transición entre puzles. Ahora cada cosa se guarda cuando cambia.
+//
+// El cerrojo es un ref y no `!loading || db`: hasta que setup() no ha leído lo
+// guardado, el estado son los defaults y escribirlos pisaría la sesión anterior.
+const hasRestoredPrefsRef = useRef(false);
 
-    if (!loading || db) {
-      savePersistentData();
-    }
-  }, [eloRange, selectedThemes, isRecommendedMode, currentPuzzle, isRepasoMode]);
+// Filtros: solo cambian cuando el usuario toca el modal.
+useEffect(() => {
+  if (!hasRestoredPrefsRef.current) return;
+  AsyncStorage.multiSet([
+    ['@elo_range', JSON.stringify(eloRange)],
+    ['@selected_themes', JSON.stringify(selectedThemes)],
+    ['@is_recommended_mode', JSON.stringify(isRecommendedMode)],
+  ]).catch(error => console.error("Error al guardar los filtros en AsyncStorage:", error));
+}, [eloRange, selectedThemes, isRecommendedMode]);
+
+// Puzle activo: una sola escritura por puzle.
+// En repaso no se guarda: al reabrir la app volveríamos a modo puzles con un
+// puzle de la cola en pantalla, y esta vez sí daría ELO.
+useEffect(() => {
+  if (!hasRestoredPrefsRef.current) return;
+  if (!currentPuzzle || isRepasoMode) return;
+  AsyncStorage.setItem('@current_puzzle', JSON.stringify(currentPuzzle))
+    .catch(error => console.error("Error al guardar el puzle activo en AsyncStorage:", error));
+}, [currentPuzzle, isRepasoMode]);
 
 // Efecto para bloquear el tablero si estamos viendo un movimiento anterior o si el puzzle ya fue resuelto
 useEffect(() => {
@@ -1251,6 +1264,14 @@ const BOARD_GAP = 0;
 const boardSlideX = useSharedValue(0);
 const boardSlideStyle = useAnimatedStyle(() => ({ transform: [{ translateX: boardSlideX.value }] }));
 
+// Solo true mientras el tablero entra o sale de pantalla. Alimenta
+// renderToHardwareTextureAndroid: esa bandera crea una capa hardware del
+// tablero entero, y Android la invalida cada vez que cambia algo dentro. Como
+// las piezas animan constantemente, dejarla fija significaba reconstruir esa
+// textura en cada frame de cada jugada. Solo compensa durante el desplazamiento,
+// que es cuando el contenido está quieto y lo único que se mueve es el transform.
+const [isBoardSliding, setIsBoardSliding] = useState(false);
+
 const hasSlidOnceRef = useRef(false);
 const pendingEntryRef = useRef(false);
 const entryFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1281,6 +1302,7 @@ useEffect(() => {
   }
 
   boardSlideX.value = SCREEN_WIDTH;
+  setIsBoardSliding(true);
 
   // Dos frames: el primero cierra el commit de React (pieces ya están en el
   // estado), el segundo asegura que las vistas nativas de las piezas ya
@@ -1291,6 +1313,13 @@ useEffect(() => {
       withTiming(0, { duration: BOARD_SLIDE_IN, easing: Easing.out(Easing.cubic) })
     );
   }));
+
+  // +80ms de holgura sobre los dos requestAnimationFrame y el withDelay.
+  const layerOff = setTimeout(
+    () => setIsBoardSliding(false),
+    BOARD_GAP + BOARD_SLIDE_IN + 80
+  );
+  return () => clearTimeout(layerOff);
 }, [currentPuzzle?.id]);
 
 useEffect(() => () => { if (entryFallbackRef.current) clearTimeout(entryFallbackRef.current); }, []);
@@ -1311,11 +1340,17 @@ const slidePuzzle = useCallback((load: () => void, delayMs = 0) => {
       isSwappingRef.current = false;
       return;
     }
+    setIsBoardSliding(true);
     boardSlideX.value = withTiming(-SCREEN_WIDTH, { duration: BOARD_SLIDE_OUT, easing: Easing.in(Easing.cubic) });
 
     setTimeout(() => {
       isSwappingRef.current = false;
-      if (isRunMode && runPhaseRef.current !== 'running') return;
+      // La partida terminó a mitad de la salida: el efecto de entrada no se va
+      // a disparar, así que la capa hay que apagarla aquí o se queda encendida.
+      if (isRunMode && runPhaseRef.current !== 'running') {
+        setIsBoardSliding(false);
+        return;
+      }
       load();
     }, BOARD_SLIDE_OUT);
   }, delayMs);
@@ -1513,7 +1548,7 @@ const handleEngineSequencePress = async (moves: string[]) => {
 
     // 7. Pausa para dar tiempo a la animación de la pieza antes del siguiente movimiento
     if (i < moves.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 400));
+      await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.sequenceStep));
     }
   }
   
@@ -1658,12 +1693,20 @@ useEffect(() => {
     let restoredPuzzle: Puzzle | null = null;
     
     try {
-      const localRange = await AsyncStorage.getItem('@elo_range');
-      const localThemes = await AsyncStorage.getItem('@selected_themes');
-      const localRecommended = await AsyncStorage.getItem('@is_recommended_mode');
-      
-      // VOLVEMOS A LEER EL PUZLE GUARDADO DE LA SESIÓN ANTERIOR
-      const localPuzzle = await AsyncStorage.getItem('@current_puzzle');
+      // multiGet, no cuatro getItem encadenados: cada getItem es un salto al
+      // módulo nativo y estos cuatro estaban en serie dentro del arranque, antes
+      // del primer frame útil.
+      const [
+        [, localRange],
+        [, localThemes],
+        [, localRecommended],
+        [, localPuzzle],
+      ] = await AsyncStorage.multiGet([
+        '@elo_range',
+        '@selected_themes',
+        '@is_recommended_mode',
+        '@current_puzzle',
+      ]);
 
       if (localRange) {
         const parsedRange = JSON.parse(localRange);
@@ -1684,6 +1727,11 @@ useEffect(() => {
     } catch (error) {
       console.error("Error al cargar los datos desde AsyncStorage:", error);
     }
+
+    // A partir de aquí lo que haya en el estado ES lo guardado (o los defaults
+    // si la lectura falló), así que los efectos de persistencia ya pueden
+    // escribir sin riesgo de pisar la sesión anterior.
+    hasRestoredPrefsRef.current = true;
 
     // EVALUAMOS: ¿Tenía un puzle guardado?
     if (restoredPuzzle) {
@@ -1854,8 +1902,8 @@ return (
           <View style={styles.boardSection}>
               <Animated.View
                 style={[styles.boardWrapper, boardSlideStyle]}
-                renderToHardwareTextureAndroid
-                shouldRasterizeIOS
+                renderToHardwareTextureAndroid={isBoardSliding}
+                shouldRasterizeIOS={isBoardSliding}
                 collapsable={false}
               >
               <ChessBoard 
@@ -1880,7 +1928,7 @@ return (
                 mateInMoves={analysisEngine.mateInMoves}
                 showLegalMoves={settings.showLegalMoves}
                 showCoordinates={settings.showCoordinates}
-                moveDurationMs={isRunPlaying ? CLOCK_TIMING.pieceMove : undefined}
+                moveDurationMs={isRunPlaying ? CLOCK_TIMING.pieceMove : PUZZLE_TIMING.pieceMove}
               />
             </Animated.View>
           </View>

@@ -133,13 +133,20 @@ const getSquareCenter = (sq: string, orientation: 'w' | 'b') => {
 };
 
 // --- COMPONENTE DE PIEZA INDIVIDUAL ---
+// `turnSV`, `selectedSquareSV` y `legalMovesSV` son SharedValue y NO props
+// normales a propósito. Los gestos solo los leen dentro de worklets (hilo de
+// UI), así que pasarlos como valores obligaba a reconstruir tapGesture,
+// panGesture y combinedGesture en las 32 piezas cada vez que seleccionabas
+// una casilla, con su ciclo de detach/attach de handlers nativos por pieza.
+// Como SharedValue la identidad nunca cambia: los gestos se construyen una vez
+// por pieza y el memo de abajo deja de fallar en cada toque.
 const AnimatedPiece = React.memo(({ 
-  p, visualRow, visualCol, isSuccess, isError, isSelected, isKingInCheck, orientation, onSquarePress, onDragMove, legalMoves,
-  shadowX, shadowY, showShadow, turn, selectedSquare, capturedSquareValue, onInvalidTarget, moveDurationMs, swapping
+  p, visualRow, visualCol, isSuccess, isError, isSelected, isKingInCheck, orientation, onSquarePress, onDragMove, legalMovesSV,
+  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedSquareValue, onInvalidTarget, moveDurationMs, swapping
 }: { 
   p: PieceItem, visualRow: number, visualCol: number, isSuccess: boolean, isError: boolean, isSelected: boolean, isKingInCheck: boolean, orientation: 'w' | 'b', 
-  onSquarePress: (sq: string | null, isDraggingInteraction?: boolean) => void,  onDragMove: (from: string, to: string) => void, legalMoves: string[],
-  shadowX: SharedValue<number>, shadowY: SharedValue<number>, showShadow: SharedValue<boolean>, turn: 'w' | 'b', selectedSquare: string | null, capturedSquareValue: SharedValue<string | null>,
+  onSquarePress: (sq: string | null, isDraggingInteraction?: boolean) => void,  onDragMove: (from: string, to: string) => void, legalMovesSV: SharedValue<string[]>,
+  shadowX: SharedValue<number>, shadowY: SharedValue<number>, showShadow: SharedValue<boolean>, turnSV: SharedValue<'w' | 'b'>, selectedSquareSV: SharedValue<string | null>, capturedSquareValue: SharedValue<string | null>,
   onInvalidTarget: (square: string) => void, moveDurationMs: number, swapping: boolean
 }) => {
   
@@ -199,40 +206,41 @@ const AnimatedPiece = React.memo(({
     Gesture.Tap()
       .numberOfTaps(1)
       .onStart(() => {
-        if (p.color === turn) {
+        if (p.color === turnSV.value) {
           runOnJS(onSquarePress)(p.square);
           return;
         }
 
-        const isMoveLegal = legalMoves.includes(p.square);
-        if (selectedSquare && isMoveLegal) {
-          runOnJS(onDragMove)(selectedSquare, p.square);
+        const selected = selectedSquareSV.value;
+        const isMoveLegal = legalMovesSV.value.includes(p.square);
+        if (selected && isMoveLegal) {
+          runOnJS(onDragMove)(selected, p.square);
         } else {
-          if (selectedSquare) {
+          if (selected) {
             runOnJS(onInvalidTarget)(p.square); 
           }
           runOnJS(onSquarePress)(null);
         }
       }),
-    [p.square, p.color, turn, selectedSquare, legalMoves, onSquarePress, onDragMove]
+    [p.square, p.color, onSquarePress, onDragMove, onInvalidTarget]
   );
 
   // --- GESTO DE ARRASTRE (PAN) ---
   const panGesture = useMemo(() =>
     Gesture.Pan()
       .onBegin(() => {
-        if (p.color === turn) {
+        if (p.color === turnSV.value) {
           runOnJS(onSquarePress)(p.square, true);
         }
       })
       .onStart(() => {
-        if (p.color !== turn) return;
+        if (p.color !== turnSV.value) return;
         isDragging.value = true;
         scale.value = 1.3;
         showShadow.value = true; 
       })
       .onUpdate((event) => {
-        if (p.color !== turn) return;
+        if (p.color !== turnSV.value) return;
         dragX.value = event.translationX;
         dragY.value = event.translationY - 40;
 
@@ -251,7 +259,7 @@ const AnimatedPiece = React.memo(({
         shadowY.value = targetRowIdx * squareSize;
       })
       .onEnd((event) => {     
-        if (p.color !== turn) return;
+        if (p.color !== turnSV.value) return;
 
         const finalX = originX.value + event.translationX + (squareSize / 2);
         const finalY = originY.value + event.translationY + (squareSize / 2);
@@ -266,7 +274,7 @@ const AnimatedPiece = React.memo(({
           const r = orientation === 'w' ? targetRowIdx : 7 - targetRowIdx;
           targetSquare = String.fromCharCode(97 + c) + (8 - r);
 
-          const isMoveLegal = legalMoves.includes(targetSquare);
+          const isMoveLegal = legalMovesSV.value.includes(targetSquare);
           
           if (targetSquare !== p.square && isMoveLegal) {
             isLegalMoveExecuted = true;
@@ -307,7 +315,7 @@ const AnimatedPiece = React.memo(({
           posY.value = withTiming(targetY, { duration: 120 });
         }
       }),
-    [p.square, p.color, turn, orientation, legalMoves, targetX, targetY, onSquarePress, onDragMove]
+    [p.square, p.color, orientation, targetX, targetY, onSquarePress, onDragMove]
   );
     
   const combinedGesture = useMemo(
@@ -372,12 +380,14 @@ const AnimatedPiece = React.memo(({
     prev.isSelected === next.isSelected &&
     prev.isKingInCheck === next.isKingInCheck &&
     prev.orientation === next.orientation &&
-    prev.turn === next.turn &&
-    prev.selectedSquare === next.selectedSquare &&
-    prev.legalMoves === next.legalMoves &&
+    // turn, selectedSquare y legalMoves ya no están aquí: viven en SharedValues
+    // de identidad estable, así que un cambio de selección deja de invalidar
+    // las 32 piezas. isSelected sigue siendo prop porque lo consume el efecto
+    // del rebote, y solo cambia en una o dos piezas por toque.
     prev.onSquarePress === next.onSquarePress &&
     prev.onDragMove === next.onDragMove &&
     prev.onInvalidTarget === next.onInvalidTarget  &&
+    prev.moveDurationMs === next.moveDurationMs &&
     prev.swapping === next.swapping
   );
 });
@@ -541,6 +551,19 @@ function ChessBoard({
   const shadowY = useSharedValue(0);
   const showShadow = useSharedValue(false);
   const capturedSquareValue = useSharedValue<string | null>(null);
+
+  // --- ESPEJO DE LA SELECCIÓN EN EL HILO DE UI ---
+  // Las casillas (BoardSquare) siguen leyendo las props normales: necesitan
+  // re-renderizar para pintar el punto de movimiento legal y el resaltado. Las
+  // piezas no: solo consultan estos valores dentro de los worklets de gesto,
+  // así que los reciben como SharedValue y se ahorran el re-render.
+  const selectedSquareSV = useSharedValue<string | null>(selectedSquare);
+  const legalMovesSV = useSharedValue<string[]>(legalMoves);
+  const turnSV = useSharedValue<'w' | 'b'>(turn);
+
+  useEffect(() => { selectedSquareSV.value = selectedSquare; }, [selectedSquare]);
+  useEffect(() => { legalMovesSV.value = legalMoves; }, [legalMoves]);
+  useEffect(() => { turnSV.value = turn; }, [turn]);
 
   // --- SEÑAL DE CLICK INVÁLIDO (flash rojo + haptic) ---
   const invalidFlashSquare = useSharedValue<string | null>(null);
@@ -781,12 +804,12 @@ function ChessBoard({
                   orientation={rendered.orientation}
                   onSquarePress={onSquarePress}
                   onDragMove={onDragMove}
-                  legalMoves={legalMoves}
+                  legalMovesSV={legalMovesSV}
                   shadowX={shadowX}      
                   shadowY={shadowY}
                   showShadow={showShadow}
-                  turn={turn}
-                  selectedSquare={selectedSquare}
+                  turnSV={turnSV}
+                  selectedSquareSV={selectedSquareSV}
                   capturedSquareValue={capturedSquareValue}
                   onInvalidTarget={triggerInvalidTarget}
                   moveDurationMs={moveDurationMs}

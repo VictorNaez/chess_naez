@@ -202,8 +202,12 @@ export function useAnalysisEngine(fen: string) {
     onOutput: handleStockfishOutput,
     onError: (error: string) => {
       console.error('❌ [Stockfish Error Nativo]:', error);
-    }
-  }), [handleStockfishOutput]);
+    },
+    // Los ficheros del motor no se copian a disco hasta la primera entrada en
+    // análisis. Antes se preparaban en el arranque de la app aunque el usuario
+    // no fuera a usarlos nunca.
+    enabled: isAnalysisMode,
+  }), [handleStockfishOutput, isAnalysisMode]);
 
   const { StockfishWebView, sendCommandToStockfish, reloadEngine } = useStockfishWebview(stockfishConfig);
 

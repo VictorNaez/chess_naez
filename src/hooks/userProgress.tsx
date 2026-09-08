@@ -27,6 +27,13 @@ const LEGACY_COLUMNS = [
 // una sola vez por dispositivo en lugar de en cada arranque.
 const DEDUP_FLAG = 'dedup_elo_history_v1';
 
+// Mismo criterio para los ALTER de LEGACY_COLUMNS: cada uno lanza excepción
+// cuando la columna ya existe, que es el caso normal a partir del segundo
+// arranque. Sin este flag pagábamos seis excepciones cruzando JSI cada vez que
+// se abre la app, para siempre. Si añades una columna nueva a LEGACY_COLUMNS,
+// sube el sufijo del flag (v2 -> v3) para que la migración vuelva a correr.
+const LEGACY_COLUMNS_FLAG = 'legacy_columns_v2';
+
 // =========================================================
 // HELPERS
 // =========================================================
@@ -69,14 +76,28 @@ const ensureSchema = async (db: SQLite.SQLiteDatabase) => {
     );
   `);
 
-  for (const column of LEGACY_COLUMNS) {
-    try {
-      await db.execAsync(`ALTER TABLE elo_history ADD COLUMN ${column};`);
-    } catch {
-      // La columna ya existía. Es el camino habitual, no hay nada que hacer.
+  const alreadyPatched = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM app_meta WHERE key = ?',
+    [LEGACY_COLUMNS_FLAG]
+  );
+
+  if (!alreadyPatched) {
+    for (const column of LEGACY_COLUMNS) {
+      try {
+        await db.execAsync(`ALTER TABLE elo_history ADD COLUMN ${column};`);
+      } catch {
+        // La columna ya existía. Es el camino habitual, no hay nada que hacer.
+      }
     }
+    await db.runAsync(
+      'INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)',
+      [LEGACY_COLUMNS_FLAG, String(Date.now())]
+    );
   }
 
+  // El CREATE INDEX sí se queda fuera del flag: IF NOT EXISTS es una consulta
+  // al esquema, sin I/O, y así añadir un índice nuevo mañana no obliga a
+  // acordarse de subir la versión.
   // statsQueries filtra por timestamp en todas sus consultas y el repaso futuro
   // buscará por puzzleID. Sin índices son dos escaneos completos del historial.
   await db.execAsync(`
