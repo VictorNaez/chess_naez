@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "chess_naez",
+    "name": "Chess Naez",
     "slug": "chess_naez",
+    "icon": "./assets/images/icon.png",
     "scheme": "chess-naez",
     "version": "1.0.0",
     "android": {

@@ -470,6 +470,7 @@ const {
   isHistoryModalVisible,
   eloHistoryData,
   isHistoryListReady,
+  isChartReady,    
   recentPuzzles,
   selectedHistoryItem,
   openHistory,
@@ -2041,7 +2042,7 @@ return (
       onClose={() => setIsSettingsModalVisible(false)}
       onPreviewSound={() => playSound('move')}
     />
-    
+        
     <HistoryModal
       visible={isHistoryModalVisible}
       onClose={closeHistory}
@@ -2049,6 +2050,7 @@ return (
       eloHistoryData={eloHistoryData}
       recentPuzzles={recentPuzzles}
       isHistoryListReady={isHistoryListReady}
+      isChartReady={isChartReady}
       selectedHistoryItem={selectedHistoryItem}
       onSelectPuzzle={selectHistoryPuzzle}
     />

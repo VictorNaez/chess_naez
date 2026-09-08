@@ -14,10 +14,9 @@ export function useEloHistory(
   onOpenHistoryPuzzle: (puzzle: Puzzle) => void
 ) {
   const [isHistoryModalVisible, setIsHistoryModalVisible] = useState(false);
-  const [eloHistoryData, setEloHistoryData] = useState<EloPoint[]>([
-    { value: 1200, timestamp: Date.now() },
-  ]);
+  const [eloHistoryData, setEloHistoryData] = useState<EloPoint[]>([]);
   const [isHistoryListReady, setIsHistoryListReady] = useState(false);
+  const [isChartReady, setIsChartReady] = useState(false);
   const [recentPuzzles, setRecentPuzzles] = useState<any[]>([]);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<any>(null);
 
@@ -67,7 +66,9 @@ export function useEloHistory(
     if (!db) return;
     try {
       const rows = await db.getAllAsync<any>(
-        `SELECT * FROM elo_history ORDER BY id DESC LIMIT 20`
+        `SELECT * FROM elo_history
+        WHERE puzzleID IS NOT NULL AND puzzleID <> ''
+        ORDER BY id DESC LIMIT 20`
       );
 
       // Recopilamos todos los IDs de puzzle necesarios y los traemos en UNA sola consulta.
@@ -139,13 +140,17 @@ export function useEloHistory(
   }, [db]);
 
   const openHistory = useCallback(() => {
-    loadEloHistory();
-    loadHistoryGrid();
-    setIsHistoryModalVisible(true);
     setIsHistoryListReady(false);
+    setIsChartReady(false);
+    setIsHistoryModalVisible(true);
 
+    // Ni las consultas ni el montaje del SVG arrancan hasta que la animación de
+    // apertura ha terminado. Si se lanzan antes, el trabajo compite con el fade.
     InteractionManager.runAfterInteractions(() => {
-      setIsHistoryListReady(true);
+      Promise.all([loadEloHistory(), loadHistoryGrid()]).then(() => {
+        setIsHistoryListReady(true);
+        setIsChartReady(true);
+      });
     });
   }, [loadEloHistory, loadHistoryGrid]);
 
@@ -203,6 +208,7 @@ export function useEloHistory(
     isHistoryModalVisible,
     eloHistoryData,
     isHistoryListReady,
+    isChartReady,
     recentPuzzles,
     selectedHistoryItem,
     openHistory,

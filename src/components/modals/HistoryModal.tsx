@@ -9,6 +9,7 @@ import { SCREEN_WIDTH } from '../../theme/layout';
 import { themeNames as resolveThemeNames } from '../chess_themes';
 import { MiniBoardPreview } from '../ChessBoard';
 import { PALETTE } from '../colors';
+import { Skeleton } from '../ui/Skeleton';
 
 interface EloPoint {
   value: number;
@@ -22,6 +23,7 @@ interface HistoryModalProps {
   eloHistoryData: EloPoint[];
   recentPuzzles: any[];
   isHistoryListReady: boolean;
+  isChartReady: boolean; 
   selectedHistoryItem: any;
   onSelectPuzzle: (puzzleData: any) => void;
 }
@@ -32,6 +34,7 @@ interface HistoryModalProps {
 type TimeRange = 'all' | 'year' | 'month' | 'week' | 'today';
 const RANGE_OPTIONS: TimeRange[] = ['all', 'year', 'month', 'week', 'today'];
 const DAY_MS = 24 * 60 * 60 * 1000;
+const CHART_BLOCK_HEIGHT = 214;
 
 const getCutoff = (range: TimeRange): number => {
   const now = Date.now();
@@ -48,6 +51,20 @@ const getCutoff = (range: TimeRange): number => {
   }
 };
 
+const ChartSkeleton = React.memo(() => (
+  <View style={styles.chartSkeleton}>
+    <View style={styles.chartSkeletonYAxis}>
+      {[0, 1, 2, 3].map(i => <Skeleton key={i} width={32} height={11} radius={4} />)}
+    </View>
+    <View style={styles.chartSkeletonBody}>
+      <Skeleton height={180} radius={12} />
+      <View style={styles.chartSkeletonXAxis}>
+        {[0, 1, 2, 3].map(i => <Skeleton key={i} width={28} height={10} radius={4} />)}
+      </View>
+    </View>
+  </View>
+));
+
 export const HistoryModal = React.memo(({
   visible,
   onClose,
@@ -55,6 +72,7 @@ export const HistoryModal = React.memo(({
   eloHistoryData,
   recentPuzzles,
   isHistoryListReady,
+  isChartReady,
   selectedHistoryItem,
   onSelectPuzzle,
 }: HistoryModalProps) => {
@@ -192,62 +210,66 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
 
           {/* CONTENIDO/GRÁFICA */}
           <View style={styles.chartContainer}>
-            {chartData.length === 0 ? (
-              <View style={styles.chartEmptyState}>
-                <Text style={styles.historyEmptyText}>{t.puzzle.noActivityPeriod}</Text>
-              </View>
-            ) : (
-              <LineChart.Provider data={chartData} xDomain={timeRange === 'all' ? eloChartXDomain : undefined}>
-                <View style={{ width: '100%', height: 180, position: 'relative' }}>
+            <View style={styles.chartBlock}>
+              {!isChartReady ? (
+                <ChartSkeleton />
+              ) : chartData.length === 0 ? (
+                <View style={styles.chartEmptyState}>
+                  <Text style={styles.historyEmptyText}>{t.puzzle.noActivityPeriod}</Text>
+                </View>
+              ) : (
+                <LineChart.Provider data={chartData} xDomain={timeRange === 'all' ? eloChartXDomain : undefined}>
+                  <View style={{ width: '100%', height: 180, position: 'relative' }}>
 
-                  <View style={styles.fixedYAxisContainer}>
-                    {eloYAxisTicks.map((val, index) => (
-                      <Text key={index} style={styles.axisTickText}>{val}</Text>
-                    ))}
-                  </View>
+                    <View style={styles.fixedYAxisContainer}>
+                      {eloYAxisTicks.map((val, index) => (
+                        <Text key={index} style={styles.axisTickText}>{val}</Text>
+                      ))}
+                    </View>
 
-                  <View
-                    style={[
-                      StyleSheet.absoluteFill,
-                      { paddingLeft: 45, justifyContent: 'space-between', height: 180, paddingVertical: 6 }
-                    ]}
-                    pointerEvents="none"
-                  >
-                    {[1, 2, 3, 4].map((_, i) => (
-                      <View
-                        key={i}
-                        style={{ width: '100%', height: 1, backgroundColor: 'rgba(255, 255, 255, 0.06)', borderStyle: 'dashed' }}
-                      />
-                    ))}
-                  </View>
-
-                  <View style={{ paddingLeft: 45, width: '100%', height: 190 }}>
-                    <LineChart width={SCREEN_WIDTH * 0.74} height={180}>
-                      <LineChart.Path color={PALETTE.primary} pathProps={{ strokeWidth: 2 }}>
-                        <LineChart.Gradient color={PALETTE.primary}>
-                          <Stop offset="0%"   stopColor={PALETTE.primary} stopOpacity={0.5} />
-                          <Stop offset="50%"  stopColor={PALETTE.primary} stopOpacity={0.45} />
-                          <Stop offset="100%" stopColor={PALETTE.primary} stopOpacity={0} />
-                        </LineChart.Gradient>
-                      </LineChart.Path>
-                      <LineChart.Cursor type="crosshair">
-                        <LineChart.Tooltip
-                          position="top"
-                          style={{ backgroundColor: "#1A1A1A", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
-                          textStyle={{ color: "#FFF", fontWeight: "700" }}
+                    <View
+                      style={[
+                        StyleSheet.absoluteFill,
+                        { paddingLeft: 45, justifyContent: 'space-between', height: 180, paddingVertical: 6 }
+                      ]}
+                      pointerEvents="none"
+                    >
+                      {[1, 2, 3, 4].map((_, i) => (
+                        <View
+                          key={i}
+                          style={{ width: '100%', height: 1, backgroundColor: 'rgba(255, 255, 255, 0.06)', borderStyle: 'dashed' }}
                         />
-                      </LineChart.Cursor>
-                    </LineChart>
-                  </View>
-                </View>
+                      ))}
+                    </View>
 
-                <View style={styles.xAxisContainer}>
-                  {eloXAxisTicks.map((label, i) => (
-                    <Text key={i} style={styles.xAxisTickText}>{label}</Text>
-                  ))}
-                </View>
-              </LineChart.Provider>
-            )}
+                    <View style={{ paddingLeft: 45, width: '100%', height: 190 }}>
+                      <LineChart width={SCREEN_WIDTH * 0.74} height={180}>
+                        <LineChart.Path color={PALETTE.primary} pathProps={{ strokeWidth: 2 }}>
+                          <LineChart.Gradient color={PALETTE.primary}>
+                            <Stop offset="0%"   stopColor={PALETTE.primary} stopOpacity={0.5} />
+                            <Stop offset="50%"  stopColor={PALETTE.primary} stopOpacity={0.45} />
+                            <Stop offset="100%" stopColor={PALETTE.primary} stopOpacity={0} />
+                          </LineChart.Gradient>
+                        </LineChart.Path>
+                        <LineChart.Cursor type="crosshair">
+                          <LineChart.Tooltip
+                            position="top"
+                            style={{ backgroundColor: "#1A1A1A", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
+                            textStyle={{ color: "#FFF", fontWeight: "700" }}
+                          />
+                        </LineChart.Cursor>
+                      </LineChart>
+                    </View>
+                  </View>
+
+                  <View style={styles.xAxisContainer}>
+                    {eloXAxisTicks.map((label, i) => (
+                      <Text key={i} style={styles.xAxisTickText}>{label}</Text>
+                    ))}
+                  </View>
+                </LineChart.Provider>
+              )}
+            </View>
           </View>
 
           {/* LISTA DE PUZLES DEL HISTORIAL */}
@@ -348,7 +370,6 @@ const styles = StyleSheet.create({
     rangeTabTextActive: { color: PALETTE.primary },
 
     chartContainer: {width: '100%', backgroundColor: 'rgba(26, 26, 26, 0.5)', borderRadius: 16, paddingVertical: 15, paddingHorizontal: 10, overflow: 'hidden', alignItems: 'center', },
-    chartEmptyState: { height: 214, width: '100%', alignItems: 'center', justifyContent: 'center' },
     fixedYAxisContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 40, justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 5, zIndex: 10,},
     axisTickText: { fontSize: 11, color: "rgba(255, 255, 255, 0.6)", fontWeight: "600",  fontVariant: ['tabular-nums'], }, 
     xAxisContainer: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', paddingLeft: 45, paddingRight: 4, marginTop: 8, },
@@ -374,4 +395,11 @@ const styles = StyleSheet.create({
     historyLoadingContainer: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center', },
     minimalTag: { backgroundColor: PALETTE.tagBg, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: PALETTE.tagBorder },
     minimalTagText: { color: PALETTE.primary, fontSize: 9, fontWeight: '800' },
+
+    chartBlock: { width: '100%', height: CHART_BLOCK_HEIGHT },
+    chartEmptyState: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },
+    chartSkeleton: { flexDirection: 'row', width: '100%', height: '100%', paddingVertical: 5 },
+    chartSkeletonYAxis: { width: 45, height: 180, justifyContent: 'space-between', paddingVertical: 5 },
+    chartSkeletonBody: { flex: 1 },
+    chartSkeletonXAxis: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingRight: 4 },
 });
