@@ -1,25 +1,30 @@
+import { de } from './locales/de';
 import { en } from './locales/en';
 import { es } from './locales/es';
+import { fr } from './locales/fr';
 import { pt } from './locales/pt';
+import { ru } from './locales/ru';
 
 // La forma del diccionario la manda el español. Cualquier idioma nuevo se tipa
 // como `Dictionary` y el compilador exige que esté completo.
 export type Dictionary = typeof es;
 
-export type Locale = 'es' | 'en' | 'pt';
+export type Locale = 'es' | 'en' | 'pt' | 'ru' | 'fr' | 'de';
 
 // 'system' no es un idioma: es "usa lo que diga el móvil". Se guarda tal cual
 // para que si el usuario cambia el idioma del sistema, la app le siga.
 export type LocalePreference = Locale | 'system';
 
-export const DICTIONARIES: Record<Locale, Dictionary> = { es, en, pt };
+export const DICTIONARIES: Record<Locale, Dictionary> = { es, en, pt, ru, fr, de };
 
 export const AVAILABLE_LOCALES: { code: Locale; label: string }[] = [
-  { code: 'es', label: 'Español' },
-  { code: 'en', label: 'English' },
-  { code: 'pt', label: 'Português' },
+  { code: 'es', label: 'ES' },
+  { code: 'en', label: 'EN' },
+  { code: 'pt', label: 'PT' },
+  { code: 'ru', label: 'RU' },
+  { code: 'fr', label: 'FR' },
+  { code: 'de', label: 'DE' },
 ];
-
 export const FALLBACK_LOCALE: Locale = 'es';
 
 /**
