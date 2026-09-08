@@ -17,14 +17,25 @@ export type LocalePreference = Locale | 'system';
 
 export const DICTIONARIES: Record<Locale, Dictionary> = { es, en, pt, ru, fr, de };
 
-export const AVAILABLE_LOCALES: { code: Locale; label: string }[] = [
-  { code: 'es', label: 'ES' },
-  { code: 'en', label: 'EN' },
-  { code: 'pt', label: 'PT' },
-  { code: 'ru', label: 'RU' },
-  { code: 'fr', label: 'FR' },
-  { code: 'de', label: 'DE' },
+/**
+ * `label` es el código corto (para chips o sitios estrechos).
+ * `nativeName` es el nombre del idioma EN ESE IDIOMA: no se traduce nunca, es
+ * la convención de cualquier selector de idioma (un ruso debe reconocer
+ * "Русский" aunque la app esté en español porque se equivocó al elegir).
+ */
+export const AVAILABLE_LOCALES: { code: Locale; label: string; nativeName: string }[] = [
+  { code: 'es', label: 'ES', nativeName: 'Español' },
+  { code: 'en', label: 'EN', nativeName: 'English' },
+  { code: 'pt', label: 'PT', nativeName: 'Português' },
+  { code: 'ru', label: 'RU', nativeName: 'Русский' },
+  { code: 'fr', label: 'FR', nativeName: 'Français' },
+  { code: 'de', label: 'DE', nativeName: 'Deutsch' },
 ];
+
+/** Nombre nativo de una locale ya resuelta. Útil para "Sistema (Español)". */
+export function nativeNameOf(code: Locale): string {
+  return AVAILABLE_LOCALES.find(l => l.code === code)?.nativeName ?? code.toUpperCase();
+}
 export const FALLBACK_LOCALE: Locale = 'es';
 
 /**

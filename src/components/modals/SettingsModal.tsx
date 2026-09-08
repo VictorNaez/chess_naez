@@ -3,7 +3,7 @@ import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { AppSettings, DEFAULT_SETTINGS, useSettings } from '../../hooks/useSettings';
-import { AVAILABLE_LOCALES, type LocalePreference } from '../../i18n';
+import { AVAILABLE_LOCALES, nativeNameOf, type LocalePreference } from '../../i18n';
 import { useI18n } from '../../i18n/I18nProvider';
 import { SCREEN_WIDTH } from '../../theme/layout';
 import { PALETTE } from '../colors';
@@ -70,30 +70,66 @@ const SegmentedRow = React.memo(({ label, hint, options, value, onChange }: {
   </View>
 ));
 
-const LocaleRow = React.memo(({ label, hint, options, value, onChange }: {
-  label: string; hint?: string;
+/**
+ * Selector de idioma desplegable.
+ *
+ * Con 7 opciones la fila segmentada dejaba ~40px por chip. Aquí se ve solo el
+ * idioma activo y el resto se despliega al tocar.
+ *
+ * El desplegable se renderiza EN FLUJO (empuja el contenido de abajo), no en
+ * `position: absolute`: dentro de un ScrollView, un overlay absoluto lo recorta
+ * el padre en Android y además ignora el orden de pintado de los hermanos.
+ *
+ * `open` vive en el padre para poder cerrarlo al reabrir el modal.
+ */
+const LocaleSelectRow = React.memo(({ label, valueLabel, options, value, open, onToggle, onChange }: {
+  label: string;
+  valueLabel: string;
   options: { label: string; value: LocalePreference }[];
-  value: LocalePreference; onChange: (v: LocalePreference) => void;
+  value: LocalePreference;
+  open: boolean;
+  onToggle: () => void;
+  onChange: (v: LocalePreference) => void;
 }) => (
-  <View style={styles.segmentedBlock}>
-    <Text style={styles.rowLabel}>{label}</Text>
-    {!!hint && <Text style={styles.rowHint}>{hint}</Text>}
-    <View style={styles.segmentedRow}>
-      {options.map(opt => {
-        const active = opt.value === value;
-        return (
-          <TouchableOpacity
-            key={opt.value}
-            style={[styles.segment, active && styles.segmentActive]}
-            onPress={() => onChange(opt.value)}
-          >
-            <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
-              {opt.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
+  <View style={styles.selectBlock}>
+    <TouchableOpacity style={styles.selectHeader} onPress={onToggle} activeOpacity={0.7}>
+      <View style={styles.rowLeft}>
+        <Ionicons name="language-outline" size={18} color={PALETTE.secondary} style={styles.rowIcon} />
+        <Text style={styles.rowLabel} numberOfLines={1}>{label}</Text>
+      </View>
+      <View style={[styles.selectValue, open && styles.selectValueOpen]}>
+        <Text style={styles.selectValueText} numberOfLines={1}>{valueLabel}</Text>
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={14}
+          color={PALETTE.secondary}
+        />
+      </View>
+    </TouchableOpacity>
+
+    {open && (
+      <View style={styles.dropdown}>
+        {options.map((opt, i) => {
+          const active = opt.value === value;
+          return (
+            <TouchableOpacity
+              key={opt.value}
+              style={[styles.dropdownItem, i > 0 && styles.dropdownItemBorder]}
+              onPress={() => { onChange(opt.value); onToggle(); }}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}
+                numberOfLines={1}
+              >
+                {opt.label}
+              </Text>
+              {active && <Ionicons name="checkmark" size={16} color={PALETTE.secondary} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    )}
   </View>
 ));
 
@@ -102,14 +138,20 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
     soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves,
     engineDepth, engineMultiPV, setSetting, resetSettings,
   } = useSettings();
-  const { t, preference, setPreference } = useI18n();
+  const { t, locale, preference, setPreference } = useI18n();
 
   // El idioma NO entra en el snapshot de Cancelar ni en Restablecer: vive en su
   // propio provider y se aplica al instante, como en cualquier app del sistema.
+  // En la lista, "Sistema" muestra entre paréntesis qué idioma resuelve ahora
+  // mismo; en el botón cerrado solo cabe la palabra suelta.
   const localeOptions: { label: string; value: LocalePreference }[] = [
-    { label: t.settings.languageSystem, value: 'system' },
-    ...AVAILABLE_LOCALES.map(l => ({ label: l.label, value: l.code as LocalePreference })),
+    { label: `${t.settings.languageSystem} (${nativeNameOf(locale)})`, value: 'system' },
+    ...AVAILABLE_LOCALES.map(l => ({ label: l.nativeName, value: l.code as LocalePreference })),
   ];
+  const localeValueLabel =
+    preference === 'system' ? t.settings.languageSystem : nativeNameOf(locale);
+
+  const [localeOpen, setLocaleOpen] = useState(false);
 
   // Los sliders se editan en local y se confirman al soltar: si escribiéramos en
   // los ajustes en cada frame del arrastre, cada frame acabaría en AsyncStorage.
@@ -128,6 +170,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
       };
       setTempVolume(Math.round(volume * 100));
       setTempDepth(engineDepth);
+      setLocaleOpen(false); // que no se reabra desplegado
     }
   }, [visible]);
 
@@ -175,12 +218,14 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
             {/* --- IDIOMA --- */}
             <Text style={styles.sectionTitle}>{t.settings.sectionLanguage}</Text>
             <View style={styles.card}>
-              <LocaleRow
+              <LocaleSelectRow
                 label={t.settings.language}
-                //hint={t.settings.languageHint}
+                valueLabel={localeValueLabel}
                 value={preference}
                 onChange={setPreference}
                 options={localeOptions}
+                open={localeOpen}
+                onToggle={() => setLocaleOpen(o => !o)}
               />
             </View>
 
@@ -342,6 +387,20 @@ const styles = StyleSheet.create({
   depthSliderWrap: { width: SCREEN_WIDTH * 0.78, alignSelf: 'center', marginTop: 10 },
   depthGuide: { flexDirection: 'row', marginBottom: 2 },
   depthGuideText: { flex: 1, color: PALETTE.chipText, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, opacity: 0.85 },
+
+  selectBlock: { paddingVertical: 4 },
+  selectHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
+  // flexShrink: 0 en el valor + numberOfLines en la etiqueta: si el nombre del
+  // idioma es largo, quien se recorta es la etiqueta, no el valor.
+  selectValue: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, backgroundColor: PALETTE.chipBg, borderWidth: 1, borderColor: PALETTE.chipBorder },
+  selectValueOpen: { backgroundColor: PALETTE.chipActiveBg, borderColor: PALETTE.secondary },
+  selectValueText: { color: PALETTE.secondary, fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
+
+  dropdown: { marginBottom: 12, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(0,0,0,0.25)', borderWidth: 1, borderColor: PALETTE.chipBorder },
+  dropdownItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 14 },
+  dropdownItemBorder: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
+  dropdownItemText: { color: PALETTE.chipText, fontSize: 13, fontWeight: '600', flexShrink: 1, marginRight: 8 },
+  dropdownItemTextActive: { color: PALETTE.secondary, fontWeight: '900' },
 
   segmentedBlock: { paddingVertical: 12 },
   segmentedRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
