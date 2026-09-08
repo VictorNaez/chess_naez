@@ -157,6 +157,7 @@ const AnimatedPiece = React.memo(({
   const posY = useSharedValue(targetY);
   const scale = useSharedValue(1);
   const isDragging = useSharedValue(false);
+  const wasSelectedOnBegin = useSharedValue(false);   // Marca si la pieza YA estaba seleccionada cuando empezó ESTE toque.
 
   const dragX = useSharedValue(0);
   const dragY = useSharedValue(0);
@@ -207,7 +208,9 @@ const AnimatedPiece = React.memo(({
       .numberOfTaps(1)
       .onStart(() => {
         if (p.color === turnSV.value) {
-          runOnJS(onSquarePress)(p.square);
+          if (wasSelectedOnBegin.value) {
+            runOnJS(onSquarePress)(p.square);
+          }
           return;
         }
 
@@ -230,6 +233,7 @@ const AnimatedPiece = React.memo(({
     Gesture.Pan()
       .onBegin(() => {
         if (p.color === turnSV.value) {
+          wasSelectedOnBegin.value = selectedSquareSV.value === p.square;
           runOnJS(onSquarePress)(p.square, true);
         }
       })
