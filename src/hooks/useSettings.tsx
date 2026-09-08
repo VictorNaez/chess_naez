@@ -8,6 +8,7 @@ export interface AppSettings {
   hapticsEnabled: boolean;
   showTimer: boolean;
   showLegalMoves: boolean;
+  showCoordinates: boolean;
   engineDepth: number;     // profundidad del 'go depth N'
   engineHash: number;      // MB de tabla hash
   engineMultiPV: number;   // nº de líneas de análisis (1..3)
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hapticsEnabled: true,
   showTimer: true,
   showLegalMoves: true,
+  showCoordinates: true,
   engineDepth: 15,
   engineHash: 16,
   engineMultiPV: 3,

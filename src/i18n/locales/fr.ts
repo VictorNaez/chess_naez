@@ -59,6 +59,8 @@ export const fr: Dictionary = {
     timerHint: 'Le temps continue d’être enregistré même si vous le masquez',
     legalMoves: 'Coups légaux',
     legalMovesHint: 'Affiche les coups légaux de la pièce sélectionnée',
+    coordinates: 'Coordonnées de l’échiquier',
+    coordinatesHint: 'Affiche les lettres (a - h) et les nombres (1 - 8) sur les bords',
 
     depth: 'Profondeur d’analyse',
     depthHint: 'Plus de profondeur, de meilleurs coups, mais plus lent et plus gourmand en batterie',

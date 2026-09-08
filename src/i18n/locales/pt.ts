@@ -55,6 +55,8 @@ export const pt: Dictionary = {
     timerHint: 'O tempo continua sendo registrado mesmo se você ocultá-lo',
     legalMoves: 'Lances legais',
     legalMovesHint: 'Mostra os lances legais da peça selecionada',
+    coordinates: 'Coordenadas do tabuleiro',
+    coordinatesHint: 'Mostra as letras (a - h) e números (1 - 8) nos bordos',
 
     depth: 'Profundidade da análise',
     depthHint: 'Mais profundidade, melhores lances, mas mais lento e mais bateria',

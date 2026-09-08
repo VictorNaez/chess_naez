@@ -37,6 +37,7 @@ interface ChessBoardProps {
   centipawnScore?: string | null;
   mateInMoves?: string | null;
   showLegalMoves?: boolean;
+  showCoordinates?: boolean;
   moveDurationMs?: number;
 }
 
@@ -532,6 +533,7 @@ function ChessBoard({
   centipawnScore = null,
   mateInMoves = null,
   showLegalMoves = true,
+  showCoordinates = true,
   moveDurationMs = 200
 }: ChessBoardProps) {
 
@@ -734,8 +736,8 @@ function ChessBoard({
               isCapture={showDot && occupiedSquares.has(square)}
               isLastMove={square === lastMoveFrom || square === lastMoveTo}
               hasKingInMate={mateKingSquare === square}
-              showNumber={vCol === 0}
-              showLabel={vRow === 7}
+              showNumber={showCoordinates && vCol === 0}
+              showLabel={showCoordinates && vRow === 7}
               rankLabel={rankLabel}
               fileLabel={fileLabel}
               onSquarePress={onSquarePress}

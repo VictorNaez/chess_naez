@@ -59,6 +59,8 @@ export const de: Dictionary = {
     timerHint: 'Die Zeit wird weiter erfasst, auch wenn du sie ausblendest',
     legalMoves: 'Legale Züge',
     legalMovesHint: 'Zeigt die legalen Züge der ausgewählten Figur',
+    coordinates: 'Koordinaten',
+    coordinatesHint: 'Zeigt die Buchstaben (a - h) und Zahlen (1 - 8) an den Rändern an',
 
     depth: 'Analysetiefe',
     depthHint: 'Mehr Tiefe bringt bessere Züge, ist aber langsamer und braucht mehr Akku',

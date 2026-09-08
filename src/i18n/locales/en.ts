@@ -50,6 +50,8 @@ export const en: Dictionary = {
     timerHint: 'Time is still tracked even when hidden',
     legalMoves: 'Legal moves',
     legalMovesHint: 'Highlights the legal moves of the selected piece',
+    coordinates: 'Board coordinates',
+    coordinatesHint: 'Shows the letters (a - h) and numbers (1 - 8) on the edges',
 
     depth: 'Analysis depth',
     depthHint: 'Higher depth means better moves, but slower and more battery',

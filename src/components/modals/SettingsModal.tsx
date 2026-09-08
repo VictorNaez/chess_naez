@@ -135,7 +135,7 @@ const LocaleSelectRow = React.memo(({ label, valueLabel, options, value, open, o
 
 export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: SettingsModalProps) => {
   const {
-    soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves,
+    soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves, showCoordinates,
     engineDepth, engineMultiPV, setSetting, resetSettings,
   } = useSettings();
   const { t, locale, preference, setPreference } = useI18n();
@@ -165,7 +165,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
   useEffect(() => {
     if (visible) {
       snapshotRef.current = {
-        soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves,
+        soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves, showCoordinates,
         engineDepth, engineMultiPV,
       };
       setTempVolume(Math.round(volume * 100));
@@ -191,6 +191,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
       setSetting('hapticsEnabled', snap.hapticsEnabled);
       setSetting('showTimer', snap.showTimer);
       setSetting('showLegalMoves', snap.showLegalMoves);
+      setSetting('showCoordinates', snap.showCoordinates);
       setSetting('engineDepth', snap.engineDepth);
       setSetting('engineMultiPV', snap.engineMultiPV);
     }
@@ -294,9 +295,16 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
                 hint={t.settings.legalMovesHint}
                 value={showLegalMoves}
                 onChange={(v) => setSetting('showLegalMoves', v)}
-              />
-            </View>
-
+              />         
+              <View style={styles.divider} />
+                <ToggleRow
+                  icon="text-outline"
+                  label={t.settings.coordinates}
+                  hint={t.settings.coordinatesHint}
+                  value={showCoordinates}
+                  onChange={(v) => setSetting('showCoordinates', v)}
+                />
+              </View>
             {/* --- MOTOR --- */}
             <Text style={styles.sectionTitle}>{t.settings.sectionEngine}</Text>
             <View style={styles.card}>

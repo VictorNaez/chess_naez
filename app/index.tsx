@@ -1879,6 +1879,7 @@ return (
                 centipawnScore={analysisEngine.centiPawnScore}
                 mateInMoves={analysisEngine.mateInMoves}
                 showLegalMoves={settings.showLegalMoves}
+                showCoordinates={settings.showCoordinates}
                 moveDurationMs={isRunPlaying ? CLOCK_TIMING.pieceMove : undefined}
               />
             </Animated.View>

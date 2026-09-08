@@ -58,6 +58,8 @@ export const es = {
     timerHint: 'El tiempo se sigue registrando aunque lo ocultes',
     legalMoves: 'Movimientos legales',
     legalMovesHint: 'Muestra los movimientos legales de la pieza seleccionada',
+    coordinates: 'Muestra las coordenadas del tablero',
+    coordinatesHint: 'Muestra las letras (a - h) y números (1 - 8) en los bordes',
 
     depth: 'Profundidad de análisis',
     depthHint: 'A mayor profundidad, mejores jugadas pero más lento y más batería',
