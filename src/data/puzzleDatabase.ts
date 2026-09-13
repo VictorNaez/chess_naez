@@ -3,51 +3,128 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
 import type { Puzzle } from '../types/puzzle';
 
-const DB_NAME = 'puzzles_v2.db';
+// =========================================================
+// DOS FICHEROS, UNA CONEXIÓN
+// =========================================================
+//   progress.db      -> main. Todo lo del jugador. Lo escribe la app, lo
+//                       respalda Android, no lo toca nunca un release.
+//   puzzles_v2.db    -> adjunta como `catalog`. Copia del asset, solo lectura.
+//                       Al no haber progreso dentro, se puede reemplazar por
+//                       una versión nueva en cualquier release.
+//
+// SQLite resuelve los nombres sin cualificar buscando primero en main y luego
+// en las bases adjuntas, así que los JOIN de statsQueries y repasoQueue entre
+// elo_history/review_queue y puzzles siguen funcionando sin cambios. El DDL es
+// la excepción: SIEMPRE apunta a main salvo que lleve prefijo (ver más abajo).
+const CATALOG_DB = 'puzzles_v2.db';
+const PROGRESS_DB = 'progress.db';
+const SQLITE_DIR = `${FileSystem.documentDirectory}SQLite`;
 
-export const openPuzzleDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
-  const dbUri = `${FileSystem.documentDirectory}SQLite/${DB_NAME}`;
+// Súbela cuando publiques un catálogo nuevo: al no arrastrar ya el progreso,
+// el asset se puede sobrescribir sin miedo.
+const CATALOG_VERSION = 1;
+const CATALOG_VERSION_KEY = 'catalog_version';
 
-  if (!(await FileSystem.getInfoAsync(dbUri)).exists) {
-    await FileSystem.makeDirectoryAsync(`${FileSystem.documentDirectory}SQLite`, { intermediates: true });
-    const asset = await Asset.fromModule(require('../../assets/puzzles_v2.db')).downloadAsync();
-    if (asset.localUri) {
-      await FileSystem.copyAsync({ from: asset.localUri, to: dbUri });
-    }
+const provisionCatalog = async (db: SQLite.SQLiteDatabase | null) => {
+  const catalogUri = `${SQLITE_DIR}/${CATALOG_DB}`;
+  const exists = (await FileSystem.getInfoAsync(catalogUri)).exists;
+
+  // db es null en el primer arranque: aún no hay conexión con la que leer la
+  // versión instalada, pero tampoco hace falta, porque no hay fichero.
+  let installed = 0;
+  if (exists && db) {
+    const row = await db.getFirstAsync<{ value: string }>(
+      'SELECT value FROM app_meta WHERE key = ?',
+      [CATALOG_VERSION_KEY],
+    );
+    installed = Number(row?.value ?? 0);
   }
 
-  const database = await SQLite.openDatabaseAsync(DB_NAME);
+  if (exists && installed >= CATALOG_VERSION) return false;
 
-  // Índice sobre rating: sin esto, cada carga de puzzle hace un full table scan
-  // de las ~100k filas. IF NOT EXISTS lo hace idempotente y gratis en aperturas
-  // posteriores una vez creado. Esto cubre tanto instalaciones nuevas como
-  // usuarios ya existentes, cuya .db en disco nunca se sobreescribe con el asset.
-  await database.execAsync(`CREATE INDEX IF NOT EXISTS idx_puzzles_rating ON puzzles(rating);`);
+  await FileSystem.makeDirectoryAsync(SQLITE_DIR, { intermediates: true });
+  const asset = await Asset.fromModule(require('../../assets/puzzles_v2.db')).downloadAsync();
+  if (asset.localUri) {
+    // copyAsync sobrescribe. El catálogo viejo se va entero, índice incluido:
+    // el CREATE INDEX de abajo lo reconstruye.
+    await FileSystem.copyAsync({ from: asset.localUri, to: catalogUri });
+  }
+  return true;
+};
 
-  // elo_history y user_progress viven en ESTE mismo fichero, así que cada puzle
-  // resuelto abre una transacción sobre una base de 12 MB. Con los valores por
-  // defecto (journal_mode=DELETE, synchronous=FULL) eso significa reescribir el
-  // journal y forzar un fsync por commit, justo en el instante en el que el
-  // usuario espera que la app responda.
-  //   WAL:               los escritores dejan de bloquear a los lectores y el
-  //                      commit se reduce a un append al fichero -wal.
-  //   synchronous=NORMAL: un fsync por checkpoint en vez de uno por commit. En
-  //                      WAL sigue siendo seguro ante caídas de la app; solo se
-  //                      arriesga la última transacción ante un corte de luz,
-  //                      que aquí es un intento de puzle.
-  // Medido sobre la transacción real de guardado: 0,74 ms -> 0,05 ms en SSD.
-  // En flash de Android la diferencia es bastante mayor.
+export const openPuzzleDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
+  await provisionCatalog(null);
+
+  // expo-sqlite crea progress.db vacío si no existe. En una instalación limpia
+  // sin copia de seguridad eso es exactamente lo que queremos: las tablas las
+  // montan después ensureSchema / setupRunTables / setupRepasoTable.
+  // Si Android restauró un progress.db de la instalación anterior, se abre tal
+  // cual y no hace falta ni una línea de código de restauración.
+  const database = await SQLite.openDatabaseAsync(PROGRESS_DB);
+
+  // ATTACH quiere una ruta del sistema de ficheros, no una URI file://.
+  // Va por runAsync y no execAsync para no interpolar la ruta en el SQL.
+  await database.runAsync('ATTACH DATABASE ? AS catalog', [
+    `${SQLITE_DIR}/${CATALOG_DB}`.replace('file://', ''),
+  ]);
+
+  // El prefijo `catalog.` es obligatorio: sin él, SQLite intenta crear el
+  // índice en main y falla con "no such table: main.puzzles". Los SELECT sí
+  // caen en cascada a la base adjunta, el DDL no.
+  await database.execAsync(
+    'CREATE INDEX IF NOT EXISTS catalog.idx_puzzles_rating ON puzzles(rating);',
+  );
+
+  // Los PRAGMA son POR BASE. Estos caen sobre main, o sea progress.db, que es
+  // donde va el 100% de las escrituras. El catálogo solo se lee y le da igual.
+  // Bonus del reparto: el WAL y los fsync ahora operan sobre un fichero de
+  // pocos MB en vez de sobre uno de 12.
   await database.execAsync(`
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
   `);
 
   if (__DEV__) {
-    const mode = await database.getFirstAsync<{ journal_mode: string }>('PRAGMA journal_mode');
-    console.log('[DB] journal_mode =', mode?.journal_mode);
+    const mode = await database.getFirstAsync<{ journal_mode: string }>('PRAGMA main.journal_mode');
+    console.log('[DB] progress journal_mode =', mode?.journal_mode);
   }
 
   return database;
+};
+
+// Llamar cuando la app pase a segundo plano. Android hace la copia con la app
+// ya cerrada: si el WAL tiene transacciones sin volcar y solo se respaldara el
+// .db, se perderían. TRUNCATE deja el .db completo por sí solo y el -wal a cero.
+export const checkpointProgress = async (db: SQLite.SQLiteDatabase) => {
+  try {
+    await db.execAsync('PRAGMA wal_checkpoint(TRUNCATE);');
+  } catch (error) {
+    console.warn('[DB] checkpoint fallido:', error);
+  }
+};
+
+// Reemplaza el catálogo si el asset del bundle es más nuevo que el instalado.
+// Se llama DESPUÉS de que exista la conexión, porque la versión vive en
+// app_meta, que está en progress.db.
+export const syncCatalogVersion = async (db: SQLite.SQLiteDatabase) => {
+  const replaced = await provisionCatalog(db);
+  if (!replaced) return false;
+
+  // Reabrir la adjunta para que la conexión vea el fichero nuevo.
+  await db.execAsync('DETACH DATABASE catalog;');
+  await db.runAsync('ATTACH DATABASE ? AS catalog', [
+    `${SQLITE_DIR}/${CATALOG_DB}`.replace('file://', ''),
+  ]);
+  await db.execAsync(
+    'CREATE INDEX IF NOT EXISTS catalog.idx_puzzles_rating ON puzzles(rating);',
+  );
+  await db.runAsync('INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)', [
+    CATALOG_VERSION_KEY,
+    String(CATALOG_VERSION),
+  ]);
+
+  cachedMaxRowid = null; // el catálogo nuevo tiene otro número de filas
+  return true;
 };
 
 let cachedMaxRowid: number | null = null;

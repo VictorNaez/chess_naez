@@ -35,7 +35,7 @@ import { BoardControls } from '../src/components/puzzle/BoardControls';
 import { MoveList } from '../src/components/puzzle/MoveList';
 import { RepasoProgressPill } from '../src/components/repaso/RepasoProgressPill';
 import { Skeleton } from '../src/components/ui/Skeleton';
-import { getMaxRowid, getPuzzleById, openPuzzleDatabase } from '../src/data/puzzleDatabase';
+import { checkpointProgress, getMaxRowid, getPuzzleById, openPuzzleDatabase, syncCatalogVersion } from '../src/data/puzzleDatabase';
 import { useAnalysisEngine } from '../src/hooks/useAnalysisEngine';
 import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
@@ -1025,6 +1025,14 @@ const stableClearSelection = useCallback(
   []
 );
 
+useEffect(() => {
+  if (!db) return;
+  const sub = AppState.addEventListener('change', state => {
+    if (state === 'background') void checkpointProgress(db);
+  });
+  return () => sub.remove();
+}, [db]);
+
 // Navegación única del historial: la usan tanto las flechas como la lista de
 // jugadas, para que ambas dejen exactamente el mismo estado.
 // (Antes handleMovePress no tocaba isReviewMode: si venías de pulsar la flecha
@@ -1688,6 +1696,7 @@ useEffect(() => {
   async function setup() {
     const database = await openPuzzleDatabase();
     setDb(database);
+    syncCatalogVersion(database);
 
     let savedRange = eloRange;
     let savedThemes = selectedThemes;
