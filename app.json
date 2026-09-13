@@ -15,27 +15,28 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.naez.chess"
     },
-  "plugins": [
-    "expo-dev-client",
-    "expo-router",
-    [
-      "expo-splash-screen",
-      {
-        "image": "./assets/images/splash-icon.png",
-        "imageWidth": 200,
-        "resizeMode": "contain",
-        "backgroundColor": "#ffffff",
-        "dark": {
-          "backgroundColor": "#000000"
+    "plugins": [
+      "expo-dev-client",
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
         }
-      }
+      ],
+      "expo-sqlite",
+      "expo-font",
+      "expo-web-browser",
+      "expo-iap",
+      "./plugins/withProgressBackup",
+      "expo-audio"
     ],
-    "expo-sqlite",
-    "expo-font",
-    "expo-web-browser",
-    "expo-iap",
-    "./plugins/withProgressBackup"
-  ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

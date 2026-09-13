@@ -1,6 +1,20 @@
-import { Audio } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useRef } from 'react';
 import { useSettings } from './useSettings';
+
+// ---------------------------------------------------------------------------
+// MIGRADO DE expo-av A expo-audio
+//
+// Dos motivos, uno técnico y uno de tienda:
+//   - expo-av está deprecado desde SDK 53 y desaparece en SDK 55.
+//   - el config plugin de expo-av mete android.permission.RECORD_AUDIO en el
+//     manifest. Un entrenador de ajedrez pidiendo micrófono es una casilla más
+//     que rellenar en Seguridad de los Datos y una bandera roja en la ficha.
+//
+// Diferencia de API relevante: createAudioPlayer es SÍNCRONO (devuelve el
+// player, no una promesa), así que la precarga ya no necesita el baile de
+// `cancelled` que tenía la versión con Audio.Sound.createAsync.
+// ---------------------------------------------------------------------------
 
 const SOUND_ASSETS = {
   move:    require('../../assets/sounds/move.mp3'),
@@ -13,58 +27,63 @@ type SoundKey = keyof typeof SOUND_ASSETS;
 
 export function useSounds() {
   const { soundEnabled, volume } = useSettings();
-  const soundsRef = useRef<Partial<Record<SoundKey, Audio.Sound>>>({});
+  const playersRef = useRef<Partial<Record<SoundKey, AudioPlayer>>>({});
 
-  // Refs paralelos: la función que devolvemos debe ser estable (deps vacías),
-  // así que no puede leer soundEnabled/volume del closure.
+  // Ref paralelo: la función que devolvemos debe ser estable (deps vacías),
+  // así que no puede leer soundEnabled del closure.
   const enabledRef = useRef(soundEnabled);
-  const volumeRef = useRef(volume);
-
   useEffect(() => { enabledRef.current = soundEnabled; }, [soundEnabled]);
-  useEffect(() => { volumeRef.current = volume; }, [volume]);
 
   useEffect(() => {
-    let cancelled = false;
+    // No bloquea la creación de los players: si falla, los sonidos suenan
+    // igual, solo que sin el modo de audio configurado.
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: false,
+      // Un efecto de 200 ms no tiene por qué pausar la música del usuario.
+      interruptionMode: 'mixWithOthers',
+    }).catch(e => console.log('[useSounds] setAudioModeAsync:', e));
 
-    (async () => {
+    for (const key of Object.keys(SOUND_ASSETS) as SoundKey[]) {
       try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-        });
-
-        for (const key of Object.keys(SOUND_ASSETS) as SoundKey[]) {
-          // volumeRef.current, no volume: los sonidos se cargan después de que
-          // los ajustes lleguen de AsyncStorage, y el closure tendría el default.
-          const { sound } = await Audio.Sound.createAsync(SOUND_ASSETS[key], {
-            shouldPlay: false,
-            volume: volumeRef.current,
-          });
-          if (cancelled) {
-            sound.unloadAsync();
-            return;
-          }
-          soundsRef.current[key] = sound;
-        }
+        const player = createAudioPlayer(SOUND_ASSETS[key]);
+        player.volume = volume;
+        playersRef.current[key] = player;
       } catch (e) {
-        console.log('[useSounds] Error precargando sonidos:', e);
+        console.log('[useSounds] Error precargando', key, e);
       }
-    })();
+    }
 
+    // Capturamos el objeto ahora: en la limpieza, playersRef.current ya podría
+    // apuntar a otra cosa si el hook se remontase.
+    const players = playersRef.current;
     return () => {
-      cancelled = true;
-      Object.values(soundsRef.current).forEach(s => s?.unloadAsync());
-      soundsRef.current = {};
+      Object.values(players).forEach(p => {
+        try { p?.remove(); } catch { /* ya liberado */ }
+      });
+      playersRef.current = {};
     };
+    // Deliberadamente vacío: `volume` se aplica en el efecto de abajo. Meterlo
+    // aquí recrearía los cuatro players en cada tick del slider.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Si el usuario mueve el slider con los sonidos ya cargados, los reajustamos.
+  // El usuario mueve el slider con los sonidos ya cargados.
   useEffect(() => {
-    Object.values(soundsRef.current).forEach(s => s?.setVolumeAsync(volume).catch(() => {}));
+    Object.values(playersRef.current).forEach(p => {
+      try { if (p) p.volume = volume; } catch { /* noop */ }
+    });
   }, [volume]);
 
   return useCallback((key: SoundKey) => {
     if (!enabledRef.current) return;
-    soundsRef.current[key]?.replayAsync().catch(() => {});
+    const player = playersRef.current[key];
+    if (!player) return;
+    try {
+      // seekTo(0) antes de play() es el equivalente a replayAsync: sin él, un
+      // sonido que ya llegó al final no vuelve a sonar.
+      player.seekTo(0);
+      player.play();
+    } catch { /* el player pudo liberarse entre medias */ }
   }, []);
 }
