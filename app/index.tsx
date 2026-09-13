@@ -48,7 +48,7 @@ import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
 import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
-import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
+import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { PUZZLE_TIMING } from '../src/lib/timing';
 import type { AppMode } from '../src/types/mode';
@@ -107,6 +107,10 @@ function App() {
   const [playerColor, setPlayerColor] = useState<'w' | 'b'>('w');
   const [isShowingSolution, setIsShowingSolution] = useState(false);
   const [solutionRevealed, setSolutionRevealed] = useState(false);
+  // El puzle ya ha dado veredicto (acierto, fallo o solución revelada) y por
+  // tanto ya ha tocado el ELO. Desde ese momento deja de ser "reanudable": si la
+  // app se cierra sin pulsar Siguiente, al reabrir hay que traer otro, no este.
+  const [isPuzzleConsumed, setIsPuzzleConsumed] = useState(false);
   const [promotionModalVisible, setPromotionModalVisible] = useState(false);
   const [pendingMove, setPendingMove] = useState<{ from: string, to: string } | null>(null);
   const [isBoardLocked, setIsBoardLocked] = useState(false);
@@ -350,6 +354,9 @@ const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false
   
   setIsRetryMode(isRetry);
   setIsHistoryMode(isHistory);
+  // Un puzle recién puesto en el tablero vuelve a estar pendiente, salvo en un
+  // reintento: ese ya puntuó la primera vez y no debe reanudarse al reabrir.
+  setIsPuzzleConsumed(isRetry);
 
   const newGame = new Chess(puzzle.fen);
 
@@ -646,6 +653,7 @@ const showSolution = async () => {
   
   setIsShowingSolution(true);
   setSolutionRevealed(true);
+  setIsPuzzleConsumed(true);
   stopTimer(false);
 
   // Ver la solución cuenta como "no lo sabía": entra en la cola de repaso.
@@ -881,6 +889,8 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         if (isPuzzleFinished) {
           // PUZZLE FINALIZADO CON ÉXITO: Vibración de victoria
           const solveMs = stopTimer(true);
+          // Veredicto dado: el puzle ya no se guarda para reanudarlo.
+          setIsPuzzleConsumed(true);
           hapticSuccess();
           playSound('success');
           
@@ -974,6 +984,8 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
       } else {
         // MOVIMIENTO INCORRECTO: Vibración de error
         const solveMs = stopTimer(false);
+        // Fallar también consume el puzle: el ELO ya se ha descontado.
+        setIsPuzzleConsumed(true);
         hapticError();
         playSound('error');
 
@@ -1234,6 +1246,9 @@ const exitAnalysis = () => {
 // El cerrojo es un ref y no `!loading || db`: hasta que setup() no ha leído lo
 // guardado, el estado son los defaults y escribirlos pisaría la sesión anterior.
 const hasRestoredPrefsRef = useRef(false);
+// id del puzle que ahora mismo está escrito en AsyncStorage, o null si no hay
+// ninguno. Espejo en memoria del almacén para no escribir/borrar de más.
+const storedPuzzleIdRef = useRef<string | null>(null);
 
 // Filtros: solo cambian cuando el usuario toca el modal.
 useEffect(() => {
@@ -1245,15 +1260,38 @@ useEffect(() => {
   ]).catch(error => console.error("Error al guardar los filtros en AsyncStorage:", error));
 }, [eloRange, selectedThemes, isRecommendedMode]);
 
-// Puzle activo: una sola escritura por puzle.
-// En repaso no se guarda: al reabrir la app volveríamos a modo puzles con un
-// puzle de la cola en pantalla, y esta vez sí daría ELO.
+// Puzle activo: se guarda SOLO mientras sigue pendiente de respuesta.
+// En cuanto da veredicto (acierto, fallo o solución vista) se borra, porque
+// restaurarlo al reabrir la app devolvía al usuario un puzle ya resuelto y, al
+// volver a resolverlo, lo hacía puntuar una segunda vez en el ELO.
+// Tampoco se guarda en repaso, en contrarreloj/supervivencia ni con un puzle del
+// historial abierto: al reabrir siempre se arranca en modo puzles y ahí esos
+// puzles sí darían ELO.
+// La ref evita tocar AsyncStorage cuando no hay nada que cambiar: sin ella, cada
+// puzle de una partida de contrarreloj lanzaba un removeItem inútil.
 useEffect(() => {
   if (!hasRestoredPrefsRef.current) return;
-  if (!currentPuzzle || isRepasoMode) return;
-  AsyncStorage.setItem('@current_puzzle', JSON.stringify(currentPuzzle))
-    .catch(error => console.error("Error al guardar el puzle activo en AsyncStorage:", error));
-}, [currentPuzzle, isRepasoMode]);
+
+  const isResumable =
+    !!currentPuzzle &&
+    !isPuzzleConsumed &&
+    !isRepasoMode &&
+    !isRunMode &&
+    !isHistoryMode &&
+    !isRetryMode;
+
+  if (isResumable) {
+    if (storedPuzzleIdRef.current === currentPuzzle!.id) return;
+    storedPuzzleIdRef.current = currentPuzzle!.id;
+    AsyncStorage.setItem('@current_puzzle', JSON.stringify(currentPuzzle))
+      .catch(error => console.error("Error al guardar el puzle activo en AsyncStorage:", error));
+  } else {
+    if (storedPuzzleIdRef.current === null) return;
+    storedPuzzleIdRef.current = null;
+    AsyncStorage.removeItem('@current_puzzle')
+      .catch(error => console.error("Error al borrar el puzle activo de AsyncStorage:", error));
+  }
+}, [currentPuzzle, isPuzzleConsumed, isRepasoMode, isRunMode, isHistoryMode, isRetryMode]);
 
 // Efecto para bloquear el tablero si estamos viendo un movimiento anterior o si el puzzle ya fue resuelto
 useEffect(() => {
@@ -1785,7 +1823,12 @@ useEffect(() => {
         setIsRecommendedMode(JSON.parse(localRecommended));
       }
       if (localPuzzle) {
-        restoredPuzzle = JSON.parse(localPuzzle);
+        const parsed = JSON.parse(localPuzzle);
+        // Un objeto a medias (escritura interrumpida, formato antiguo) reventaría
+        // el tablero en el arranque: si no tiene la forma esperada, se ignora.
+        if (parsed?.id && parsed?.fen && Array.isArray(parsed?.solution)) {
+          restoredPuzzle = parsed as Puzzle;
+        }
       }
     } catch (error) {
       console.error("Error al cargar los datos desde AsyncStorage:", error);
@@ -1796,8 +1839,22 @@ useEffect(() => {
     // escribir sin riesgo de pisar la sesión anterior.
     hasRestoredPrefsRef.current = true;
 
+    // Red de seguridad: versiones anteriores guardaban el puzle aunque ya
+    // estuviera resuelto, así que al actualizar puede quedar uno viejo en el
+    // almacén. Si ya aparece en elo_history es que ya puntuó y no se restaura:
+    // hacerlo lo pondría a puntuar por segunda vez.
+    if (restoredPuzzle) {
+      const alreadyScored = await hasPuzzleBeenScored(database, restoredPuzzle.id)
+        .catch(() => false);
+      if (alreadyScored) {
+        restoredPuzzle = null;
+        await AsyncStorage.removeItem('@current_puzzle').catch(() => {});
+      }
+    }
+
     // EVALUAMOS: ¿Tenía un puzle guardado?
     if (restoredPuzzle) {
+      storedPuzzleIdRef.current = restoredPuzzle.id;
       // Inicializamos el estado visual sin forzar el movimiento automático corrupto
       resetPuzzleState(restoredPuzzle, true); 
       setCurrentPuzzle(restoredPuzzle);
