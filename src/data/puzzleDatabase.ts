@@ -50,6 +50,12 @@ const attachCatalog = async (db: SQLite.SQLiteDatabase) => {
 };
 
 export const openPuzzleDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
+  if (__DEV__) {
+  const p = await FileSystem.getInfoAsync(`${SQLITE_DIR}/${PROGRESS_DB}`);
+  const c = await FileSystem.getInfoAsync(`${SQLITE_DIR}/${CATALOG_DB}`);
+  console.log('[DB] arranque -> progress:', p.exists ? `${p.size} B` : 'NO',
+              '| catalog:', c.exists ? `${c.size} B` : 'NO');
+}
   // 1. expo-sqlite crea progress.db vacío si no existe. En una instalación
   // limpia sin copia de seguridad eso es justo lo que queremos: las tablas de
   // progreso las montan después ensureSchema / setupRunTables / setupRepasoTable.
