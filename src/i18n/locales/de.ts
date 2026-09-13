@@ -36,6 +36,7 @@ export const de: Dictionary = {
     modeSurvival: 'Überleben',
     modeRepaso: 'Wiederholung',
     stats: 'Statistiken',
+    privacy: 'Datenschutzerklärung',
     settings: 'Einstellungen',
     donations: 'Spenden',
     analysisSection: 'ANALYSE',
@@ -244,5 +245,19 @@ export const de: Dictionary = {
     advancedTactics: 'FORTGESCHRITTENE TAKTIK',
     endgames: 'ENDSPIELE',
     phases: 'PHASEN',
+  },
+
+  fatal: {
+    title: 'Start fehlgeschlagen',
+    body: 'Chess Naez konnte deine Daten nicht öffnen. Ein erneuter Versuch hilft fast immer.',
+    retry: 'ERNEUT VERSUCHEN',
+    resetTitle: 'Wenn es weiterhin fehlschlägt',
+    resetBody: 'Du kannst die Fortschrittsdaten löschen. Deine Wertung, dein Verlauf und deine Wiederholungsliste gehen verloren, aber die App funktioniert wieder. Die Puzzles bleiben erhalten.',
+    reset: 'Fortschritt löschen',
+    resetConfirm: 'Deine Wertung, dein Verlauf und deine Wiederholungsliste werden gelöscht. Das lässt sich nicht rückgängig machen.',
+    cancel: 'Abbrechen',
+    crashTitle: 'Etwas ist schiefgelaufen',
+    crashBody: 'Ein unerwarteter Fehler ist aufgetreten. Du kannst es erneut versuchen.',
+    details: 'Technische Details',
   },
 };

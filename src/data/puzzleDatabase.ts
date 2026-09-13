@@ -133,6 +133,40 @@ export const checkpointProgress = async (db: SQLite.SQLiteDatabase) => {
 
 let cachedMaxRowid: number | null = null;
 
+// Válvula de escape de la pantalla de error fatal. Borra SOLO el progreso: el
+// catálogo se queda donde está, pero como `catalog_version` vive en app_meta
+// (dentro de progress.db), al siguiente arranque `installed` vuelve a ser 0 y
+// openPuzzleDatabase recopia el asset por encima. Un solo borrado arregla
+// tanto un progress.db corrupto como un catálogo a medio copiar.
+//
+// El -wal y el -shm se borran a mano: deleteDatabaseAsync no siempre los
+// arrastra si la conexión murió de forma sucia, y dejar un -wal huérfano junto
+// a un .db nuevo es corrupción garantizada en el siguiente ATTACH.
+export const resetProgressDatabase = async (
+  db?: SQLite.SQLiteDatabase | null,
+): Promise<void> => {
+  // Cerrar primero si tenemos el handle: borrar el fichero por debajo de una
+  // conexión abierta deja a SQLite escribiendo en un inode fantasma.
+  if (db) {
+    try { await db.closeAsync(); } catch { /* ya estaba cerrada o nunca se abrió */ }
+  }
+
+  try {
+    await SQLite.deleteDatabaseAsync(PROGRESS_DB);
+  } catch {
+    // Si la API nativa se queja (handle abierto en otro sitio, fichero a
+    // medias), vamos al sistema de ficheros directamente.
+  }
+
+  for (const suffix of ['', '-wal', '-shm']) {
+    await FileSystem
+      .deleteAsync(`${SQLITE_DIR}/${PROGRESS_DB}${suffix}`, { idempotent: true })
+      .catch(() => {});
+  }
+
+  cachedMaxRowid = null;
+};
+
 export const getMaxRowid = async (db: SQLite.SQLiteDatabase): Promise<number> => {
   if (cachedMaxRowid !== null) return cachedMaxRowid;
   const row = await db.getFirstAsync<{ maxId: number }>('SELECT MAX(rowid) as maxId FROM puzzles');

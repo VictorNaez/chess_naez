@@ -27,6 +27,7 @@ export const en: Dictionary = {
     modeSurvival: 'Survival mode',
     modeRepaso: 'Review',
     stats: 'Statistics',
+    privacy: 'Privacy policy',
     settings: 'Settings',
     donations: 'Donations',
     analysisSection: 'ANALYSIS',
@@ -236,5 +237,19 @@ export const en: Dictionary = {
     advancedTactics: 'ADVANCED TACTICS',
     endgames: 'ENDGAMES',
     phases: 'GAME PHASES',
+  },
+  
+    fatal: {
+    title: 'Could not start',
+    body: 'Chess Naez could not open your data. Retrying almost always fixes it.',
+    retry: 'RETRY',
+    resetTitle: 'If it keeps failing',
+    resetBody: 'You can delete your progress data. You will lose your ELO, your history and your review queue, but the app will work again. Your puzzles are untouched.',
+    reset: 'Delete progress',
+    resetConfirm: 'This will delete your ELO, your history and your review queue. It cannot be undone.',
+    cancel: 'Cancel',
+    crashTitle: 'Something went wrong',
+    crashBody: 'An unexpected error occurred. You can try again.',
+    details: 'Technical details',
   },
 };

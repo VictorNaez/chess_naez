@@ -36,6 +36,7 @@ export const es = {
     modeRepaso: 'Repaso',
     stats: 'Estadísticas',
     settings: 'Ajustes',
+    privacy: 'Política de privacidad',
     donations: 'Donaciones',
     analysisSection: 'ANÁLISIS',
   },
@@ -253,5 +254,19 @@ export const es = {
     advancedTactics: 'TÁCTICA AVANZADA',
     endgames: 'FINALES',
     phases: 'FASES',
+  },
+
+  fatal: {
+    title: 'No se pudo iniciar',
+    body: 'Chess Naez no ha podido abrir tus datos. Casi siempre se arregla reintentando.',
+    retry: 'REINTENTAR',
+    resetTitle: 'Si sigue fallando',
+    resetBody: 'Puedes borrar los datos de progreso. Perderás tu ELO, tu historial y tu cola de repaso, pero la app volverá a funcionar. Los puzles no se tocan.',
+    reset: 'Borrar progreso',
+    resetConfirm: 'Se borrarán tu ELO, tu historial y tu cola de repaso. No se puede deshacer.',
+    cancel: 'Cancelar',
+    crashTitle: 'Algo ha fallado',
+    crashBody: 'Se ha producido un error inesperado. Puedes volver a intentarlo.',
+    details: 'Detalles técnicos',
   },
 };

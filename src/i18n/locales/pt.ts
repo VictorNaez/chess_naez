@@ -32,6 +32,7 @@ export const pt: Dictionary = {
     modeSurvival: 'Sobrevivência',
     modeRepaso: 'Revisão',
     stats: 'Estatísticas',
+    privacy: 'Política de privacidade',
     settings: 'Ajustes',
     donations: 'Doações',
     analysisSection: 'ANÁLISE',
@@ -240,5 +241,19 @@ export const pt: Dictionary = {
     advancedTactics: 'TÁTICA AVANÇADA',
     endgames: 'FINAIS',
     phases: 'FASES',
+  },
+  
+    fatal: {
+    title: 'Não foi possível iniciar',
+    body: 'O Chess Naez não conseguiu abrir os teus dados. Quase sempre resolve-se ao tentar de novo.',
+    retry: 'TENTAR DE NOVO',
+    resetTitle: 'Se continuar a falhar',
+    resetBody: 'Podes apagar os dados de progresso. Vais perder o teu ELO, o teu histórico e a tua fila de revisão, mas a app volta a funcionar. Os puzzles ficam intactos.',
+    reset: 'Apagar progresso',
+    resetConfirm: 'Isto vai apagar o teu ELO, o teu histórico e a tua fila de revisão. Não é possível desfazer.',
+    cancel: 'Cancelar',
+    crashTitle: 'Algo correu mal',
+    crashBody: 'Ocorreu um erro inesperado. Podes tentar de novo.',
+    details: 'Detalhes técnicos',
   },
 };

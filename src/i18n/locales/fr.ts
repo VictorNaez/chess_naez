@@ -36,6 +36,7 @@ export const fr: Dictionary = {
     modeSurvival: 'Survie',
     modeRepaso: 'Révision',
     stats: 'Statistiques',
+    privacy: 'Politique de confidentialité',
     settings: 'Réglages',
     donations: 'Dons',
     analysisSection: 'ANALYSE',
@@ -244,5 +245,19 @@ export const fr: Dictionary = {
     advancedTactics: 'TACTIQUE AVANCÉE',
     endgames: 'FINALES',
     phases: 'PHASES',
+  },
+  
+    fatal: {
+    title: 'Démarrage impossible',
+    body: 'Chess Naez n’a pas pu ouvrir vos données. Réessayer suffit presque toujours.',
+    retry: 'RÉESSAYER',
+    resetTitle: 'Si le problème persiste',
+    resetBody: 'Vous pouvez supprimer les données de progression. Vous perdrez votre ELO, votre historique et votre file de révision, mais l’application refonctionnera. Les puzzles ne sont pas touchés.',
+    reset: 'Supprimer la progression',
+    resetConfirm: 'Votre ELO, votre historique et votre file de révision seront supprimés. Cette action est irréversible.',
+    cancel: 'Annuler',
+    crashTitle: 'Une erreur est survenue',
+    crashBody: 'Une erreur inattendue s’est produite. Vous pouvez réessayer.',
+    details: 'Détails techniques',
   },
 };

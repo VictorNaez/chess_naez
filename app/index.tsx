@@ -35,7 +35,7 @@ import { BoardControls } from '../src/components/puzzle/BoardControls';
 import { MoveList } from '../src/components/puzzle/MoveList';
 import { RepasoProgressPill } from '../src/components/repaso/RepasoProgressPill';
 import { Skeleton } from '../src/components/ui/Skeleton';
-import { checkpointProgress, getMaxRowid, getPuzzleById, openPuzzleDatabase } from '../src/data/puzzleDatabase';
+import { openPuzzleDatabase } from '../src/data/puzzleDatabase';
 import { useAnalysisEngine } from '../src/hooks/useAnalysisEngine';
 import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
@@ -48,7 +48,7 @@ import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
 import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
-import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored } from '../src/lib/puzzleQueries';
+import { buildThemeCondition, getRecommendedRange } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { PUZZLE_TIMING } from '../src/lib/timing';
 import type { AppMode } from '../src/types/mode';
@@ -75,6 +75,8 @@ export default function AppRoot() {
 function App() {
   const t = useT();
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
+  const [bootError, setBootError] = useState<Error | null>(null);
+  const [bootAttempt, setBootAttempt] = useState(0);
   const [currentPuzzle, setCurrentPuzzle] = useState<Puzzle | null>(null);
   const [loading, setLoading] = useState(true);
   const [eloRange, setEloRange] = useState<[number, number]>([1400, 1800]);
@@ -1785,88 +1787,37 @@ const handleSelectMode = useCallback((mode: AppMode) => {
 
 // Carga inicial de la base de datos y primer puzzle
 useEffect(() => {
+  let cancelled = false;
   async function setup() {
     const database = await openPuzzleDatabase();
-    setDb(database);
-
-    let savedRange = eloRange;
-    let savedThemes = selectedThemes;
-    let restoredPuzzle: Puzzle | null = null;
-    
-    try {
-      // multiGet, no cuatro getItem encadenados: cada getItem es un salto al
-      // módulo nativo y estos cuatro estaban en serie dentro del arranque, antes
-      // del primer frame útil.
-      const [
-        [, localRange],
-        [, localThemes],
-        [, localRecommended],
-        [, localPuzzle],
-      ] = await AsyncStorage.multiGet([
-        '@elo_range',
-        '@selected_themes',
-        '@is_recommended_mode',
-        '@current_puzzle',
-      ]);
-
-      if (localRange) {
-        const parsedRange = JSON.parse(localRange);
-        setEloRange(parsedRange);
-        savedRange = parsedRange; 
-      }
-      if (localThemes) {
-        const parsedThemes = JSON.parse(localThemes);
-        setSelectedThemes(parsedThemes);
-        savedThemes = parsedThemes;
-      }
-      if (localRecommended) {
-        setIsRecommendedMode(JSON.parse(localRecommended));
-      }
-      if (localPuzzle) {
-        const parsed = JSON.parse(localPuzzle);
-        // Un objeto a medias (escritura interrumpida, formato antiguo) reventaría
-        // el tablero en el arranque: si no tiene la forma esperada, se ignora.
-        if (parsed?.id && parsed?.fen && Array.isArray(parsed?.solution)) {
-          restoredPuzzle = parsed as Puzzle;
-        }
-      }
-    } catch (error) {
-      console.error("Error al cargar los datos desde AsyncStorage:", error);
-    }
-
-    // A partir de aquí lo que haya en el estado ES lo guardado (o los defaults
-    // si la lectura falló), así que los efectos de persistencia ya pueden
-    // escribir sin riesgo de pisar la sesión anterior.
-    hasRestoredPrefsRef.current = true;
-
-    // Red de seguridad: versiones anteriores guardaban el puzle aunque ya
-    // estuviera resuelto, así que al actualizar puede quedar uno viejo en el
-    // almacén. Si ya aparece en elo_history es que ya puntuó y no se restaura:
-    // hacerlo lo pondría a puntuar por segunda vez.
-    if (restoredPuzzle) {
-      const alreadyScored = await hasPuzzleBeenScored(database, restoredPuzzle.id)
-        .catch(() => false);
-      if (alreadyScored) {
-        restoredPuzzle = null;
-        await AsyncStorage.removeItem('@current_puzzle').catch(() => {});
-      }
-    }
-
-    // EVALUAMOS: ¿Tenía un puzle guardado?
-    if (restoredPuzzle) {
-      storedPuzzleIdRef.current = restoredPuzzle.id;
-      // Inicializamos el estado visual sin forzar el movimiento automático corrupto
-      resetPuzzleState(restoredPuzzle, true); 
-      setCurrentPuzzle(restoredPuzzle);
-      setSolutionRevealed(false);
-    } else {
-      // Si no tenía ningún puzle guardado de antes, traemos uno nuevo de forma normal
-      loadSinglePuzzle(database, savedRange, savedThemes); 
-    }
+    //throw new Error('boom');
   }
-  setup();
-}, []);
+  setup().catch((err: unknown) => {
+    console.error('[BOOT] fallo en el arranque', err);
+    SplashScreen.hideAsync().catch(() => {});
+    setBootError(err instanceof Error ? err : new Error(String(err)));
+  });
 
+  return () => { cancelled = true; };
+}, [bootAttempt]);
+
+if (bootError) {
+  return (
+    <FatalErrorScreen
+      error={bootError}
+      onRetry={() => {
+        setBootError(null);
+        setBootAttempt(n => n + 1);
+      }}
+      onReset={async () => {
+        await resetProgressDatabase(db);
+        setDb(null);
+        setBootError(null);
+        setBootAttempt(n => n + 1);
+      }}
+    />
+  );
+}
 
 return (
   <GestureHandlerRootView style={{ flex: 1 }}>
