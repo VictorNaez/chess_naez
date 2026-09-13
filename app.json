@@ -4,7 +4,7 @@
     "slug": "chess_naez",
     "icon": "./assets/images/icon.png",
     "scheme": "chess-naez",
-    "version": "1.0.0",
+    "version": "0.0.3",
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

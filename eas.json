@@ -9,18 +9,17 @@
       "distribution": "internal"
     },
     "preview": {
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       },
       "distribution": "internal"
     },
     "production": {
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       }
     }
   },
-  "submit": {
-    "production": {}
-  }
 }

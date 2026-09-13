@@ -421,10 +421,6 @@ interface BoardSquareProps {
   isCapture: boolean;
   isLastMove: boolean;
   hasKingInMate: boolean;
-  showNumber: boolean;
-  showLabel: boolean;
-  rankLabel: string;
-  fileLabel: string;
   onSquarePress: (sq: string | null, isDragging?: boolean) => void;
   isInvalidTarget: boolean;
   invalidFlashSquare: SharedValue<string | null>;
@@ -436,7 +432,6 @@ const BoardSquare = React.memo(({
   square, vRow, vCol, isDark,
   isSelected, isHint, isLegal, isCapture,
   isLastMove, hasKingInMate,
-  showNumber, showLabel, rankLabel, fileLabel,
   onSquarePress, 
   isInvalidTarget, invalidFlashSquare, invalidFlashNonce, onInvalidTarget,
 }: BoardSquareProps) => {
@@ -482,8 +477,6 @@ const BoardSquare = React.memo(({
   }));
 
 
-  const coordColor = isDark ? PALETTE.boardLight : PALETTE.boardDark;
-
   return (
     <Pressable
       onPress={() => {
@@ -506,22 +499,66 @@ const BoardSquare = React.memo(({
         pointerEvents="none"
         style={[StyleSheet.absoluteFill, { backgroundColor: PALETTE.error }, invalidFlashStyle]}
       />
-      {showNumber && (
-        <Text style={[styles.coordText, styles.coordNumber, { color: coordColor }]}>
-          {rankLabel}
-        </Text>
-      )}
-      {showLabel && (
-        <Text style={[styles.coordText, styles.coordLetter, { color: coordColor }]}>
-          {fileLabel}
-        </Text>
-      )}
       {isLegal && (
         isCapture
           ? <View style={styles.captureRing} />
           : <View style={styles.legalMoveDot} />
       )}
     </Pressable>
+  );
+});
+
+// --- CAPA DE COORDENADAS ---
+const COORD_INSET = Math.max(1, Math.round(squareSize * 0.02));
+const COORD_FONT = Math.max(9, Math.round(squareSize * 0.20));
+
+const CoordinateOverlay = React.memo(({ orientation }: { orientation: 'w' | 'b' }) => {
+  const nodes: React.ReactNode[] = [];
+
+  for (let i = 0; i < 8; i++) {
+    // Números de fila: siempre en la primera columna visual, esquina superior izquierda.
+    const rRank = orientation === 'w' ? i : 7 - i;
+    const cRank = orientation === 'w' ? 0 : 7;
+    nodes.push(
+      <Text
+        key={`rank-${i}`}
+        style={[
+          styles.coordText,
+          {
+            top: i * squareSize + COORD_INSET,
+            left: COORD_INSET,
+            color: (rRank + cRank) % 2 === 1 ? PALETTE.boardLight : PALETTE.boardDark,
+          },
+        ]}
+      >
+        {String(8 - rRank)}
+      </Text>
+    );
+
+    // Letras de columna: siempre en la última fila visual, esquina inferior derecha.
+    const cFile = orientation === 'w' ? i : 7 - i;
+    const rFile = orientation === 'w' ? 7 : 0;
+    nodes.push(
+      <Text
+        key={`file-${i}`}
+        style={[
+          styles.coordText,
+          {
+            bottom: COORD_INSET,
+            right: (7 - i) * squareSize + COORD_INSET,
+            color: (rFile + cFile) % 2 === 1 ? PALETTE.boardLight : PALETTE.boardDark,
+          },
+        ]}
+      >
+        {String.fromCharCode(97 + cFile)}
+      </Text>
+    );
+  }
+
+  return (
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { zIndex: 15 }]}>
+      {nodes}
+    </View>
   );
 });
 
@@ -740,7 +777,7 @@ function ChessBoard({
         />
 
         {/* CAPA DE CASILLAS */}
-        {SQUARE_CELLS.map(({ r, c, square, isDark, rankLabel, fileLabel }) => {
+        {SQUARE_CELLS.map(({ r, c, square, isDark }) => {
           const vRow = rendered.orientation === 'w' ? r : 7 - r;
           const vCol = rendered.orientation === 'w' ? c : 7 - c;
           const isLegal = legalSet.has(square);
@@ -763,10 +800,6 @@ function ChessBoard({
               isCapture={showDot && occupiedSquares.has(square)}
               isLastMove={square === lastMoveFrom || square === lastMoveTo}
               hasKingInMate={mateKingSquare === square}
-              showNumber={showCoordinates && vCol === 0}
-              showLabel={showCoordinates && vRow === 7}
-              rankLabel={rankLabel}
-              fileLabel={fileLabel}
               onSquarePress={onSquarePress}
               isInvalidTarget={isInvalidTarget}
               invalidFlashSquare={invalidFlashSquare}
@@ -822,6 +855,9 @@ function ChessBoard({
               );
             })}
           </Animated.View>
+
+          {/* CAPA DE COORDENADAS (encima de las piezas) */}
+          {showCoordinates && <CoordinateOverlay orientation={rendered.orientation} />}
 
           {/* CAPA DE FLECHAS */}
           {((bestEngineMove && bestEngineMove.length >= 4 )|| hintMove) && (
@@ -924,12 +960,17 @@ const styles = StyleSheet.create({
   container: { alignItems: 'center', width: '100%', },
   board: { width: boardSize, height: boardSize, borderRadius: 4, overflow: 'hidden', marginBottom: 4 },
   square: { position: "absolute", justifyContent: 'center', alignItems: 'center', zIndex: 1 },
-  coordNumber: { top: 2, left: 2 },
-  coordLetter: { bottom: 2, right: 4 },
+
   pieceContainer: { position: "absolute", width: squareSize, height: squareSize, justifyContent: 'center', alignItems: 'center' },
   legalMoveDot: { width: squareSize * 0.30, height: squareSize * 0.30, borderRadius: 100, backgroundColor: PALETTE.boardLegal, zIndex: 5 },
   captureRing: { width: squareSize, height: squareSize, borderRadius: squareSize, borderWidth: 5, borderColor: PALETTE.boardLegal, backgroundColor: 'transparent', zIndex: 5 },
-  coordText: { position: 'absolute', fontSize: 10, fontWeight: '800', opacity: 0.6, zIndex: 2 },
+  coordText: {
+    position: 'absolute',
+    fontSize: COORD_FONT,
+    lineHeight: COORD_FONT + 1,
+    fontWeight: '800',
+    opacity: 0.75,
+  },
   successIconContainer: { position: 'absolute', top: -2, right: -2, backgroundColor: PALETTE.success, borderRadius: 100, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 2, zIndex: 20 },
   errorIconContainer: { position: 'absolute', top: -2, right: -2, backgroundColor: PALETTE.error, borderRadius: 100, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 2, zIndex: 20 },
   targetShadow: { position: 'absolute', backgroundColor: 'rgba(65, 65, 65, 0.33)', borderColor: '#ffffff00', borderWidth: 4, borderStyle: 'solid', borderRadius: 80, zIndex: 2 },
