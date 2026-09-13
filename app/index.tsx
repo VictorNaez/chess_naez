@@ -11,7 +11,7 @@ import { Chess, Square } from "chess.js";
 import * as SplashScreen from 'expo-splash-screen';
 import * as SQLite from 'expo-sqlite';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { AppState, Dimensions, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { GestureHandlerRootView, Pressable } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { AnalysisLines } from '../src/components/analysis/AnalysisLines';
@@ -1696,7 +1696,7 @@ useEffect(() => {
   async function setup() {
     const database = await openPuzzleDatabase();
     setDb(database);
-    syncCatalogVersion(database);
+    await syncCatalogVersion(database);
 
     let savedRange = eloRange;
     let savedThemes = selectedThemes;
