@@ -35,7 +35,7 @@ import { BoardControls } from '../src/components/puzzle/BoardControls';
 import { MoveList } from '../src/components/puzzle/MoveList';
 import { RepasoProgressPill } from '../src/components/repaso/RepasoProgressPill';
 import { Skeleton } from '../src/components/ui/Skeleton';
-import { checkpointProgress, getMaxRowid, getPuzzleById, openPuzzleDatabase, syncCatalogVersion } from '../src/data/puzzleDatabase';
+import { checkpointProgress, getMaxRowid, getPuzzleById, openPuzzleDatabase } from '../src/data/puzzleDatabase';
 import { useAnalysisEngine } from '../src/hooks/useAnalysisEngine';
 import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
@@ -1696,7 +1696,6 @@ useEffect(() => {
   async function setup() {
     const database = await openPuzzleDatabase();
     setDb(database);
-    await syncCatalogVersion(database);
 
     let savedRange = eloRange;
     let savedThemes = selectedThemes;
