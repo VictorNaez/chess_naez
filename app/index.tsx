@@ -1872,6 +1872,18 @@ useEffect(() => {
     }
   }
 
+  // Sin este .catch, cualquier excepción de openPuzzleDatabase deja una promesa
+  // rechazada sin dueño: setDb no se llama nunca, hasBooted no se activa y el
+  // usuario se queda mirando el splash para siempre.
+  setup().catch((err: unknown) => {
+    console.error('[BOOT] fallo en el arranque', err);
+    // El splash lo esconde onRootLayout, que ya no se va a ejecutar: hay que
+    // quitarlo a mano o la pantalla de error queda tapada.
+    SplashScreen.hideAsync().catch(() => {});
+    setBootError(err instanceof Error ? err : new Error(String(err)));
+  });
+
+  return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [bootAttempt]);
 
