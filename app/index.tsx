@@ -269,13 +269,23 @@ const queryPuzzle = useCallback(async (
   return r ? mapRow(r) : null;
 }, []);
 
-const prefetchNext = useCallback(async (range: number[], themes: string[]) => {
+const prefetchNext = useCallback(async (
+  range: number[],
+  themes: string[],
+  // Igual que en loadSinglePuzzle: en el primer arranque la conexión existe
+  // pero `db` todavía es null, porque setDb aún no ha provocado el re-render.
+  // Sin este parámetro, el `db!` de abajo era null y getMaxRowid petaba.
+  databaseToUse?: SQLite.SQLiteDatabase,
+) => {
+  const database = databaseToUse ?? db;
+  if (!database) return;
+
   if (prefetchingRef.current) return;
   const key = puzzleKey(range, themes);
   if (nextPuzzleRef.current?.key === key) return;
   prefetchingRef.current = true;
   try {
-    const p = await queryPuzzle(db!, range, themes);
+    const p = await queryPuzzle(database, range, themes);
     if (p) nextPuzzleRef.current = { key, puzzle: p };
   } finally {
     prefetchingRef.current = false;
@@ -448,7 +458,7 @@ const loadSinglePuzzle = async (
     setCurrentPuzzle(p);
     resetPuzzleState(p, false, false, false, isFast ? CLOCK_TIMING.firstMove : PUZZLE_TIMING.firstMove);
    // Precarga el siguiente mientras el usuario resuelve este
-    if (!isFast) prefetchNext(currentRange, themesToUse);
+    if (!isFast) prefetchNext(currentRange, themesToUse, databaseToUse);
   } else {
     setMessage("No puzzles, adjust filters");
     setLoading(false);
