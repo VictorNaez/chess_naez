@@ -1917,7 +1917,11 @@ return (
           
       <View style={styles.headerRow}>
         {/* BOTÓN MENÚ (modos + análisis + ajustes) */}
-        <TouchableOpacity style={styles.menuBtn} onPress={() => setIsMenuVisible(true)}>
+        <TouchableOpacity style={styles.menuBtn} 
+          onPress={() => setIsMenuVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel={t.menu.title}
+          >
           <Ionicons name="menu" size={34} color={PALETTE.primary} />
         </TouchableOpacity>
 
@@ -1925,7 +1929,13 @@ return (
 
         {/* BOTÓN FILTROS */}
         {!isRunMode && !isRepasoMode && (
-          <TouchableOpacity style={styles.openFiltersBtn} onPress={() => setIsFilterModalVisible(true)}>
+          <TouchableOpacity style={styles.openFiltersBtn} 
+            onPress={() => setIsFilterModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel={t.puzzle.filters}
+            accessibilityHint={ selectedThemes.length > 0 ? String(selectedThemes.length) : undefined
+            }
+            >
             <View style={styles.filterLeftGroup}>
               <Ionicons name="options-outline" size={16} color={PALETTE.primary} />
               <Text style={styles.openFiltersText}>{t.puzzle.filters}</Text>

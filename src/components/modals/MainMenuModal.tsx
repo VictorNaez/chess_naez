@@ -74,6 +74,9 @@ const MenuRow = React.memo(({ icon, label, active, disabled, badge, tint, onPres
     ]}
     onPress={onPress}
     disabled={disabled}
+    accessibilityRole="button"
+    accessibilityLabel={label}
+    accessibilityState={{ disabled: !!disabled, selected: !!active }}
   >
     <Ionicons
       name={icon}
