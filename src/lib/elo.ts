@@ -78,8 +78,9 @@ export const computeEloVariation = (
 
   const variation = Math.round(getKFactor(attempts) * (actualScore - expectedScore));
 
+  return variation;
   // Suelo de movimiento: acertar nunca da menos de +5 ni fallar menos de -5.
-  return isSuccess
-    ? Math.max(MIN_ELO_STEP, variation)
-    : Math.min(-MIN_ELO_STEP, variation);
+  //return isSuccess
+  //  ? Math.max(MIN_ELO_STEP, variation)
+  //  : Math.min(-MIN_ELO_STEP, variation);
 };

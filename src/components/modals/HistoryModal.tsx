@@ -406,8 +406,8 @@ const styles = StyleSheet.create({
     historyThemesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, },
     historyNoThemesText: { color: PALETTE.secondary, fontSize: 10, opacity: 0.5, },
     historyLoadingContainer: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center', },
-    minimalTag: { backgroundColor: PALETTE.tagBg, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: PALETTE.tagBorder },
-    minimalTagText: { color: PALETTE.primary, fontSize: 9, fontWeight: '800' },
+    minimalTag: { backgroundColor: PALETTE.tagBg, paddingVertical: 3, paddingHorizontal: 6, borderRadius: 6, borderWidth: 1, borderColor: PALETTE.tagBorder },
+    minimalTagText: { color: PALETTE.primary, fontSize: 8, fontWeight: '800' },
 
     chartBlock: { width: '100%', height: CHART_BLOCK_HEIGHT },
     chartEmptyState: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },

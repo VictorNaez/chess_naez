@@ -22,7 +22,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showLegalMoves: true,
   showCoordinates: true,
   engineDepth: 15,
-  engineHash: 16,
+  engineHash: 64,
   engineMultiPV: 3,
 };
 
