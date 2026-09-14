@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 
-export const StreakBadge = React.memo(({ streak }: { streak: number }) => {
+export const StreakBadge = React.memo(function StreakBadge({ streak }: { streak: number }) {
   const pulseScale = useSharedValue(1);
 
   useEffect(() => {

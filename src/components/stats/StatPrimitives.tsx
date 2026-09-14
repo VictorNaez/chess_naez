@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useT } from '../../i18n/I18nProvider';
 import type { DayStat } from '../../lib/statsQueries';
 import { PALETTE } from '../colors';
-import { useT } from '../../i18n/I18nProvider';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 

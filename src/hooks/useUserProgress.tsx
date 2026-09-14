@@ -148,7 +148,7 @@ const dedupeEloHistory = async (db: SQLite.SQLiteDatabase): Promise<number> => {
 // =========================================================
 // HOOK
 // =========================================================
-export const userProgress = (db: SQLite.SQLiteDatabase | null) => {
+export const useUserProgress = (db: SQLite.SQLiteDatabase | null) => {
   const [userRatings, setUserRatings] = useState<Record<string, number>>({});
   const [currentStreak, setCurrentStreak] = useState(0);
   const [isLocked, setIsLocked] = useState(false);

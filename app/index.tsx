@@ -43,10 +43,10 @@ import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
 import { useEloHistory } from '../src/hooks/useEloHistory';
 import { useRepasoMode } from '../src/hooks/useRepasoMode';
-import { userProgress } from "../src/hooks/userProgress";
 import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
 import { useSounds } from '../src/hooks/useSounds';
 import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
+import { useUserProgress } from "../src/hooks/useUserProgress";
 import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
@@ -83,7 +83,7 @@ function App() {
   const [currentPuzzle, setCurrentPuzzle] = useState<Puzzle | null>(null);
   const [loading, setLoading] = useState(true);
   const [eloRange, setEloRange] = useState<[number, number]>([1400, 1800]);
-  const {userRatings, updateElo, resetLock, currentStreak } = userProgress(db);
+  const { userRatings, updateElo, resetLock, currentStreak } = useUserProgress(db);
   const getUsageMs = useAppUsageTime();
   const [eloFeedback, setEloFeedback] = useState<{ value: number } | null>(null);
   const settings = useSettings();
@@ -1065,7 +1065,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         }
       }
     }
-  } catch (e) {
+  } catch {
     setIsBoardLocked(false);
   }
   clearSelection();
@@ -1406,21 +1406,6 @@ const [isBoardSliding, setIsBoardSliding] = useState(false);
 const hasSlidOnceRef = useRef(false);
 const pendingEntryRef = useRef(false);
 const entryFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-const runBoardEntry = useCallback(() => {
-  if (!pendingEntryRef.current) return;
-  pendingEntryRef.current = false;
-  if (entryFallbackRef.current) { clearTimeout(entryFallbackRef.current); entryFallbackRef.current = null; }
-
-  // Dos frames: el primero cierra el commit de React, el segundo deja que las
-  // vistas nativas de las piezas se hayan creado antes de empezar a mover nada.
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    boardSlideX.value = withDelay(
-      BOARD_GAP,
-      withTiming(0, { duration: BOARD_SLIDE_IN, easing: Easing.out(Easing.cubic) })
-    );
-  }));
-}, []);
 
 useEffect(() => {
   if (!currentPuzzle) return;
