@@ -1,13 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import type { Dictionary } from '../../i18n';
+import { useT } from '../../i18n/I18nProvider';
 import { hapticImpact } from '../../lib/haptics';
 import { SCREEN_WIDTH } from '../../theme/layout';
 import type { AppMode } from '../../types/mode';
 import { PALETTE } from '../colors';
-import { useT } from '../../i18n/I18nProvider';
-import type { Dictionary } from '../../i18n';
+
+const PRIVACY_URL = 'https://victornaez.github.io/Naez-Chess-Puzzle-Privacy-Policy/';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -200,6 +203,14 @@ export const MainMenuModal = React.memo(({
             icon="settings-outline"
             label={t.menu.settings}
             onPress={() => { hapticImpact('light'); onOpenSettings(); }}
+          />
+          <MenuRow
+            icon="shield-checkmark-outline"
+            label={t.menu.privacy}
+            onPress={() => {
+              hapticImpact('light');
+              WebBrowser.openBrowserAsync(PRIVACY_URL).catch(() => {});
+            }}
           />
         </Animated.View>
       </View>
