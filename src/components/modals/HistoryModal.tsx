@@ -315,7 +315,11 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
                     <View style={styles.historyRowInfo}>
                       <View style={styles.historyRowTopLine}>
                         <Text style={styles.historyRowEloText}>
-                          {puzzleData.puzzle_elo || 1200} ELO
+                          {/* Las filas anteriores a que existiera puzzle_elo
+                              guardan 0. Antes se pintaba un rating inventado en
+                              su lugar; un guion dice la verdad: ese dato no se
+                              llegó a registrar. */}
+                          {puzzleData.puzzle_elo ? `${puzzleData.puzzle_elo} ELO` : '—'}
                         </Text>
 
                         <View style={styles.historyRowRight}>

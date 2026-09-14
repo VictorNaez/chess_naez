@@ -1,13 +1,12 @@
 import * as SQLite from 'expo-sqlite';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { computeEloVariation, DEFAULT_ELO, MIN_ELO } from '../lib/elo';
 
 // =========================================================
 // CONSTANTES
 // =========================================================
-const DEFAULT_ELO = 1200;
-const MIN_ELO = 100;      // suelo: por debajo de esto el rating deja de tener sentido
-const K_FACTOR = 16;      // peso del ajuste por intento
-const MIN_ELO_STEP = 5;   // el resultado siempre tiene que moverse de forma visible
+// DEFAULT_ELO, MIN_ELO, el factor K progresivo y la fórmula del ajuste viven en
+// src/lib/elo.ts. Aquí solo queda lo que es estrictamente de persistencia.
 
 // Columnas que se añadieron después del primer release. Las DB que ya estaban
 // en dispositivos no se sobreescriben nunca, así que hay que parchearlas en
@@ -232,26 +231,27 @@ export const useUserProgress = (db: SQLite.SQLiteDatabase | null) => {
       // Los ratings se leen de SQLite, no de userRatings: el estado de React es
       // una caché que puede ir un render por detrás, y dos puzles resueltos
       // seguidos partirían del mismo ELO viejo.
+      // solved_count de la fila global es el contador de intentos puntuados: se
+      // incrementa en este mismo método, en cada llamada, acierto o fallo. Es lo
+      // que decide el factor K, así que se lee en la misma consulta que el ELO
+      // en lugar de pedir un COUNT(*) sobre elo_history por puzle resuelto.
       const placeholders = themes.map(() => '?').join(',');
-      const rows = await db.getAllAsync<{ theme_id: string; elo: number }>(
-        `SELECT theme_id, elo FROM user_progress
+      const rows = await db.getAllAsync<{ theme_id: string; elo: number; solved_count: number }>(
+        `SELECT theme_id, elo, solved_count FROM user_progress
          WHERE theme_id = 'global'${themes.length ? ` OR theme_id IN (${placeholders})` : ''}`,
         themes
       );
 
       const current: Record<string, number> = {};
-      rows.forEach(row => { current[row.theme_id] = row.elo; });
+      let attempts = 0;
+      rows.forEach(row => {
+        current[row.theme_id] = row.elo;
+        if (row.theme_id === 'global') attempts = row.solved_count ?? 0;
+      });
 
-      // --- Fórmula de expectativa tipo Elo ---
+      // --- Fórmula de expectativa tipo Elo, con K progresivo ---
       const oldGlobalElo = current['global'] ?? DEFAULT_ELO;
-      const expectedScore = 1 / (1 + Math.pow(10, (puzzleElo - oldGlobalElo) / 400));
-      const actualScore = isSuccess ? 1 : 0;
-
-      let eloVariation = Math.round(K_FACTOR * (actualScore - expectedScore));
-
-      // Suelo de movimiento: acertar nunca da menos de +5 ni fallar menos de -5.
-      if (isSuccess) eloVariation = Math.max(MIN_ELO_STEP, eloVariation);
-      else eloVariation = Math.min(-MIN_ELO_STEP, eloVariation);
+      const eloVariation = computeEloVariation(oldGlobalElo, puzzleElo, isSuccess, attempts);
 
       const newGlobalElo = Math.max(MIN_ELO, oldGlobalElo + eloVariation);
 

@@ -2,12 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { DEFAULT_ELO } from '../../lib/elo';
 import { PALETTE } from '../colors';
 
 // --- CONTADOR ANIMADO DE ELO (aislado: solo re-renderiza este <Text>) ---
 const AnimatedEloValue = React.memo(({ target }: { target: number | undefined }) => {
-  const [displayed, setDisplayed] = useState<number>(target ?? 1200);
-  const currentRef = useRef<number>(target ?? 1200);
+  const [displayed, setDisplayed] = useState<number>(target ?? DEFAULT_ELO);
+  const currentRef = useRef<number>(target ?? DEFAULT_ELO);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const seededRef = useRef(false);
 

@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CHESS_THEMES, type ThemeCategoryId } from '../components/chess_themes';
+import { DEFAULT_ELO } from './elo';
 
 // =========================================================
 // RANGOS TEMPORALES
@@ -159,7 +160,7 @@ const emptyRun = (): RunModeStat => ({ runs: 0, bestSolved: 0, totalSolved: 0, b
 
 export const EMPTY_STATS: StatsSnapshot = {
   hasData: false,
-  currentElo: 1200, maxElo: 1200, minElo: 1200, bestStreak: 0, lifetimeAttempts: 0,
+  currentElo: DEFAULT_ELO, maxElo: DEFAULT_ELO, minElo: DEFAULT_ELO, bestStreak: 0, lifetimeAttempts: 0,
   attempts: 0, solved: 0, failed: 0, accuracy: 0, eloGain: 0,
   auto: emptySplit(), manual: emptySplit(), untracked: emptySplit(),
   avgSolveMs: 0, avgSolveMsSuccess: 0, avgSolveMsFail: 0,
@@ -456,9 +457,9 @@ export const loadStats = async (
   return {
     hasData: (globalRow?.lifetime ?? 0) > 0,
 
-    currentElo: globalRow?.currentElo ?? 1200,
-    maxElo: globalRow?.maxElo ?? 1200,
-    minElo: globalRow?.minElo ?? 1200,
+    currentElo: globalRow?.currentElo ?? DEFAULT_ELO,
+    maxElo: globalRow?.maxElo ?? DEFAULT_ELO,
+    minElo: globalRow?.minElo ?? DEFAULT_ELO,
     bestStreak: streakRow?.best ?? 0,
     lifetimeAttempts: globalRow?.lifetime ?? 0,
 

@@ -50,6 +50,7 @@ import { useUserProgress } from "../src/hooks/useUserProgress";
 import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
+import { DEFAULT_ELO } from '../src/lib/elo';
 import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
@@ -161,7 +162,12 @@ function App() {
   // se sustituye solo y el footer sin controles. Durante el repaso el puzle
   // tiene que comportarse exactamente igual que en modo normal.
   const isRunPlaying = isRunMode && !isRunReview;
-  const [isRecommendedMode, setIsRecommendedMode] = useState(false);
+  // Arranca ACTIVADO. Con el ELO inicial en 400 y el K alto de la calibración,
+  // un usuario nuevo con el modo apagado se comería el rango manual por defecto
+  // (1400-1800) desde 400 puntos: cuatro fallos y al suelo. Quien ya tenga la
+  // preferencia guardada en @is_recommended_mode la conserva, porque el arranque
+  // la restaura después de este valor inicial.
+  const [isRecommendedMode, setIsRecommendedMode] = useState(true);
   const [isHistoryMode, setIsHistoryMode] = useState<boolean>(false);
   // Sólo alimentan la cola de repaso los intentos "de verdad": modo puzles, no
   // un puzle del historial ni un reintento (ya lo contaste la primera vez).
@@ -513,7 +519,7 @@ const loadSinglePuzzle = async (
   let currentRange = overrideRange || eloRange;
   // En contrarreloj manda la escalera: ni filtros ni modo recomendado.
   if (!isFast && isRecommendedMode) {
-    const globalElo = userRatings['global'] || 1200;
+    const globalElo = userRatings['global'] || DEFAULT_ELO;
     currentRange = getRecommendedRange(globalElo);
   }
 
@@ -1342,9 +1348,9 @@ useEffect(() => {
 // Efecto para ajustar el rango de ELO recomendado cuando se active el modo recomendado o cambie el ELO global del usuario
 useEffect(() => {
   if (isRecommendedMode) {
-    setEloRange(getRecommendedRange(userRatings['global'] || 1200));
+    setEloRange(getRecommendedRange(userRatings['global'] || DEFAULT_ELO));
   }
-}, [isRecommendedMode, userRatings['global'] || 1200]);
+}, [isRecommendedMode, userRatings['global'] || DEFAULT_ELO]);
 
 useEffect(() => {
   // Misma duración que la eval bar (350ms) para que ambas transiciones se sientan sincronizadas
@@ -2011,7 +2017,7 @@ return (
               {hasBooted ? (
                 <>
                   <EloBadge target={userRatings['global']} feedback={eloFeedback} />
-                  <SessionEloSparkline data={sessionEloHistory} globalElo={userRatings['global'] || 1200} />
+                  <SessionEloSparkline data={sessionEloHistory} globalElo={userRatings['global'] || DEFAULT_ELO} />
                 </>
               ) : (
                 <>
@@ -2205,7 +2211,7 @@ return (
       currentEloRange={eloRange}
       currentSelectedThemes={selectedThemes}
       currentIsRecommendedMode={isRecommendedMode}
-      globalElo={userRatings['global'] || 1200}
+      globalElo={userRatings['global'] || DEFAULT_ELO}
       onApply={(newRange, newThemes, newRecommendedMode) => {
         setEloRange(newRange);
         setSelectedThemes(newThemes);
@@ -2224,7 +2230,7 @@ return (
     <HistoryModal
       visible={isHistoryModalVisible}
       onClose={closeHistory}
-      globalElo={userRatings['global'] || 1200}
+      globalElo={userRatings['global'] || DEFAULT_ELO}
       eloHistoryData={eloHistoryData}
       recentPuzzles={recentPuzzles}
       isHistoryListReady={isHistoryListReady}
