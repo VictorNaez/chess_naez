@@ -142,11 +142,12 @@ const getSquareCenter = (sq: string, orientation: 'w' | 'b') => {
 // por pieza y el memo de abajo deja de fallar en cada toque.
 const AnimatedPiece = React.memo(({ 
   p, visualRow, visualCol, isSuccess, isError, isSelected, isKingInCheck, orientation, onSquarePress, onDragMove, legalMovesSV,
-  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedSquareValue, onInvalidTarget, moveDurationMs, swapping
+  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedPieceIdSV, squareToPieceIdSV, onInvalidTarget, moveDurationMs, swapping
 }: { 
   p: PieceItem, visualRow: number, visualCol: number, isSuccess: boolean, isError: boolean, isSelected: boolean, isKingInCheck: boolean, orientation: 'w' | 'b', 
   onSquarePress: (sq: string | null, isDraggingInteraction?: boolean) => void,  onDragMove: (from: string, to: string) => void, legalMovesSV: SharedValue<string[]>,
-  shadowX: SharedValue<number>, shadowY: SharedValue<number>, showShadow: SharedValue<boolean>, turnSV: SharedValue<'w' | 'b'>, selectedSquareSV: SharedValue<string | null>, capturedSquareValue: SharedValue<string | null>,
+  shadowX: SharedValue<number>, shadowY: SharedValue<number>, showShadow: SharedValue<boolean>, turnSV: SharedValue<'w' | 'b'>, selectedSquareSV: SharedValue<string | null>,
+  capturedPieceIdSV: SharedValue<string | null>, squareToPieceIdSV: SharedValue<Record<string, string>>,
   onInvalidTarget: (square: string) => void, moveDurationMs: number, swapping: boolean
 }) => {
   
@@ -288,7 +289,18 @@ const AnimatedPiece = React.memo(({
         if (isLegalMoveExecuted) {
           const destX = targetColIdx * squareSize;
           const destY = targetRowIdx * squareSize;
-          capturedSquareValue.value = targetSquare; 
+
+          // Marcamos a la capturada por ID, no por casilla: en cuanto la jugada
+          // se aplica, la casilla de destino pasa a ser de ESTA pieza, así que
+          // una marca por casilla acaba señalando a la pieza equivocada.
+          const idMap = squareToPieceIdSV.value;
+          let victimSquare = targetSquare;
+          // Captura al paso: el peón capturado no está en la casilla de destino,
+          // sino en su columna y en la fila de origen.
+          if (p.type === 'p' && !idMap[targetSquare] && targetSquare[0] !== p.square[0]) {
+            victimSquare = targetSquare[0] + p.square[1];
+          }
+          capturedPieceIdSV.value = idMap[victimSquare] ?? null;
 
           posX.value = posX.value + dragX.value;
           posY.value = posY.value + dragY.value;
@@ -319,7 +331,7 @@ const AnimatedPiece = React.memo(({
           posY.value = withTiming(targetY, { duration: 120 });
         }
       }),
-    [p.square, p.color, orientation, targetX, targetY, onSquarePress, onDragMove]
+    [p.square, p.color, p.type, orientation, targetX, targetY, onSquarePress, onDragMove]
   );
     
   const combinedGesture = useMemo(
@@ -327,8 +339,24 @@ const AnimatedPiece = React.memo(({
     [panGesture, tapGesture]
   );
 
+  // Espejo en JS de "me han capturado", para apagar la animación de salida.
+  // Si la pieza ya se ha desvanecido al soltar, el FadeOut del desmontaje la
+  // volvería a pintar desde opacity 1 (initialValues de FadeOut) y se vería
+  // reaparecer un instante.
+  const [isBeingCaptured, setIsBeingCaptured] = useState(false);
+
+  useAnimatedReaction(
+    () => capturedPieceIdSV.value === p.id,
+    (captured, prev) => {
+      if (prev !== null && captured !== prev) {
+        runOnJS(setIsBeingCaptured)(captured);
+      }
+    },
+    [p.id]
+  );
+
   const animatedStyle = useAnimatedStyle(() => {
-    const isBeingCaptured = capturedSquareValue.value === p.square;
+    const capturedNow = capturedPieceIdSV.value === p.id;
 
     return {
       transform: [
@@ -336,7 +364,7 @@ const AnimatedPiece = React.memo(({
         { translateY: posY.value + dragY.value },
         { scale: scale.value },
       ],
-      opacity: isBeingCaptured ? withTiming(0, { duration: 60 }) : 1,
+      opacity: capturedNow ? withTiming(0, { duration: 60 }) : 1,
       zIndex: isDragging.value ? 100 : 10,
     };
   });
@@ -348,7 +376,7 @@ const AnimatedPiece = React.memo(({
       <Animated.View style={[styles.pieceContainer, { zIndex: 10 }, animatedStyle]}>
         <Animated.View
           entering={swapping ? undefined : FadeIn.duration(300)}
-          exiting={swapping ? undefined : FadeOut.duration(300)}
+          exiting={swapping || isBeingCaptured ? undefined : FadeOut.duration(300)}
         >
           <Image 
             source={pieceImages[imageKey]} 
@@ -591,7 +619,11 @@ function ChessBoard({
   const shadowX = useSharedValue(0);
   const shadowY = useSharedValue(0);
   const showShadow = useSharedValue(false);
-  const capturedSquareValue = useSharedValue<string | null>(null);
+  // ID (no casilla) de la pieza que acaba de ser capturada al soltar un arrastre.
+  const capturedPieceIdSV = useSharedValue<string | null>(null);
+  // Mapa casilla -> ID legible desde los worklets de gesto, para resolver a quién
+  // se come el arrastre en el mismo instante en que se suelta la pieza.
+  const squareToPieceIdSV = useSharedValue<Record<string, string>>({});
 
   // --- ESPEJO DE LA SELECCIÓN EN EL HILO DE UI ---
   // Las casillas (BoardSquare) siguen leyendo las props normales: necesitan
@@ -672,7 +704,22 @@ function ChessBoard({
   }));
 
   useEffect(() => {
-      capturedSquareValue.value = null;
+    const map: Record<string, string> = {};
+    rendered.pieces.forEach(p => { map[p.square] = p.id; });
+    squareToPieceIdSV.value = map;
+  }, [rendered.pieces]);
+
+  // La marca de captura NO se limpia al cambiar la posición: la pieza sigue
+  // montada un render más (`rendered` va un paso por detrás) y limpiarla aquí
+  // la devolvía a opacity 1 justo antes de desmontarla — ese era el parpadeo.
+  // Solo se limpia si la pieza sigue en el tablero, es decir, si la jugada no
+  // llegó a aplicarse (p.ej. coronación cancelada). Como los IDs no se
+  // reutilizan nunca, una marca obsoleta no puede casar con otra pieza.
+  useEffect(() => {
+    const capturedId = capturedPieceIdSV.value;
+    if (capturedId && pieces.some(p => p.id === capturedId)) {
+      capturedPieceIdSV.value = null;
+    }
   }, [pieces]);
 
   const animatedShadowStyle = useAnimatedStyle(() => ({
@@ -847,7 +894,8 @@ function ChessBoard({
                   showShadow={showShadow}
                   turnSV={turnSV}
                   selectedSquareSV={selectedSquareSV}
-                  capturedSquareValue={capturedSquareValue}
+                  capturedPieceIdSV={capturedPieceIdSV}
+                  squareToPieceIdSV={squareToPieceIdSV}
                   onInvalidTarget={triggerInvalidTarget}
                   moveDurationMs={moveDurationMs}
                   swapping={swapping}
