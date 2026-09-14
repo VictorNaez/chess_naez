@@ -38,6 +38,30 @@ export const getRecommendedRange = (globalElo: number): [number, number] => {
   return [low, high];
 };
 
+// Lee el rating global directamente de SQLite.
+//
+// Existe por el arranque: el primer puzle se pide desde el efecto de boot, que
+// cerró sobre el `userRatings` del primer render, cuando todavía es {}. Con el
+// modo recomendado apagado por defecto daba igual, pero ahora arranca encendido
+// y la ventana se calculaba sobre DEFAULT_ELO: un jugador de 1800 abría la app
+// y recibía un puzle de 400.
+//
+// Devuelve null si la tabla aún no existe (instalación limpia: ensureSchema
+// corre en un efecto posterior) o si la lectura falla. Quien llama decide el
+// valor por defecto.
+export const readGlobalElo = async (
+  db: SQLite.SQLiteDatabase,
+): Promise<number | null> => {
+  try {
+    const row = await db.getFirstAsync<{ elo: number }>(
+      "SELECT elo FROM user_progress WHERE theme_id = 'global'",
+    );
+    return row?.elo ?? null;
+  } catch {
+    return null;
+  }
+};
+
 export const arraysEqualUnordered = (a: string[], b: string[]): boolean => {
   if (a.length !== b.length) return false;
   const sortedA = [...a].sort();

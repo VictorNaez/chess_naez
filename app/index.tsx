@@ -51,7 +51,7 @@ import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { DEFAULT_ELO } from '../src/lib/elo';
-import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored } from '../src/lib/puzzleQueries';
+import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored, readGlobalElo } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
@@ -519,7 +519,15 @@ const loadSinglePuzzle = async (
   let currentRange = overrideRange || eloRange;
   // En contrarreloj manda la escalera: ni filtros ni modo recomendado.
   if (!isFast && isRecommendedMode) {
-    const globalElo = userRatings['global'] || DEFAULT_ELO;
+    // El estado de React es la fuente rápida, pero en el arranque todavía está
+    // vacío: esta función se llama desde el efecto de boot, que cerró sobre el
+    // `userRatings` del primer render. Sin la lectura de respaldo, la ventana
+    // salía calculada sobre DEFAULT_ELO y el primer puzle tras abrir la app era
+    // de 400 puntos aunque el jugador llevara meses en 1800.
+    const globalElo =
+      userRatings['global'] ??
+      (await readGlobalElo(databaseToUse)) ??
+      DEFAULT_ELO;
     currentRange = getRecommendedRange(globalElo);
   }
 
@@ -1347,10 +1355,15 @@ useEffect(() => {
 
 // Efecto para ajustar el rango de ELO recomendado cuando se active el modo recomendado o cambie el ELO global del usuario
 useEffect(() => {
-  if (isRecommendedMode) {
-    setEloRange(getRecommendedRange(userRatings['global'] || DEFAULT_ELO));
+  // `userRatings` empieza vacío y se llena cuando useUserProgress termina de
+  // leer la base. Sin esta guarda, el efecto corría en el montaje con el
+  // diccionario a {}, pintaba el rango de DEFAULT_ELO en el slider y el efecto
+  // de persistencia lo escribía en @elo_range, pisando el rango que el usuario
+  // tuviera guardado.
+  if (isRecommendedMode && userRatings['global'] !== undefined) {
+    setEloRange(getRecommendedRange(userRatings['global']));
   }
-}, [isRecommendedMode, userRatings['global'] || DEFAULT_ELO]);
+}, [isRecommendedMode, userRatings['global']]);
 
 useEffect(() => {
   // Misma duración que la eval bar (350ms) para que ambas transiciones se sientan sincronizadas
