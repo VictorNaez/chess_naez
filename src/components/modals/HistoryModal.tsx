@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { curveMonotoneX } from 'd3-shape';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Stop } from 'react-native-svg';
@@ -35,6 +36,14 @@ type TimeRange = 'all' | 'year' | 'month' | 'week' | 'today';
 const RANGE_OPTIONS: TimeRange[] = ['all', 'year', 'month', 'week', 'today'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CHART_BLOCK_HEIGHT = 214;
+
+//   curveLinear      -> líneas rectas, sin suavizado
+//   curveMonotoneX   -> suave sin sobrepasar los valores (no inventa máximos)
+//   curveNatural     -> spline cúbica, más suelta, puede sobrepasar un poco
+//   curveCatmullRom  -> suave y algo más "redonda" que monotone
+// NO usar curveStep* ni curveBasis: generan un número distinto de segmentos y
+// desalinean el cursor/tooltip respecto a los datos.
+const ELO_LINE_SHAPE = curveMonotoneX;
 
 const getCutoff = (range: TimeRange): number => {
   const now = Date.now();
@@ -243,7 +252,7 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
                     </View>
 
                     <View style={{ paddingLeft: 45, width: '100%', height: 190 }}>
-                      <LineChart width={SCREEN_WIDTH * 0.74} height={180}>
+                      <LineChart width={SCREEN_WIDTH * 0.74} height={180} shape={ELO_LINE_SHAPE}>
                         <LineChart.Path color={PALETTE.primary} pathProps={{ strokeWidth: 2 }}>
                           <LineChart.Gradient color={PALETTE.primary}>
                             <Stop offset="0%"   stopColor={PALETTE.primary} stopOpacity={0.5} />
