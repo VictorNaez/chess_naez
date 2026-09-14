@@ -38,6 +38,7 @@ import { RepasoProgressPill } from '../src/components/repaso/RepasoProgressPill'
 import { Skeleton } from '../src/components/ui/Skeleton';
 import { checkpointProgress, getMaxRowid, getPuzzleById, openPuzzleDatabase, resetProgressDatabase, } from '../src/data/puzzleDatabase';
 import { useAnalysisEngine } from '../src/hooks/useAnalysisEngine';
+import { useAppUsageTime } from '../src/hooks/useAppUsageTime';
 import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
 import { useEloHistory } from '../src/hooks/useEloHistory';
@@ -51,6 +52,7 @@ import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
+import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
 import type { AppMode } from '../src/types/mode';
 import { isRunModeId } from '../src/types/mode';
@@ -82,6 +84,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [eloRange, setEloRange] = useState<[number, number]>([1400, 1800]);
   const {userRatings, updateElo, resetLock, currentStreak } = userProgress(db);
+  const getUsageMs = useAppUsageTime();
   const [eloFeedback, setEloFeedback] = useState<{ value: number } | null>(null);
   const settings = useSettings();
   const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
@@ -271,6 +274,30 @@ function App() {
     });
     return () => sub.remove();
   }, []);
+
+  // Pedir reseña tras una racha buena. El ref es imprescindible: al arrancar,
+// userProgress restaura la racha desde elo_history, así que sin él un usuario
+// que cerró la app con 8 aciertos seguidos vería el diálogo nada más abrir,
+// sin haber hecho nada.
+const prevStreakRef = useRef<number | null>(null);
+
+useEffect(() => {
+  const prev = prevStreakRef.current;
+  prevStreakRef.current = currentStreak;
+
+  if (prev === null) return;            // primera lectura, viene de la BD
+  if (currentStreak <= prev) return;    // no ha subido: fallo o reinicio
+  if (currentStreak < REVIEW_MIN_STREAK) return;
+  if (appMode !== 'puzzles') return;    // ni contrarreloj ni supervivencia ni repaso
+
+  // Margen para que la animación de acierto termine y el siguiente puzle esté
+  // en pantalla. Pedir la reseña encima del confeti queda fatal.
+  const timer = setTimeout(() => {
+    maybeAskForReview({ streak: currentStreak, usageMs: getUsageMs() });
+  }, 2000);
+
+  return () => clearTimeout(timer);
+}, [currentStreak, appMode, getUsageMs]);
 
 const puzzleKey = (range: number[], themes: string[]) =>
   `${range[0]}-${range[1]}-${themes.join(',')}`;
