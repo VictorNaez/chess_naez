@@ -13,6 +13,7 @@ import {
 } from '../../lib/statsQueries';
 import { SURVIVAL_SPEEDS } from '../../lib/survival';
 import { themeName } from '../chess_themes';
+import { MODAL_MAX_WIDTH } from '../../theme/responsive';
 import { PALETTE } from '../colors';
 import {
   accuracyTint,
@@ -417,7 +418,7 @@ export const StatsModal = React.memo(({
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
   card: {
-    width: '95%', height: '90%', backgroundColor: '#141414', borderRadius: 24,
+    width: '95%', maxWidth: MODAL_MAX_WIDTH, height: '90%', backgroundColor: '#141414', borderRadius: 24,
     paddingHorizontal: 18, paddingTop: 20, paddingBottom: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
     shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 10,

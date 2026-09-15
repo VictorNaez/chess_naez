@@ -11,11 +11,11 @@ import { Chess, Square } from "chess.js";
 import * as SplashScreen from 'expo-splash-screen';
 import * as SQLite from 'expo-sqlite';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Dimensions, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { AppState, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { GestureHandlerRootView, Pressable } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { AnalysisLines } from '../src/components/analysis/AnalysisLines';
-import ChessBoard, { PieceItem, pieceImages } from "../src/components/ChessBoard";
+import ChessBoard, { EVAL_BAR_BLOCK_HEIGHT, PieceItem, pieceImages } from "../src/components/ChessBoard";
 import { ClockProgressGrid } from '../src/components/clock/ClockProgressGrid';
 import { ClockScoreBar } from '../src/components/clock/ClockScoreBar';
 import { CountdownTimer } from '../src/components/clock/CountdownTimer';
@@ -55,6 +55,8 @@ import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored, readGlob
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
+import { useResponsive } from '../src/theme/responsive';
+import { useBoardFit } from '../src/theme/useBoardFit';
 import type { AppMode } from '../src/types/mode';
 import { isRunModeId } from '../src/types/mode';
 import type { Puzzle } from '../src/types/puzzle';
@@ -62,7 +64,26 @@ import type { RepasoOrder } from '../src/types/repaso';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// --- ALTURAS DE LAS ZONAS QUE CAMBIAN SEGÚN EL ESTADO ---
+// Viven aquí y no dentro de App porque las leen tanto los estilos animados como
+// el cálculo del tamaño del tablero (useBoardFit): tienen que ser las mismas.
+const MOVE_LIST_HEIGHT = 40;   // altura en modo puzzle (historial SAN)
+const ELO_ROW_HEIGHT = 76; // altura fija de la fila (badge + sparkline); ajusta si no encaja
+const STREAK_SLOT_HEIGHT = 42; // 8 margin + 12 padding + ~18 texto + 2 borde
+const CLOCK_ROW_HEIGHT = 136;// 3 filas de 34 + 2 gaps de 6 + 16 de padding + 2 de borde = 132; 136 deja holgura
+const ELO_ROW_MARGIN_BOTTOM = 12;
+const CLOCK_ROW_MARGIN_BOTTOM = 6;
+const MAIN_CONTENT_MARGIN_TOP = 60;
+// En contrarreloj/supervivencia el recuadro de puzles resueltos mide 136px
+// frente a los 118 de la fila de ELO. Con los mismos 60px de margen el tablero
+// bajaba y el footer se quedaba sin sitio: aquí se recorta ese hueco.
+const MAIN_CONTENT_MARGIN_TOP_RUN = 20;
+const MAIN_CONTENT_MARGIN_BOTTOM = 30;
+// Aire que ya dejaba el diseño alrededor de las barras del sistema: el header
+// tiene su propio marginTop y el footer (BoardControls / clockFooterSpacer) su
+// marginBottom de 20. Los insets solo añaden padding cuando superan ese aire.
+const HEADER_MARGIN_TOP = Platform.OS === 'ios' ? 10 : 20;
+const FOOTER_MARGIN_BOTTOM = 20;
 
 // El provider tiene que envolver a App desde fuera: los hooks que consumen los
 // ajustes (useSounds, useAnalysisEngine, la propia App) viven dentro de App.
@@ -174,7 +195,6 @@ function App() {
   const canFeedRepaso = feedsRepaso(appMode) && !isHistoryMode && !isRetryMode;
   const [sessionEloHistory, setSessionEloHistory] = useState<number[]>([]);
   const hasSeededSessionElo = useRef(false);
-  const MOVE_LIST_HEIGHT = 40;   // altura en modo puzzle (historial SAN)
   const MULTI_PV_HEIGHT = settings.engineMultiPV * 32 + (settings.engineMultiPV - 1) + 20;   // 32px por fila (styles.analysisLineRow) + 1px de gap + 20px de paddingVertical del multiPvWrapper. Antes era 118 fijo, válido solo para 3 líneas.
   const moveListHeight = useSharedValue(MOVE_LIST_HEIGHT);
   const clearSelection = () => {setSelectedSquare(null); setLegalMoves([]); setHintMove(null);};
@@ -1391,9 +1411,6 @@ useEffect(() => {
 }, [userRatings['global']]);
 
 const eloRowProgress = useSharedValue(1);
-const ELO_ROW_HEIGHT = 76; // altura fija de la fila (badge + sparkline); ajusta si no encaja
-const STREAK_SLOT_HEIGHT = 42; // 8 margin + 12 padding + ~18 texto + 2 borde
-const CLOCK_ROW_HEIGHT = 136;// 3 filas de 34 + 2 gaps de 6 + 16 de padding + 2 de borde = 132; 136 deja holgura
 
 useEffect(() => {
   eloRowProgress.value = withTiming(analysisEngine.isAnalysisMode ? 0 : 1, { duration: 350 });
@@ -1405,8 +1422,68 @@ const eloRowAnimatedStyle = useAnimatedStyle(() => ({
   opacity: eloRowProgress.value,
   // El recuadro de la partida ya es más alto que la fila de ELO: el aire de
   // debajo se recorta para no empujar el tablero (y con él el footer).
-  marginBottom: (isRunMode ? 6 : 12) * eloRowProgress.value,
+  marginBottom: (isRunMode ? CLOCK_ROW_MARGIN_BOTTOM : ELO_ROW_MARGIN_BOTTOM) * eloRowProgress.value,
 }), [isRunMode]);
+
+// --- TAMAÑO DEL TABLERO Y ESCALA DE LA UI ---
+// Alto que suman las zonas variables en un estado dado (ya terminadas sus
+// animaciones). Tiene que reflejar exactamente eloRowAnimatedStyle, el margen
+// de containerMainContent, la eval bar de ChessBoard y moveListWrapperAnimatedStyle.
+const variableHeightFor = (run: boolean, analysis: boolean) => {
+  const eloBlock = analysis
+    ? 0
+    : run
+      ? CLOCK_ROW_HEIGHT + CLOCK_ROW_MARGIN_BOTTOM
+      : ELO_ROW_HEIGHT + STREAK_SLOT_HEIGHT + ELO_ROW_MARGIN_BOTTOM;
+  const mainMarginTop = run ? MAIN_CONTENT_MARGIN_TOP_RUN : MAIN_CONTENT_MARGIN_TOP;
+  const evalBar = analysis ? EVAL_BAR_BLOCK_HEIGHT : 0;
+  const moveZone = analysis ? MULTI_PV_HEIGHT : MOVE_LIST_HEIGHT;
+  return eloBlock + mainMarginTop + evalBar + moveZone;
+};
+
+// Lo que el contenido central puede desbordar sin pisar la fila de ELO ni el
+// footer. Va centrado, así que reparte el exceso a partes iguales entre el
+// margen de arriba y el de abajo: manda el menor de los dos.
+const overflowAllowanceFor = (run: boolean) =>
+  2 * Math.min(run ? MAIN_CONTENT_MARGIN_TOP_RUN : MAIN_CONTENT_MARGIN_TOP, MAIN_CONTENT_MARGIN_BOTTOM);
+
+const effectiveHeightFor = (run: boolean, analysis: boolean) =>
+  variableHeightFor(run, analysis) - overflowAllowanceFor(run);
+
+const responsive = useResponsive();
+const { s, uiScale } = responsive;
+
+const boardFit = useBoardFit({
+  windowWidth: responsive.width,
+  windowHeight: responsive.height,
+  currentVariableHeight: variableHeightFor(isRunMode, analysisEngine.isAnalysisMode),
+  worstEffectiveHeight: Math.max(
+    effectiveHeightFor(false, false),
+    effectiveHeightFor(false, true),
+    effectiveHeightFor(true, false),
+    effectiveHeightFor(true, true),
+  ),
+});
+const { contentWidth } = boardFit;
+
+// Tamaños escalados de la pantalla principal. Valores base = diseño en móvil:
+// con uiScale = 1 todo queda igual que antes.
+const sc = useMemo(() => ({
+  menuBtn: { width: s(48), height: s(48) },
+  menuIcon: s(34),
+  pillBtn: { paddingVertical: s(10), paddingHorizontal: s(15), borderRadius: s(12) },
+  pillIcon: s(16),
+  pillText: { fontSize: s(12) },
+  badge: { minWidth: s(18), height: s(18), borderRadius: s(9) },
+  badgeText: { fontSize: s(10) },
+  turnFrame: { paddingVertical: s(6), paddingHorizontal: s(20), borderRadius: s(25) },
+  turnDot: { width: s(14), height: s(14), borderRadius: s(7), marginRight: s(12) },
+  turnText: { fontSize: s(13) },
+  metaRow: { height: s(40) },
+  metaText: { fontSize: s(13) },
+  metaBullet: { fontSize: s(34) },
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}), [uiScale]);
 
 // --- TRANSICIÓN DE TABLERO EN CONTRARRELOJ ---
 const BOARD_SLIDE_OUT = 180;
@@ -1437,7 +1514,7 @@ useEffect(() => {
     return;
   }
 
-  boardSlideX.value = SCREEN_WIDTH;
+  boardSlideX.value = responsive.width;
   setIsBoardSliding(true);
 
   // Dos frames: el primero cierra el commit de React (pieces ya están en el
@@ -1477,7 +1554,7 @@ const slidePuzzle = useCallback((load: () => void, delayMs = 0) => {
       return;
     }
     setIsBoardSliding(true);
-    boardSlideX.value = withTiming(-SCREEN_WIDTH, { duration: BOARD_SLIDE_OUT, easing: Easing.in(Easing.cubic) });
+    boardSlideX.value = withTiming(-responsive.width, { duration: BOARD_SLIDE_OUT, easing: Easing.in(Easing.cubic) });
 
     setTimeout(() => {
       isSwappingRef.current = false;
@@ -1490,7 +1567,7 @@ const slidePuzzle = useCallback((load: () => void, delayMs = 0) => {
       load();
     }, BOARD_SLIDE_OUT);
   }, delayMs);
-}, [isRunMode, runPhaseRef]);
+}, [isRunMode, runPhaseRef, responsive.width]);
 
 const swapRunPuzzle = useCallback((nextRange: number[], delayMs: number) => {
   slidePuzzle(() => loadSinglePuzzle(db, nextRange, [], { fast: true }), delayMs);
@@ -1945,23 +2022,32 @@ return (
       {/* Fondo para deseleccionar piezas al tocar fuera */}
       <Pressable style={StyleSheet.absoluteFill} onPress={stableClearSelection} />
 
-      <View style={styles.mainWrapper}>
+      <View style={[
+        styles.mainWrapper,
+        // Nunca menos que los paddings de siempre; más solo si la barra de estado
+        // o la de navegación (3 botones, habitual en tablets) no caben en el aire
+        // que ya dejan el header y el footer.
+        {
+          paddingTop: Math.max(40, responsive.insets.top - HEADER_MARGIN_TOP),
+          paddingBottom: Math.max(10, responsive.insets.bottom - FOOTER_MARGIN_BOTTOM),
+        },
+      ]}>
           
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, { width: contentWidth * 0.95 }]}>
         {/* BOTÓN MENÚ (modos + análisis + ajustes) */}
-        <TouchableOpacity style={styles.menuBtn} 
+        <TouchableOpacity style={[styles.menuBtn, sc.menuBtn]} 
           onPress={() => setIsMenuVisible(true)}
           accessibilityRole="button"
           accessibilityLabel={t.menu.title}
           >
-          <Ionicons name="menu" size={34} color={PALETTE.primary} />
+          <Ionicons name="menu" size={sc.menuIcon} color={PALETTE.primary} />
         </TouchableOpacity>
 
         <View style={styles.headerSpacer} />
 
         {/* BOTÓN FILTROS */}
         {!isRunMode && !isRepasoMode && (
-          <TouchableOpacity style={styles.openFiltersBtn} 
+          <TouchableOpacity style={[styles.openFiltersBtn, sc.pillBtn]} 
             onPress={() => setIsFilterModalVisible(true)}
             accessibilityRole="button"
             accessibilityLabel={t.puzzle.filters}
@@ -1969,13 +2055,13 @@ return (
             }
             >
             <View style={styles.filterLeftGroup}>
-              <Ionicons name="options-outline" size={16} color={PALETTE.primary} />
-              <Text style={styles.openFiltersText}>{t.puzzle.filters}</Text>
+              <Ionicons name="options-outline" size={sc.pillIcon} color={PALETTE.primary} />
+              <Text style={[styles.openFiltersText, sc.pillText]}>{t.puzzle.filters}</Text>
             </View>
 
             {selectedThemes.length > 0 && (
-              <View style={styles.filterBadgeCount}>
-                <Text style={styles.filterBadgeText}>{selectedThemes.length}</Text>
+              <View style={[styles.filterBadgeCount, sc.badge]}>
+                <Text style={[styles.filterBadgeText, sc.badgeText]}>{selectedThemes.length}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -1983,10 +2069,10 @@ return (
 
         {/* BOTÓN HISTORIAL */}
         {!isRunMode && !isRepasoMode && (
-          <TouchableOpacity style={styles.openFiltersBtn} onPress={() => openHistory()}>
+          <TouchableOpacity style={[styles.openFiltersBtn, sc.pillBtn]} onPress={() => openHistory()}>
             <View style={styles.filterLeftGroup}>
-              <Ionicons name="stats-chart-outline" size={16} color={PALETTE.primary} />
-              <Text style={styles.openFiltersText}>{t.puzzle.history}</Text>
+              <Ionicons name="stats-chart-outline" size={sc.pillIcon} color={PALETTE.primary} />
+              <Text style={[styles.openFiltersText, sc.pillText]}>{t.puzzle.history}</Text>
             </View>
           </TouchableOpacity>              
         )}
@@ -1994,12 +2080,12 @@ return (
         {/* PARTIDA TERMINADA: volver a abrir el resumen que se cerró */}
         {isRunFinished && (
           <TouchableOpacity
-            style={styles.openFiltersBtn}
+            style={[styles.openFiltersBtn, sc.pillBtn]}
             onPress={isSurvivalMode ? survival.openResult : clock.openResult}
           >
             <View style={styles.filterLeftGroup}>
-              <Ionicons name="podium-outline" size={16} color={PALETTE.primary} />
-              <Text style={styles.openFiltersText}>{t.puzzle.result}</Text>
+              <Ionicons name="podium-outline" size={sc.pillIcon} color={PALETTE.primary} />
+              <Text style={[styles.openFiltersText, sc.pillText]}>{t.puzzle.result}</Text>
             </View>
           </TouchableOpacity>
         )}
@@ -2017,7 +2103,7 @@ return (
 
 
       {/* ELO Global + evolución de la sesión (se colapsa en modo análisis) */}
-      <Animated.View style={[styles.eloSessionRowOuter, eloRowAnimatedStyle]}>
+      <Animated.View style={[styles.eloSessionRowOuter, { width: contentWidth * 0.95 }, eloRowAnimatedStyle]}>
         {isRunMode ? (
           <ClockProgressGrid
             attempts={runAttempts}
@@ -2048,11 +2134,24 @@ return (
         )}
       </Animated.View>
 
-      <View style={[styles.containerMainContent, isRunMode && styles.containerMainContentRun]}>
-
+      <View
+        ref={boardFit.outerRef}
+        onLayout={boardFit.onFitLayout}
+        collapsable={false}
+        style={[styles.containerMainContent, isRunMode && styles.containerMainContentRun]}
+      >
+        {/* Envoltorio medible: su alto es lo que el contenido ocupa de verdad,
+            frente al hueco disponible (el View de arriba). useBoardFit usa la
+            diferencia para dimensionar el tablero. */}
+        <View
+          ref={boardFit.innerRef}
+          onLayout={boardFit.onFitLayout}
+          collapsable={false}
+          style={styles.mainContentInner}
+        >
 
         {/* 2. CRONÓMETRO + INDICADOR DE TURNO */}
-        <View style={styles.turnRow}>
+        <View style={[styles.turnRow, { width: contentWidth * 0.98 }]}>
           <View style={styles.turnRowSide}>
             {/* Repasando una partida terminada no hay nada que cronometrar:
                 ni la cuenta atrás (ya expiró) ni el crono del puzle. */}
@@ -2079,16 +2178,17 @@ return (
             )}
           </View>
           
-          <View style={styles.turnIndicatorFrame}>
+          <View style={[styles.turnIndicatorFrame, sc.turnFrame]}>
             <View style={[
               styles.turnDot, 
+              sc.turnDot,
               { 
                 backgroundColor: playerColor === 'w' ? '#fff' : '#000',
                 borderColor: '#555',
                 borderWidth: playerColor === 'b' ? 1.5 : 0 
               }
             ]} />
-            <Text style={styles.turnText}>
+            <Text style={[styles.turnText, sc.turnText]}>
               {playerColor === 'w' ? "WHITE TO MOVE" : "BLACK TO MOVE"}
             </Text>
           </View>
@@ -2100,7 +2200,14 @@ return (
           {/* 3. TABLERO DE AJEDREZ */}
           <View style={styles.boardSection}>
               <Animated.View
-                style={[styles.boardWrapper, boardSlideStyle]}
+                style={[
+                  styles.boardWrapper,
+                  { width: responsive.width },
+                  // Hasta la primera medición el tablero puede tener aún el tamaño
+                  // "solo por ancho": en tablet no se debe ver ese salto.
+                  !boardFit.isBoardFitReady && { opacity: 0 },
+                  boardSlideStyle,
+                ]}
                 renderToHardwareTextureAndroid={isBoardSliding}
                 shouldRasterizeIOS={isBoardSliding}
                 collapsable={false}
@@ -2128,20 +2235,21 @@ return (
                 showLegalMoves={settings.showLegalMoves}
                 showCoordinates={settings.showCoordinates}
                 moveDurationMs={isRunPlaying ? CLOCK_TIMING.pieceMove : PUZZLE_TIMING.pieceMove}
+                size={boardFit.boardSize}
               />
             </Animated.View>
           </View>
     
             {/* 3. ID PUZZLE · ELO (MINIMALISTA) */}
-            <View style={styles.puzzleMetaContainer}>
-              <View style={styles.puzzleMetaRow}>
+            <View style={[styles.puzzleMetaContainer, { width: contentWidth * 0.95 }]}>
+              <View style={[styles.puzzleMetaRow, sc.metaRow]}>
                 {hasBooted && currentPuzzle ? (
                   <>
-                    <Text style={styles.puzzleMetaText}>
+                    <Text style={[styles.puzzleMetaText, sc.metaText]}>
                       #{String(currentPuzzle.id).toUpperCase()}
                     </Text>
-                    <Text style={styles.bulletSeparator}>·</Text>
-                    <Text style={styles.puzzleMetaText}>
+                    <Text style={[styles.bulletSeparator, sc.metaBullet]}>·</Text>
+                    <Text style={[styles.puzzleMetaText, sc.metaText]}>
                       PUZZLE ELO {currentPuzzle.rating}
                     </Text>
                   </>
@@ -2156,7 +2264,7 @@ return (
             </View>
 
             {/* 4. ÁREA DINÁMICA: HISTORIAL SAN o MULTI-PV */}
-            <Animated.View style={[styles.moveListWrapper, analysisEngine.isAnalysisMode && styles.multiPvWrapper, moveListWrapperAnimatedStyle]}>
+            <Animated.View style={[styles.moveListWrapper, { width: contentWidth * 0.98 }, analysisEngine.isAnalysisMode && styles.multiPvWrapper, moveListWrapperAnimatedStyle]}>
               {isRunPlaying ? (
                 // Sin entering/exiting: el modo no cambia a mitad de partida y una animación
                 // anidada bloquearía el exiting del padre
@@ -2182,6 +2290,7 @@ return (
             </Animated.View>
 
         </View>
+        </View>
 
         {isRunPlaying ? (
           <View style={styles.clockFooterSpacer} />
@@ -2200,6 +2309,7 @@ return (
             onNextPuzzle={handleNextPuzzle}
             onHint={handleHint}
             isNextDisabled={isNextDisabled}
+            width={contentWidth}
           />
         )}
 
@@ -2368,14 +2478,12 @@ const styles = StyleSheet.create({
 // --- CONTENEDORES PRINCIPALES ---
 container: { flex: 1, backgroundColor: PALETTE.background },
 mainWrapper: { flex: 1, paddingTop: 40, paddingBottom: 10, alignItems: 'center' },
-containerMainContent: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', marginTop: 60, marginBottom: 30 },
-// En contrarreloj/supervivencia el recuadro de puzles resueltos mide 136px
-// frente a los 118 de la fila de ELO. Con los mismos 60px de margen el tablero
-// bajaba y el footer se quedaba sin sitio: aquí se recorta ese hueco.
-containerMainContentRun: { marginTop: 20 },
+containerMainContent: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', marginTop: MAIN_CONTENT_MARGIN_TOP, marginBottom: MAIN_CONTENT_MARGIN_BOTTOM },
+containerMainContentRun: { marginTop: MAIN_CONTENT_MARGIN_TOP_RUN },
+mainContentInner: { width: '100%', alignItems: 'center' },
 
   // --- CABECERA Y META-DATA ---
-headerRow: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', gap: 10, width: SCREEN_WIDTH * 0.95, alignSelf: 'center', marginTop: Platform.OS === 'ios' ? 10 : 20, marginBottom: 15, paddingHorizontal: 5 },
+headerRow: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', gap: 10, alignSelf: 'center', marginTop: HEADER_MARGIN_TOP, marginBottom: 15, paddingHorizontal: 5 },
 headerLeftGroup: { flexDirection: 'row', alignItems: 'center', },
 supportBtn: { marginLeft: 8, marginRight: 4, flexDirection: 'row', alignItems: 'center', backgroundColor: PALETTE.surface, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: PALETTE.surfaceLight },
 openFiltersBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: PALETTE.surface, paddingVertical: 10, paddingHorizontal: 15, borderRadius: 12, borderWidth: 1, borderColor: PALETTE.surfaceLight },
@@ -2385,7 +2493,7 @@ menuBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center'
 openFiltersText: { color: PALETTE.primary, fontWeight: '800', fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase' },
 filterBadgeCount: { backgroundColor: PALETTE.primary, minWidth: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center', marginLeft: 10, paddingHorizontal: 3 },
 filterBadgeText: { color: PALETTE.surface, fontSize: 10, fontWeight: 'bold' },
-puzzleMetaContainer: { marginTop: 1, marginBottom: 1, alignItems: 'center', width: '95%' },
+puzzleMetaContainer: { marginTop: 1, marginBottom: 1, alignItems: 'center' },
 puzzleMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 40 },
 puzzleMetaText: { color: PALETTE.primary, fontSize: 13, fontWeight: '700', letterSpacing: 1.5, alignSelf: 'center', textAlign: 'center' },
 bulletSeparator: { color: PALETTE.primary, fontSize: 34, paddingHorizontal: 8 },
@@ -2396,12 +2504,12 @@ headerSpacer: { flex: 1 },
 turnIndicatorFrame: { flexDirection: 'row', alignItems: 'center', backgroundColor: PALETTE.surface, paddingVertical: 6, paddingHorizontal: 20, borderRadius: 25, borderWidth: 1, borderColor: PALETTE.surfaceLight, elevation: 4 },
 turnDot: { width: 14, height: 14, borderRadius: 7, marginRight: 12 },
 turnText: { color: PALETTE.accent, fontSize: 13, fontWeight: '800', letterSpacing: 1.2 },
-turnRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: SCREEN_WIDTH * 0.98, alignSelf: 'center', marginBottom: 10 },
+turnRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 10 },
 turnRowSide: { flex: 1, alignItems: 'flex-end', paddingRight: 8 },
 
 // --- SECCIÓN DEL TABLERO ---
 boardSection: { width: '100%', alignItems: 'center', overflow: 'hidden' },
-boardWrapper: { width: SCREEN_WIDTH, borderWidth: 0, borderColor: PALETTE.surface, borderRadius: 4, elevation: 0, shadowColor: '#000000', alignItems: 'center' },
+boardWrapper: { borderWidth: 0, borderColor: PALETTE.surface, borderRadius: 4, elevation: 0, shadowColor: '#000000', alignItems: 'center' },
 
 // --- CONTROLES DE NAVEGACIÓN Y ACCIÓN ---
 multiPvWrapper: { paddingVertical: 10, justifyContent: 'flex-start', backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0, },
@@ -2409,10 +2517,10 @@ analysisLinesContainer: { width: '100%', alignItems: 'center', gap: 1, justifyCo
 streakSlot: { width: '100%', alignItems: 'center', justifyContent: 'flex-start', overflow: 'hidden' },
 
 // --- MODAL DE FILTROS ---
-moveListWrapper: { height: 40, backgroundColor: PALETTE.surface, borderRadius: 8, marginTop: 1, marginBottom: 2, width: '98%', justifyContent: 'center', borderWidth: 1, borderColor: PALETTE.surfaceLight },
-eloSessionRowOuter: { width: SCREEN_WIDTH * 0.95, alignSelf: 'center', overflow: 'hidden' },
+moveListWrapper: { height: 40, backgroundColor: PALETTE.surface, borderRadius: 8, marginTop: 1, marginBottom: 2, justifyContent: 'center', borderWidth: 1, borderColor: PALETTE.surfaceLight },
+eloSessionRowOuter: { alignSelf: 'center', overflow: 'hidden' },
 eloSessionRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
 
 // --- MODO CONTRARELOJ ---
-clockFooterSpacer: { height: 69, marginTop: 'auto', marginBottom: 20 },
+clockFooterSpacer: { height: 69, marginTop: 'auto', marginBottom: FOOTER_MARGIN_BOTTOM },
 });

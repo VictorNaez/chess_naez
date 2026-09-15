@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { DonationStatus } from '../../hooks/useDonations';
+import { MODAL_MAX_WIDTH } from '../../theme/responsive';
 import { PALETTE } from '../colors';
 import { useT } from '../../i18n/I18nProvider';
 
@@ -83,7 +84,7 @@ const cleanTitle = (raw: string) =>
 
 const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
-  supportModalContent: { width: '88%', backgroundColor: PALETTE.surfaceDark, borderRadius: 30, padding: 25, borderWidth: 1, borderColor: PALETTE.chipBorder },
+  supportModalContent: { width: '88%', maxWidth: MODAL_MAX_WIDTH, backgroundColor: PALETTE.surfaceDark, borderRadius: 30, padding: 25, borderWidth: 1, borderColor: PALETTE.chipBorder },
   modalTitle: { color: PALETTE.primary, fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginTop: 10, marginBottom: 12, letterSpacing: 1 },
   subtitle: { color: PALETTE.chipText, fontSize: 13, lineHeight: 19, textAlign: 'center', marginBottom: 20 },
   thanksText: { color: PALETTE.success, fontSize: 14, lineHeight: 20, textAlign: 'center', marginVertical: 20 },

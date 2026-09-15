@@ -1,12 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { Dictionary } from '../../i18n';
 import { useT } from '../../i18n/I18nProvider';
 import { hapticImpact } from '../../lib/haptics';
-import { SCREEN_WIDTH } from '../../theme/layout';
 import type { AppMode } from '../../types/mode';
 import { PALETTE } from '../colors';
 
@@ -30,7 +29,7 @@ interface MainMenuModalProps {
 // Nunca ocupa la pantalla entera: el trozo de fondo visible a la derecha es lo
 // que comunica "esto está encima, tócalo para volver". El tope de 320 evita que
 // en tablets se convierta en media pantalla gigante.
-const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.68, 320);
+const drawerWidthFor = (windowWidth: number) => Math.min(windowWidth * 0.68, 320);
 const DRAWER_TOP_PAD = Platform.OS === 'ios' ? 60 : 44;
 
 const MODES: { id: AppMode; icon: IoniconName; labelKey: keyof Dictionary['menu']; available: boolean }[] = [
@@ -116,10 +115,12 @@ export const MainMenuModal = React.memo(({
   repasoCount = 0,
 }: MainMenuModalProps) => {
   const t = useT();
+  const { width: windowWidth } = useWindowDimensions();
+  const drawerWidth = drawerWidthFor(windowWidth);
   // El Modal no puede desmontarse a la vez que 'visible' pasa a false o la
   // animación de salida no llega a verse. Lo apagamos en el callback del timing.
   const [isMounted, setIsMounted] = useState(visible);
-  const translateX = useSharedValue(-DRAWER_WIDTH);
+  const translateX = useSharedValue(-drawerWidth);
   const overlayOpacity = useSharedValue(0);
 
   useEffect(() => {
@@ -129,7 +130,7 @@ export const MainMenuModal = React.memo(({
       translateX.value = withTiming(0, { duration: 240 });
     } else {
       overlayOpacity.value = withTiming(0, { duration: 200 });
-      translateX.value = withTiming(-DRAWER_WIDTH, { duration: 200 }, (finished) => {
+      translateX.value = withTiming(-drawerWidth, { duration: 200 }, (finished) => {
         if (finished) runOnJS(setIsMounted)(false);
       });
     }
@@ -146,7 +147,7 @@ export const MainMenuModal = React.memo(({
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         </Animated.View>
 
-        <Animated.View style={[styles.drawer, drawerStyle]}>
+        <Animated.View style={[styles.drawer, { width: drawerWidth }, drawerStyle]}>
           <View style={styles.drawerHeader}>
             <Text style={styles.drawerTitle}>{t.menu.title}</Text>
           </View>
@@ -230,7 +231,6 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     left: 0,
-    width: DRAWER_WIDTH,
     backgroundColor: PALETTE.surfaceDark,
     paddingTop: DRAWER_TOP_PAD,
     paddingBottom: Platform.OS === 'ios' ? 60 : 48,

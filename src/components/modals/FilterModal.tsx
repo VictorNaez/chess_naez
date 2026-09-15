@@ -2,9 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import * as SQLite from 'expo-sqlite';
 import React, { useEffect, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { arraysEqualUnordered, buildThemeCondition, getRecommendedRange } from '../../lib/puzzleQueries';
-import { SCREEN_WIDTH } from '../../theme/layout';
+import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
 import { CHESS_THEMES, RADAR_CATEGORY_IDS, themeName } from '../chess_themes';
 import { useT } from '../../i18n/I18nProvider';
 import { PALETTE } from '../colors';
@@ -42,6 +42,9 @@ export const FilterModal = React.memo(({
   onApply,
 }: FilterModalProps) => {
   const t = useT();
+  // Mismo 75% de ventana que antes en móvil (card al 95%), con el tope del card en tablet.
+  const { width: windowWidth } = useWindowDimensions();
+  const eloSliderLength = modalWidthFor(windowWidth) * (0.75 / MODAL_WIDTH_RATIO);
   const [tempEloRange, setTempEloRange] = useState<[number, number]>(currentEloRange);
   const [tempSelectedThemes, setTempSelectedThemes] = useState<string[]>(currentSelectedThemes);
   const [tempIsRecommendedMode, setTempIsRecommendedMode] = useState(currentIsRecommendedMode);
@@ -138,7 +141,7 @@ export const FilterModal = React.memo(({
               <View style={{ alignItems: 'center' }}>
                 <MultiSlider
                   values={[tempEloRange[0], tempEloRange[1]]}
-                  sliderLength={SCREEN_WIDTH * 0.75}
+                  sliderLength={eloSliderLength}
                   onValuesChangeStart={() => setIsSliding(true)}
                   onValuesChangeFinish={(values) => {
                     setIsSliding(false);
@@ -225,7 +228,7 @@ const styles = StyleSheet.create({
     modalBtn: { flex: 1, height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
     btnText: { color: PALETTE.accent, fontWeight: '900', fontSize: 14, letterSpacing: 1.5 },
     filterTitle: { color: PALETTE.chipText, fontSize: 11, fontWeight: '800', letterSpacing: 1.5, marginBottom: 8, marginLeft: '5%' },
-    filterModalContent: { width: '95%', height: '90%', backgroundColor: PALETTE.surfaceDark, borderRadius: 30, padding: 25, borderWidth: 1, borderColor: PALETTE.chipBorder },
+    filterModalContent: { width: '95%', maxWidth: MODAL_MAX_WIDTH, height: '90%', backgroundColor: PALETTE.surfaceDark, borderRadius: 30, padding: 25, borderWidth: 1, borderColor: PALETTE.chipBorder },
     filterSection: { marginBottom: 30, alignItems: 'center' },
     availableContainer: { marginTop: 5, backgroundColor: PALETTE.tagBg, paddingVertical: 4, paddingHorizontal: 12, borderRadius: 12 },
     availableBadge: { color: PALETTE.secondary, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },

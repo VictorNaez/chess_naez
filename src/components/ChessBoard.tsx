@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Chess } from "chess.js";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { FadeIn, FadeOut, runOnJS, SharedValue, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from "react-native-reanimated";
 import Svg, { G, Path, Rect } from 'react-native-svg';
@@ -39,11 +39,12 @@ interface ChessBoardProps {
   showLegalMoves?: boolean;
   showCoordinates?: boolean;
   moveDurationMs?: number;
+  /** Lado del tablero en dp. Lo calcula quien lo monta (ancho y alto disponibles). */
+  size: number;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const boardSize = Math.floor(SCREEN_WIDTH * 0.98);
-const squareSize = boardSize / 8;
+/** Alto que añade la eval bar en modo análisis: 20 de barra + 10 de marginBottom. */
+export const EVAL_BAR_BLOCK_HEIGHT = 30;
 const LAYER_FADE_OUT = 130;
 const LAYER_FADE_IN = 180;
 
@@ -117,7 +118,7 @@ const EvalBar = ({ centipawnScore, mateInMoves, turn }: { centipawnScore: number
   );
 };
 
-const getSquareCenter = (sq: string, orientation: 'w' | 'b') => {
+const getSquareCenter = (sq: string, orientation: 'w' | 'b', squareSize: number) => {
   // sq[0] es la letra (a-h), sq[1] es el número (1-8)
   const file = sq.charCodeAt(0) - 'a'.charCodeAt(0); // 'a' -> 0, 'b' -> 1, etc.
   const rank = 8 - parseInt(sq[1], 10); // Fila 8 arriba (0), Fila 1 abajo (7)
@@ -142,13 +143,13 @@ const getSquareCenter = (sq: string, orientation: 'w' | 'b') => {
 // por pieza y el memo de abajo deja de fallar en cada toque.
 const AnimatedPiece = React.memo(({ 
   p, visualRow, visualCol, isSuccess, isError, isSelected, isKingInCheck, orientation, onSquarePress, onDragMove, legalMovesSV,
-  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedPieceIdSV, squareToPieceIdSV, onInvalidTarget, moveDurationMs, swapping
+  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedPieceIdSV, squareToPieceIdSV, onInvalidTarget, moveDurationMs, swapping, squareSize
 }: { 
   p: PieceItem, visualRow: number, visualCol: number, isSuccess: boolean, isError: boolean, isSelected: boolean, isKingInCheck: boolean, orientation: 'w' | 'b', 
   onSquarePress: (sq: string | null, isDraggingInteraction?: boolean) => void,  onDragMove: (from: string, to: string) => void, legalMovesSV: SharedValue<string[]>,
   shadowX: SharedValue<number>, shadowY: SharedValue<number>, showShadow: SharedValue<boolean>, turnSV: SharedValue<'w' | 'b'>, selectedSquareSV: SharedValue<string | null>,
   capturedPieceIdSV: SharedValue<string | null>, squareToPieceIdSV: SharedValue<Record<string, string>>,
-  onInvalidTarget: (square: string) => void, moveDurationMs: number, swapping: boolean
+  onInvalidTarget: (square: string) => void, moveDurationMs: number, swapping: boolean, squareSize: number
 }) => {
   
   const targetX = visualCol * squareSize;
@@ -331,7 +332,9 @@ const AnimatedPiece = React.memo(({
           posY.value = withTiming(targetY, { duration: 120 });
         }
       }),
-    [p.square, p.color, p.type, orientation, targetX, targetY, onSquarePress, onDragMove]
+    // squareSize solo cambia al redimensionar la ventana (rotación, pantalla
+    // dividida), nunca por un toque: reconstruir los gestos entonces es gratis.
+    [p.square, p.color, p.type, orientation, targetX, targetY, squareSize, onSquarePress, onDragMove]
   );
     
   const combinedGesture = useMemo(
@@ -373,7 +376,7 @@ const AnimatedPiece = React.memo(({
 
   return (
     <GestureDetector gesture={combinedGesture}>
-      <Animated.View style={[styles.pieceContainer, { zIndex: 10 }, animatedStyle]}>
+      <Animated.View style={[styles.pieceContainer, { width: squareSize, height: squareSize, zIndex: 10 }, animatedStyle]}>
         <Animated.View
           entering={swapping ? undefined : FadeIn.duration(300)}
           exiting={swapping || isBeingCaptured ? undefined : FadeOut.duration(300)}
@@ -420,7 +423,8 @@ const AnimatedPiece = React.memo(({
     prev.onDragMove === next.onDragMove &&
     prev.onInvalidTarget === next.onInvalidTarget  &&
     prev.moveDurationMs === next.moveDurationMs &&
-    prev.swapping === next.swapping
+    prev.swapping === next.swapping &&
+    prev.squareSize === next.squareSize
   );
 });
 
@@ -454,6 +458,7 @@ interface BoardSquareProps {
   invalidFlashSquare: SharedValue<string | null>;
   invalidFlashNonce: SharedValue<number>;
   onInvalidTarget: (square: string) => void;
+  squareSize: number;
 }
 
 const BoardSquare = React.memo(({
@@ -462,6 +467,7 @@ const BoardSquare = React.memo(({
   isLastMove, hasKingInMate,
   onSquarePress, 
   isInvalidTarget, invalidFlashSquare, invalidFlashNonce, onInvalidTarget,
+  squareSize,
 }: BoardSquareProps) => {
 
   const baseColor = isSelected
@@ -529,18 +535,18 @@ const BoardSquare = React.memo(({
       />
       {isLegal && (
         isCapture
-          ? <View style={styles.captureRing} />
-          : <View style={styles.legalMoveDot} />
+          ? <View style={[styles.captureRing, { width: squareSize, height: squareSize, borderRadius: squareSize, borderWidth: Math.max(3, Math.round(squareSize * 0.1)) }]} />
+          : <View style={[styles.legalMoveDot, { width: squareSize * 0.30, height: squareSize * 0.30 }]} />
       )}
     </Pressable>
   );
 });
 
 // --- CAPA DE COORDENADAS ---
-const COORD_INSET = Math.max(1, Math.round(squareSize * 0.02));
-const COORD_FONT = Math.max(9, Math.round(squareSize * 0.20));
-
-const CoordinateOverlay = React.memo(({ orientation }: { orientation: 'w' | 'b' }) => {
+const CoordinateOverlay = React.memo(({ orientation, squareSize }: { orientation: 'w' | 'b'; squareSize: number }) => {
+  const COORD_INSET = Math.max(1, Math.round(squareSize * 0.02));
+  const COORD_FONT = Math.max(9, Math.round(squareSize * 0.20));
+  const coordFontStyle = { fontSize: COORD_FONT, lineHeight: COORD_FONT + 1 };
   const nodes: React.ReactNode[] = [];
 
   for (let i = 0; i < 8; i++) {
@@ -552,6 +558,7 @@ const CoordinateOverlay = React.memo(({ orientation }: { orientation: 'w' | 'b' 
         key={`rank-${i}`}
         style={[
           styles.coordText,
+          coordFontStyle,
           {
             top: i * squareSize + COORD_INSET,
             left: COORD_INSET,
@@ -571,6 +578,7 @@ const CoordinateOverlay = React.memo(({ orientation }: { orientation: 'w' | 'b' 
         key={`file-${i}`}
         style={[
           styles.coordText,
+          coordFontStyle,
           {
             bottom: COORD_INSET,
             right: (7 - i) * squareSize + COORD_INSET,
@@ -613,8 +621,11 @@ function ChessBoard({
   mateInMoves = null,
   showLegalMoves = true,
   showCoordinates = true,
-  moveDurationMs = 200
+  moveDurationMs = 200,
+  size,
 }: ChessBoardProps) {
+  const boardSize = size;
+  const squareSize = size / 8;
 
   const shadowX = useSharedValue(0);
   const shadowY = useSharedValue(0);
@@ -730,8 +741,6 @@ function ChessBoard({
     opacity: showShadow.value ? 1 : 0,
   }));
 
-  const EVAL_BAR_BLOCK_HEIGHT = 30; // 20 de altura de la barra + 10 de marginBottom
-
   const evalBarWrapperStyle = useAnimatedStyle(() => ({
     height: analysisProgress.value * EVAL_BAR_BLOCK_HEIGHT,
     opacity: analysisProgress.value,
@@ -745,8 +754,8 @@ function ChessBoard({
     const fromSq = moveStr.substring(0, 2);
     const toSq = moveStr.substring(2, 4);
     
-    const centerStart = getSquareCenter(fromSq, orientation);
-    const end = getSquareCenter(toSq, orientation);
+    const centerStart = getSquareCenter(fromSq, orientation, squareSize);
+    const end = getSquareCenter(toSq, orientation, squareSize);
 
     const dx = end.x - centerStart.x;
     const dy = end.y - centerStart.y;
@@ -758,7 +767,7 @@ function ChessBoard({
     const startY = distance > 0 ? centerStart.y + (dy / distance) * offset : centerStart.y;
     
     const headSize = squareSize * 0.3;
-    const strokeW = 12;
+    const strokeW = Math.max(6, Math.round(squareSize * 0.24)); // 12 en un móvil típico
     const neckX = end.x - (headSize * Math.cos(angle));
     const neckY = end.y - (headSize * Math.sin(angle));
 
@@ -812,7 +821,7 @@ function ChessBoard({
         </View>
       </Animated.View>
 
-      <View style={styles.board}>
+      <View style={[styles.board, { width: boardSize, height: boardSize }]}>
         {/* CAPA: INDICADOR / SOMBRA DE PREVISUALIZACIÓN */}
         <Animated.View 
           pointerEvents="none"
@@ -852,6 +861,7 @@ function ChessBoard({
               invalidFlashSquare={invalidFlashSquare}
               invalidFlashNonce={invalidFlashNonce}
               onInvalidTarget={triggerInvalidTarget}
+              squareSize={squareSize}
             />
           );
         })}
@@ -899,13 +909,14 @@ function ChessBoard({
                   onInvalidTarget={triggerInvalidTarget}
                   moveDurationMs={moveDurationMs}
                   swapping={swapping}
+                  squareSize={squareSize}
                 />
               );
             })}
           </Animated.View>
 
           {/* CAPA DE COORDENADAS (encima de las piezas) */}
-          {showCoordinates && <CoordinateOverlay orientation={rendered.orientation} />}
+          {showCoordinates && <CoordinateOverlay orientation={rendered.orientation} squareSize={squareSize} />}
 
           {/* CAPA DE FLECHAS */}
           {((bestEngineMove && bestEngineMove.length >= 4 )|| hintMove) && (
@@ -1006,16 +1017,15 @@ const miniBoardStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   container: { alignItems: 'center', width: '100%', },
-  board: { width: boardSize, height: boardSize, borderRadius: 4, overflow: 'hidden', marginBottom: 4 },
+  // Tamaños del tablero y de las casillas: inline, dependen de la prop `size`.
+  board: { borderRadius: 4, overflow: 'hidden', marginBottom: 4 },
   square: { position: "absolute", justifyContent: 'center', alignItems: 'center', zIndex: 1 },
 
-  pieceContainer: { position: "absolute", width: squareSize, height: squareSize, justifyContent: 'center', alignItems: 'center' },
-  legalMoveDot: { width: squareSize * 0.30, height: squareSize * 0.30, borderRadius: 100, backgroundColor: PALETTE.boardLegal, zIndex: 5 },
-  captureRing: { width: squareSize, height: squareSize, borderRadius: squareSize, borderWidth: 5, borderColor: PALETTE.boardLegal, backgroundColor: 'transparent', zIndex: 5 },
+  pieceContainer: { position: "absolute", justifyContent: 'center', alignItems: 'center' },
+  legalMoveDot: { borderRadius: 100, backgroundColor: PALETTE.boardLegal, zIndex: 5 },
+  captureRing: { borderColor: PALETTE.boardLegal, backgroundColor: 'transparent', zIndex: 5 },
   coordText: {
     position: 'absolute',
-    fontSize: COORD_FONT,
-    lineHeight: COORD_FONT + 1,
     fontWeight: '800',
     opacity: 0.75,
   },

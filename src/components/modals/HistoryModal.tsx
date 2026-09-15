@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { curveMonotoneX } from 'd3-shape';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { Stop } from 'react-native-svg';
 import { LineChart } from 'react-native-wagmi-charts';
 import { useT } from '../../i18n/I18nProvider';
 import { formatDuration } from '../../lib/time';
-import { SCREEN_WIDTH } from '../../theme/layout';
+import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
 import { themeNames as resolveThemeNames } from '../chess_themes';
 import { MiniBoardPreview } from '../ChessBoard';
 import { PALETTE } from '../colors';
@@ -86,6 +86,8 @@ export const HistoryModal = React.memo(({
   onSelectPuzzle,
 }: HistoryModalProps) => {
   const t = useT();
+  const { width: windowWidth } = useWindowDimensions();
+  const chartWidth = modalWidthFor(windowWidth) * (0.74 / MODAL_WIDTH_RATIO);
 
 // El mensaje de "vacío" solo se permite cuando la carga ha terminado de verdad
 // y ha pasado un pequeño margen. Así el spinner nunca parpadea al abrir.
@@ -252,7 +254,7 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
                     </View>
 
                     <View style={{ paddingLeft: 45, width: '100%', height: 190 }}>
-                      <LineChart width={SCREEN_WIDTH * 0.74} height={180} shape={ELO_LINE_SHAPE}>
+                      <LineChart width={chartWidth} height={180} shape={ELO_LINE_SHAPE}>
                         <LineChart.Path color={PALETTE.primary} pathProps={{ strokeWidth: 2 }}>
                           <LineChart.Gradient color={PALETTE.primary}>
                             <Stop offset="0%"   stopColor={PALETTE.primary} stopOpacity={0.5} />
@@ -368,7 +370,7 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
 const styles = StyleSheet.create({
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
     modalTitle: { color: PALETTE.primary, fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
-    historyModalContent: { width: '95%', height: '90%',  backgroundColor: '#141414', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.08)', shadowColor: '#000',
+    historyModalContent: { width: '95%', maxWidth: MODAL_MAX_WIDTH, height: '90%',  backgroundColor: '#141414', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.08)', shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 20,},
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: 15,},
     closeModalBtn: { backgroundColor: 'rgba(255, 255, 255, 0.05)', padding: 6, borderRadius: 50,},

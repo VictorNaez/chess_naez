@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { AppSettings, DEFAULT_SETTINGS, useSettings } from '../../hooks/useSettings';
 import { AVAILABLE_LOCALES, nativeNameOf, type LocalePreference } from '../../i18n';
 import { useI18n } from '../../i18n/I18nProvider';
-import { SCREEN_WIDTH } from '../../theme/layout';
+import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
 import { PALETTE } from '../colors';
 
 interface SettingsModalProps {
@@ -139,6 +139,11 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
     engineDepth, engineMultiPV, setSetting, resetSettings,
   } = useSettings();
   const { t, locale, preference, setPreference } = useI18n();
+  // Mismas proporciones de ventana que antes en móvil (card al 95%), con el tope del card en tablet.
+  const { width: windowWidth } = useWindowDimensions();
+  const modalWidth = modalWidthFor(windowWidth);
+  const volumeSliderLength = modalWidth * (0.66 / MODAL_WIDTH_RATIO);
+  const depthSliderLength = modalWidth * (0.78 / MODAL_WIDTH_RATIO);
 
   // El idioma NO entra en el snapshot de Cancelar ni en Restablecer: vive en su
   // propio provider y se aplica al instante, como en cualquier app del sistema.
@@ -248,7 +253,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
                 <View pointerEvents={soundEnabled ? 'auto' : 'none'} style={{ alignItems: 'center' }}>
                   <MultiSlider
                     values={[tempVolume]}
-                    sliderLength={SCREEN_WIDTH * 0.66}
+                    sliderLength={volumeSliderLength}
                     min={0}
                     max={100}
                     step={5}
@@ -316,7 +321,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
                 <Text style={styles.rowHint}>
                   {t.settings.depthHint}
                 </Text>
-                <View style={styles.depthSliderWrap}>
+                <View style={[styles.depthSliderWrap, { width: depthSliderLength }]}>
                   <View style={styles.depthGuide}>
                     <Text style={[styles.depthGuideText, { textAlign: 'left' }]}>{t.settings.depthFast}</Text>
                     <Text style={[styles.depthGuideText, { textAlign: 'center' }]}>{t.settings.depthNormal}</Text>
@@ -324,7 +329,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
                   </View>
                   <MultiSlider
                     values={[tempDepth]}
-                    sliderLength={SCREEN_WIDTH * 0.78}
+                    sliderLength={depthSliderLength}
                     min={10}
                     max={25}
                     step={1}
@@ -369,7 +374,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
 
 const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '95%', maxHeight: '90%', backgroundColor: PALETTE.surfaceDark, borderRadius: 30, padding: 25, borderWidth: 1, borderColor: PALETTE.chipBorder },
+  modalContent: { width: '95%', maxWidth: MODAL_MAX_WIDTH, maxHeight: '90%', backgroundColor: PALETTE.surfaceDark, borderRadius: 30, padding: 25, borderWidth: 1, borderColor: PALETTE.chipBorder },
 
   modalHeader: { justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   modalTitle: { color: PALETTE.primary, fontSize: 20, fontWeight: 'bold', textAlign: 'center' },
@@ -392,7 +397,7 @@ const styles = StyleSheet.create({
   sliderMarker: { backgroundColor: '#ffffff', height: 20, width: 20, borderRadius: 10, borderWidth: 2, borderColor: PALETTE.secondary, elevation: 5, shadowColor: '#000000' },
 
   depthBlock: { paddingVertical: 12 },
-  depthSliderWrap: { width: SCREEN_WIDTH * 0.78, alignSelf: 'center', marginTop: 10 },
+  depthSliderWrap: { alignSelf: 'center', marginTop: 10 },
   depthGuide: { flexDirection: 'row', marginBottom: 2 },
   depthGuideText: { flex: 1, color: PALETTE.chipText, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, opacity: 0.85 },
 
