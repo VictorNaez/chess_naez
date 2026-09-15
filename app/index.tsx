@@ -48,9 +48,9 @@ import { useSounds } from '../src/hooks/useSounds';
 import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
 import { useUserProgress } from "../src/hooks/useUserProgress";
 import { I18nProvider, useT } from '../src/i18n/I18nProvider';
+import { DEFAULT_ELO } from '../src/lib/elo';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
-import { DEFAULT_ELO } from '../src/lib/elo';
 import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored, readGlobalElo } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
@@ -492,7 +492,7 @@ const loadSinglePuzzle = async (
   activeDb?: SQLite.SQLiteDatabase | null,
   overrideRange?: number[],
   overrideThemes?: string[],
-  options?: { fast?: boolean }
+  options?: { fast?: boolean; recommended?: boolean }
 ) => {
   const isFast = options?.fast === true;
   if (isNextDisabled && !isFast) return;
@@ -517,8 +517,9 @@ const loadSinglePuzzle = async (
   setMessage("");
 
   let currentRange = overrideRange || eloRange;
+  const useRecommended = options?.recommended ?? isRecommendedMode;
   // En contrarreloj manda la escalera: ni filtros ni modo recomendado.
-  if (!isFast && isRecommendedMode) {
+  if (!isFast && useRecommended) {
     // El estado de React es la fuente rápida, pero en el arranque todavía está
     // vacío: esta función se llama desde el efecto de boot, que cerró sobre el
     // `userRatings` del primer render. Sin la lectura de respaldo, la ventana
@@ -2230,7 +2231,7 @@ return (
         setSelectedThemes(newThemes);
         setIsRecommendedMode(newRecommendedMode);
         setIsFilterModalVisible(false);
-        loadSinglePuzzle(db, newRange, newThemes);
+        loadSinglePuzzle(db, newRange, newThemes, { recommended: newRecommendedMode });
       }}
     />
 
