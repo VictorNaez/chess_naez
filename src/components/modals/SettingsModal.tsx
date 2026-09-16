@@ -3,7 +3,7 @@ import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { AppSettings, DEFAULT_SETTINGS, useSettings } from '../../hooks/useSettings';
-import { AVAILABLE_LOCALES, nativeNameOf, type LocalePreference } from '../../i18n';
+import { AVAILABLE_LOCALES, getDeviceLocale, nativeNameOf, type LocalePreference } from '../../i18n';
 import { useI18n } from '../../i18n/I18nProvider';
 import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
 import { PALETTE } from '../colors';
@@ -150,7 +150,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
   // En la lista, "Sistema" muestra entre paréntesis qué idioma resuelve ahora
   // mismo; en el botón cerrado solo cabe la palabra suelta.
   const localeOptions: { label: string; value: LocalePreference }[] = [
-    { label: `${t.settings.languageSystem} (${nativeNameOf(locale)})`, value: 'system' },
+    { label: `${t.settings.languageSystem} (${nativeNameOf(getDeviceLocale())})`, value: 'system' },
     ...AVAILABLE_LOCALES.map(l => ({ label: l.nativeName, value: l.code as LocalePreference })),
   ];
   const localeValueLabel =
