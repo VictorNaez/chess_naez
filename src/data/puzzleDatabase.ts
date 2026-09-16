@@ -38,8 +38,37 @@ const CATALOG_VERSION_KEY = 'catalog_version';
 // ATTACH quiere una ruta del sistema de ficheros, no una URI file://.
 const catalogPath = () => `${SQLITE_DIR}/${CATALOG_DB}`.replace('file://', '');
 
+// =========================================================
+// UNA CONEXIÓN POR PROCESO, NO POR MONTAJE
+// =========================================================
+// Android puede destruir y recrear la Activity sin matar el proceso: al
+// maximizar una ventana flotante en tablet, al cambiar el tamaño de fuente del
+// sistema... React Native vuelve a montar la app en el MISMO runtime de JS, así
+// que el arranque se ejecuta dos veces. Y expo-sqlite cachea las conexiones por
+// nombre (useNewConnection = false por defecto): el segundo openDatabaseAsync
+// devuelve la conexión nativa del primero, con el catálogo aún adjuntado, y el
+// ATTACH revienta con "database catalog is already in use".
+//
+// Por eso la apertura se comparte a nivel de módulo: todos los montajes reciben
+// la misma promesa. Si falla, se olvida, para que "Reintentar" vuelva a probar.
+let openPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+// Handle crudo en cuanto existe, aunque el arranque falle después. El reset lo
+// necesita: si el fallo fue a mitad de openPuzzleDatabase, index.tsx nunca
+// llegó a recibir el db y le pasa null, pero la conexión nativa sigue abierta.
+let rawConnection: SQLite.SQLiteDatabase | null = null;
+
+const isCatalogAttached = async (db: SQLite.SQLiteDatabase): Promise<boolean> => {
+  const rows = await db.getAllAsync<{ name: string }>('PRAGMA database_list');
+  return rows.some(r => r.name === 'catalog');
+};
+
 const attachCatalog = async (db: SQLite.SQLiteDatabase) => {
-  await db.runAsync('ATTACH DATABASE ? AS catalog', [catalogPath()]);
+  // Idempotente: un reintento tras un fallo posterior al ATTACH llega aquí con
+  // la misma conexión cacheada y el alias ya ocupado.
+  if (!(await isCatalogAttached(db))) {
+    await db.runAsync('ATTACH DATABASE ? AS catalog', [catalogPath()]);
+  }
 
   // El prefijo `catalog.` es obligatorio: sin él, SQLite intenta crear el
   // índice en main y falla con "no such table: main.puzzles". Los SELECT sí
@@ -49,7 +78,17 @@ const attachCatalog = async (db: SQLite.SQLiteDatabase) => {
   );
 };
 
-export const openPuzzleDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
+export const openPuzzleDatabase = (): Promise<SQLite.SQLiteDatabase> => {
+  if (!openPromise) {
+    openPromise = openPuzzleDatabaseOnce().catch((err: unknown) => {
+      openPromise = null;
+      throw err;
+    });
+  }
+  return openPromise;
+};
+
+const openPuzzleDatabaseOnce = async (): Promise<SQLite.SQLiteDatabase> => {
   if (__DEV__) {
   const p = await FileSystem.getInfoAsync(`${SQLITE_DIR}/${PROGRESS_DB}`);
   const c = await FileSystem.getInfoAsync(`${SQLITE_DIR}/${CATALOG_DB}`);
@@ -62,6 +101,7 @@ export const openPuzzleDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
   // Si Android restauró un progress.db de la instalación anterior, se abre tal
   // cual y no hace falta ni una línea de código de restauración.
   const database = await SQLite.openDatabaseAsync(PROGRESS_DB);
+  rawConnection = database;
 
   // Los PRAGMA son POR BASE. Estos caen sobre main, o sea progress.db, que es
   // donde va el 100% de las escrituras. El catálogo solo se lee y le da igual.
@@ -93,6 +133,11 @@ export const openPuzzleDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
   const installed = Number(versionRow?.value ?? 0);
 
   if (!catalogExists || installed < CATALOG_VERSION) {
+    // Una conexión cacheada de un montaje anterior podría tener el catálogo
+    // adjuntado: soltarlo antes de sobrescribir el fichero.
+    if (await isCatalogAttached(database)) {
+      await database.execAsync('DETACH DATABASE catalog;');
+    }
     await FileSystem.makeDirectoryAsync(SQLITE_DIR, { intermediates: true });
     const asset = await Asset.fromModule(require('../../assets/puzzles_v2.db')).downloadAsync();
     if (asset.localUri) {
@@ -145,11 +190,17 @@ let cachedMaxRowid: number | null = null;
 export const resetProgressDatabase = async (
   db?: SQLite.SQLiteDatabase | null,
 ): Promise<void> => {
-  // Cerrar primero si tenemos el handle: borrar el fichero por debajo de una
-  // conexión abierta deja a SQLite escribiendo en un inode fantasma.
-  if (db) {
-    try { await db.closeAsync(); } catch { /* ya estaba cerrada o nunca se abrió */ }
+  // Cerrar primero: borrar el fichero por debajo de una conexión abierta deja a
+  // SQLite escribiendo en un inode fantasma. Si el arranque falló a medias,
+  // quien llama no tiene el handle (db = null) pero la conexión nativa existe:
+  // se usa la que guardamos al abrir. Cerrarla también la saca de la caché de
+  // expo-sqlite, así que el siguiente arranque abre una conexión limpia.
+  const handles = new Set([db, rawConnection].filter((h): h is SQLite.SQLiteDatabase => !!h));
+  for (const handle of handles) {
+    try { await handle.closeAsync(); } catch { /* ya estaba cerrada o nunca se abrió */ }
   }
+  rawConnection = null;
+  openPromise = null;
 
   try {
     await SQLite.deleteDatabaseAsync(PROGRESS_DB);
