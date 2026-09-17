@@ -15,6 +15,7 @@ export const PALETTE = {
   success: '#36ab4a',       // Verde acierto
   lightSuccess: '#80e691',       // Verde acierto
   error: '#ff6b6b',         // Rojo fallo
+  pending: '#6c757d',       // Gris: puzle de partida aún sin contestar
   warning: '#D97706',       // Naranja reintentar
   info: '#225c8e',          // Para el botón Restart
   disabled: '#3D444A',

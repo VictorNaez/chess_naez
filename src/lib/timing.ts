@@ -46,6 +46,17 @@ export const PUZZLE_TIMING = {
   // Pausa entre jugadas mientras se reproduce la solución. Antes: 1000.
   solutionStep: 850,
 
+  // Cerrojo del repaso post-partida (contrarreloj / supervivencia): tras abrir
+  // un puzle desde el grid, el resto de cuadrados y el botón Siguiente quedan
+  // bloqueados hasta que el puzle es jugable Y han pasado al menos estos ms.
+  // Sin él, varios toques seguidos apilaban cargas y jugadas iniciales de
+  // puzles distintos sobre el mismo tablero.
+  reviewSwitchLock: 1000,
+
+  // Tope de seguridad del cerrojo anterior: si por lo que sea el puzle nunca
+  // llega a estar listo (consulta que falla), se libera igualmente.
+  reviewSwitchLockMax: 3000,
+
   // Pausa entre pasos del rebobinado de Reintentar. Antes: 200.
   rewindStep: 180,
 

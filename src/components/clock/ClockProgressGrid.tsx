@@ -10,6 +10,9 @@ interface ClockProgressGridProps {
   interactive?: boolean;
   selectedIndex?: number | null;
   onSelectAttempt?: (index: number) => void;
+  // Cerrojo del repaso: justo después de abrir un puzle, el resto de cuadrados
+  // no responden durante un momento para que no se apilen cargas.
+  disabled?: boolean;
 }
 
 // La fila del header mide 118px fijos (ELO_ROW_HEIGHT + STREAK_SLOT_HEIGHT) y su
@@ -23,12 +26,13 @@ const GAP = 6;
 // A nivel de módulo a propósito: definido dentro del render, React lo trataría
 // como un componente nuevo en cada pasada y lo remontaría.
 const AttemptCell = React.memo(({
-  attempt, index, selected, interactive, onSelect,
+  attempt, index, selected, interactive, disabled, onSelect,
 }: {
   attempt: ClockAttempt;
   index: number;
   selected: boolean;
   interactive: boolean;
+  disabled: boolean;
   onSelect?: (index: number) => void;
 }) => {
   const handlePress = useCallback(() => onSelect?.(index), [onSelect, index]);
@@ -37,7 +41,7 @@ const AttemptCell = React.memo(({
     <>
       <View style={[
         styles.square,
-        { backgroundColor: attempt.success ? PALETTE.success : PALETTE.error },
+        { backgroundColor: attempt.pending ? PALETTE.pending : attempt.success ? PALETTE.success : PALETTE.error },
         selected && styles.squareSelected,
       ]} />
       <Text style={[styles.rating, selected && styles.ratingSelected]} numberOfLines={1}>
@@ -50,8 +54,13 @@ const AttemptCell = React.memo(({
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.cell, pressed && styles.cellPressed]}
+      style={({ pressed }) => [
+        styles.cell,
+        pressed && styles.cellPressed,
+        disabled && !selected && styles.cellDisabled,
+      ]}
       onPress={handlePress}
+      disabled={disabled}
       hitSlop={3}
     >
       {content}
@@ -60,7 +69,7 @@ const AttemptCell = React.memo(({
 });
 
 export const ClockProgressGrid = React.memo(({
-  attempts, interactive = false, selectedIndex = null, onSelectAttempt,
+  attempts, interactive = false, selectedIndex = null, onSelectAttempt, disabled = false,
 }: ClockProgressGridProps) => {
   const scrollRef = useRef<ScrollView>(null);
   // Ancho útil del ScrollView: hace falta para saber cuántas celdas entran por
@@ -102,6 +111,7 @@ export const ClockProgressGrid = React.memo(({
             index={i}
             selected={interactive && selectedIndex === i}
             interactive={interactive}
+            disabled={disabled}
             onSelect={onSelectAttempt}
           />
         ))}
@@ -123,6 +133,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, alignContent: 'flex-start' },
   cell: { width: CELL_W, height: ROW_H, alignItems: 'center' },
   cellPressed: { opacity: 0.55 },
+  cellDisabled: { opacity: 0.4 },
   square: { width: SQUARE, height: SQUARE, borderRadius: 5 },
   squareSelected: { borderWidth: 2, borderColor: PALETTE.accent },
   rating: { color: PALETTE.chipText, fontSize: 8, fontWeight: '700', marginTop: 3, fontVariant: ['tabular-nums'] },

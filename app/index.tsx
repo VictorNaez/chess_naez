@@ -195,8 +195,30 @@ function App() {
   // cuadradito abre su puzle en el tablero para analizarlo con calma.
   // `reviewAttemptIndex` es el índice dentro de attempts del puzle abierto, o
   // null si solo estamos viendo el resultado.
-  const runAttempts = isSurvivalMode ? survival.attempts : clock.attempts;
+  // Los intentos contestados + el puzle en pantalla sin contestar (gris), si lo
+  // hay. Si la partida acaba con él a medias se queda al final de la lista y se
+  // puede abrir en el repaso como cualquier otro.
+  const runBaseAttempts = isSurvivalMode ? survival.attempts : clock.attempts;
+  const runPendingAttempt = isSurvivalMode ? survival.pendingAttempt : clock.pendingAttempt;
+  const runAttempts = useMemo(
+    () => (runPendingAttempt ? [...runBaseAttempts, runPendingAttempt] : runBaseAttempts),
+    [runBaseAttempts, runPendingAttempt],
+  );
   const [reviewAttemptIndex, setReviewAttemptIndex] = useState<number | null>(null);
+  // Cerrojo al cambiar de puzle en el repaso (ver PUZZLE_TIMING.reviewSwitchLock).
+  // El ref es la fuente de verdad (se comprueba síncrono al pulsar); el estado
+  // solo existe para atenuar el grid y el botón Siguiente.
+  const [isReviewSwitchLocked, setIsReviewSwitchLocked] = useState(false);
+  const reviewLockRef = useRef<{ token: number; minUntil: number } | null>(null);
+  const reviewUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const releaseReviewLock = useCallback(() => {
+    if (reviewUnlockTimerRef.current) {
+      clearTimeout(reviewUnlockTimerRef.current);
+      reviewUnlockTimerRef.current = null;
+    }
+    reviewLockRef.current = null;
+    setIsReviewSwitchLocked(false);
+  }, []);
   const isRunFinished = isRunMode && runPhase === 'finished';
   const isRunReview = isRunFinished && reviewAttemptIndex !== null;
   // Partida EN CURSO: es lo que activa los recortes de tiempo, el tablero que
@@ -1668,12 +1690,22 @@ useEffect(() => { survivalTimeoutRef.current = handleSurvivalTimeout; }, [handle
 // reintentar y análisis funcionan igual que en modo normal, pero no toca el ELO
 // ni la cola de repaso.
 const openRunAttempt = async (index: number) => {
+  // Ya hay un puzle cargándose: el toque se ignora. Sin esto, cada toque lanza
+  // su consulta y su jugada inicial retrasada, y acaban pisándose en el tablero.
+  if (reviewLockRef.current) return;
   const attempt = runAttempts[index];
   if (!db || !attempt) return;
+
+  // Se libera cuando runPuzzleToken supera este valor (el puzle ya es jugable)
+  // y además ha pasado el mínimo. El temporizador es solo la red de seguridad.
+  reviewLockRef.current = { token: runPuzzleToken, minUntil: Date.now() + PUZZLE_TIMING.reviewSwitchLock };
+  setIsReviewSwitchLocked(true);
+  reviewUnlockTimerRef.current = setTimeout(releaseReviewLock, PUZZLE_TIMING.reviewSwitchLockMax);
 
   const puzzle = await getPuzzleById(db, attempt.puzzleId);
   if (!puzzle) {
     console.warn('[REPASO PARTIDA] no se encontró el puzle', attempt.puzzleId);
+    releaseReviewLock();
     return;
   }
 
@@ -1684,6 +1716,15 @@ const openRunAttempt = async (index: number) => {
   setCurrentPuzzle(puzzle);
   resetPuzzleState(puzzle, false, false, true);
 };
+
+// El puzle del repaso ya es jugable (su jugada inicial sube el token): se
+// libera el cerrojo en cuanto se cumpla el tiempo mínimo.
+useEffect(() => {
+  const lock = reviewLockRef.current;
+  if (!lock || runPuzzleToken <= lock.token) return;
+  if (reviewUnlockTimerRef.current) clearTimeout(reviewUnlockTimerRef.current);
+  reviewUnlockTimerRef.current = setTimeout(releaseReviewLock, Math.max(0, lock.minUntil - Date.now()));
+}, [runPuzzleToken, releaseReviewLock]);
 
 // Ref + callback estable: ClockProgressGrid es React.memo y un handler nuevo en
 // cada render lo re-renderizaría entero durante la partida.
@@ -1813,11 +1854,18 @@ const openFromMenu = useCallback((open: () => void) => {
 
 // El reloj no arranca al pulsar EMPEZAR, sino cuando el primer puzle ya es
 // jugable: entre medias hay una consulta SQL y el movimiento de la máquina.
+//
+// Además, cada puzle que queda jugable se marca como pendiente (cuadrado gris)
+// hasta que se conteste. presentPuzzle es idempotente por token.
 useEffect(() => {
-  if (clock.phase === 'arming' && firstMoveDone && !loading) {
+  if (!firstMoveDone || loading) return;
+  if (clock.phase === 'arming') {
     clock.beginCountdown();
   }
-}, [clock.phase, firstMoveDone, loading]);
+  if (isClockMode && currentPuzzle && clock.phaseRef.current === 'running') {
+    clock.presentPuzzle(runPuzzleToken, currentPuzzle.id, currentPuzzle.rating);
+  }
+}, [clock.phase, firstMoveDone, loading, isClockMode, runPuzzleToken]);
 
 // Supervivencia: aquí no hay un reloj de partida sino uno POR PUZLE, así que
 // este efecto se dispara en cada puzle nuevo, no solo en el primero. El tiempo
@@ -1861,6 +1909,7 @@ useEffect(() => {
 // Carga el primer puzle de una partida, usando el precargado si el rango coincide.
 const startRunWithRange = useCallback((range: [number, number]) => {
   setReviewAttemptIndex(null);   // partida nueva: se acabó el repaso de la anterior
+  releaseReviewLock();
   const cached = clockPrefetchRef.current;
 
   if (cached && cached.range[0] === range[0] && cached.range[1] === range[1]) {
@@ -1882,6 +1931,7 @@ const handleStartSurvivalRun = useCallback((ms: number) => {
 
 const handleExitRun = useCallback(() => {
   setReviewAttemptIndex(null);
+  releaseReviewLock();
   clock.abortRun();
   survival.abortRun();
   setAppMode('puzzles');
@@ -2184,6 +2234,7 @@ return (
             interactive={isRunFinished}
             selectedIndex={reviewAttemptIndex}
             onSelectAttempt={stableOpenRunAttempt}
+            disabled={isReviewSwitchLocked}
           />
         ) : (
           <>
@@ -2380,7 +2431,7 @@ return (
             onRetry={stableRetry}
             onNextPuzzle={stableNextPuzzle}
             onHint={stableHint}
-            isNextDisabled={isNextDisabled}
+            isNextDisabled={isNextDisabled || (isRunReview && isReviewSwitchLocked)}
             width={contentWidth}
           />
         )}

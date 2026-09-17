@@ -40,6 +40,9 @@ export const useSurvivalMode = (
   const [solved, setSolved] = useState(0);
   const [failed, setFailed] = useState(0);
   const [attempts, setAttempts] = useState<RunAttempt[]>([]);
+  // Espejo en estado de armedPuzzleRef: el puzle con el reloj armado es justo el
+  // que está sin contestar (cuadrado gris en el grid).
+  const [pendingAttempt, setPendingAttempt] = useState<RunAttempt | null>(null);
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [ranking, setRanking] = useState<RunRanking | null>(null);
   const [records, setRecords] = useState<RunRecords>({ bestAllTime: 0, bestThisWeek: 0, total: 0 });
@@ -162,6 +165,7 @@ export const useSurvivalMode = (
     clearDeadline();
     consumedTokenRef.current = armed.token;
     armedPuzzleRef.current = null;   // consumido: una jugada tardía ya no cuenta
+    setPendingAttempt(null);
     puzzleEndsAtRef.current = 0;
     setPuzzleEndsAt(null);
 
@@ -176,6 +180,7 @@ export const useSurvivalMode = (
   const armDeadline = useCallback((token: number, puzzleId: string, rating: number) => {
     const now = Date.now();
     armedPuzzleRef.current = { token, id: puzzleId, rating };
+    setPendingAttempt({ puzzleId, rating, success: false, solveMs: 0, pending: true });
     puzzleEndsAtRef.current = now + perPuzzleRef.current;
     setPuzzleEndsAt(puzzleEndsAtRef.current);
     clearDeadline();
@@ -199,6 +204,7 @@ export const useSurvivalMode = (
     consumedTokenRef.current = -1;
 
     setAttempts([]);
+    setPendingAttempt(null);
     setPerPuzzleMs(ms);
     setLives(SURVIVAL_LIVES);
     setLadderStep(0);
@@ -249,6 +255,7 @@ export const useSurvivalMode = (
     clearDeadline();
     consumedTokenRef.current = armed.token;
     armedPuzzleRef.current = null;
+    setPendingAttempt(null);
     puzzleEndsAtRef.current = 0;
     setPuzzleEndsAt(null);
 
@@ -296,6 +303,7 @@ export const useSurvivalMode = (
     consumedTokenRef.current = -1;
 
     setAttempts([]);
+    setPendingAttempt(null);
     setPhaseSafe('idle');
     setPuzzleEndsAt(null);
     setLives(SURVIVAL_LIVES);
@@ -327,7 +335,7 @@ export const useSurvivalMode = (
 
   return {
     phase, phaseRef, perPuzzleMs, puzzleEndsAt, lives, maxLives: SURVIVAL_LIVES,
-    ladderStep, solved, failed, attempts,
+    ladderStep, solved, failed, attempts, pendingAttempt,
     summary, ranking, records, refreshRecords,
     isStartVisible, isResultVisible,
     armRun, beginRun, startPuzzleClock, registerResult, finishRun, abortRun,

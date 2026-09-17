@@ -18,6 +18,9 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
   const [isStartVisible, setIsStartVisible] = useState(false);
   const [isResultVisible, setIsResultVisible] = useState(false);
   const [attempts, setAttempts] = useState<ClockAttempt[]>([]);
+  // Puzle en pantalla sin contestar (cuadrado gris). Si el reloj se agota con
+  // él a medias, se queda congelado para poder repasarlo al terminar.
+  const [pendingAttempt, setPendingAttempt] = useState<ClockAttempt | null>(null);
 
   // Refs paralelos al estado: registerResult y finishRun se llaman desde
   // callbacks asíncronos (executeMove, setTimeout) que no ven el estado fresco.
@@ -29,6 +32,18 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
   const durationRef = useRef(DEFAULT_CLOCK_DURATION_MS);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFinishingRef = useRef(false);
+
+  // Mismo esquema que supervivencia: `token` es único por PRESENTACIÓN de puzle.
+  // Tras contestar, `currentPuzzle` sigue siendo el viejo ~800 ms (pausa +
+  // deslizamiento + SQL): sin el token, un re-render en esa ventana volvería a
+  // marcar como pendiente un puzle ya contestado.
+  const pendingRef = useRef<{ token: number; id: string; rating: number } | null>(null);
+  const consumedTokenRef = useRef<number>(-1);
+
+  const clearPending = () => {
+    pendingRef.current = null;
+    setPendingAttempt(null);
+  };
 
   const setPhaseSafe = useCallback((p: ClockPhase) => {
     phaseRef.current = p;
@@ -108,6 +123,8 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
     startedAtRef.current = 0;
     endsAtRef.current = 0;
     durationRef.current = ms;
+    consumedTokenRef.current = -1;
+    clearPending();
 
     setDurationMs(ms);
     setLadderStep(0);
@@ -147,6 +164,10 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
     const timeUp = phaseRef.current !== 'running' || Date.now() >= endsAtRef.current;
 
     if (!timeUp) {
+      // Contestado dentro de tiempo: deja de estar pendiente. Si llega con el
+      // tiempo agotado NO se toca: finishRun lo conserva como pendiente.
+      if (pendingRef.current) consumedTokenRef.current = pendingRef.current.token;
+      clearPending();
       attemptsRef.current = [...attemptsRef.current, { puzzleId, rating, success, solveMs }];
       setAttempts(attemptsRef.current);   // <-- nuevo
       if (success) {
@@ -159,6 +180,21 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
     }
 
     return { nextRange: getLadderRange(stepRef.current), timeUp };
+  }, []);
+
+  // =========================================================
+  // PUZLE EN PANTALLA
+  // =========================================================
+  // Lo llama la pantalla cuando un puzle queda jugable. Idempotente por token:
+  // el efecto que lo llama puede re-dispararse varias veces por el mismo puzle.
+  // Con la partida terminada no hace nada, así que el pendiente queda congelado
+  // aunque el repaso vaya cargando otros puzles en el tablero.
+  const presentPuzzle = useCallback((token: number, puzzleId: string, rating: number) => {
+    if (phaseRef.current !== 'running') return;
+    if (pendingRef.current?.token === token) return;
+    if (consumedTokenRef.current === token) return;
+    pendingRef.current = { token, id: puzzleId, rating };
+    setPendingAttempt({ puzzleId, rating, success: false, solveMs: 0, pending: true });
   }, []);
 
   // =========================================================
@@ -187,6 +223,8 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
     setAttempts([]);
     stepRef.current = 0;
     endsAtRef.current = 0;
+    consumedTokenRef.current = -1;
+    clearPending();
     setPhaseSafe('idle');
     setEndsAt(null);
     setSolved(0);
@@ -211,10 +249,10 @@ export const useClockMode = (db: SQLite.SQLiteDatabase | null) => {
   useEffect(() => clearDeadline, []);
 
   return {
-    phase, phaseRef, durationMs, endsAt, ladderStep, solved, failed, attempts,
+    phase, phaseRef, durationMs, endsAt, ladderStep, solved, failed, attempts, pendingAttempt,
     summary, ranking, records, refreshRecords,
     isStartVisible, isResultVisible,
-    armRun, beginCountdown, registerResult, finishRun, abortRun,
+    armRun, beginCountdown, presentPuzzle, registerResult, finishRun, abortRun,
     openStart, closeStart, closeResult, openResult,
   };
 };

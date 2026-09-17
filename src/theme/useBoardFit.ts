@@ -115,12 +115,12 @@ export function useBoardFit({
         const maxByHeight = Math.floor(current + slack + vNow - eWorst);
         const next = Math.max(MIN_BOARD_SIZE, Math.min(widthCap, maxByHeight));
 
-        if (__DEV__) {
-          console.log(
-            `[boardFit] outer=${outerH.toFixed(1)} inner=${innerH.toFixed(1)} slack=${slack.toFixed(1)} ` +
-            `vNow=${vNow} eWorst=${eWorst} widthCap=${widthCap} heightCap=${maxByHeight} -> ${current} => ${next}`
-          );
-        }
+//        if (__DEV__) {
+//          console.log(
+//            `[boardFit] outer=${outerH.toFixed(1)} inner=${innerH.toFixed(1)} slack=${slack.toFixed(1)} ` +
+//            `vNow=${vNow} eWorst=${eWorst} widthCap=${widthCap} heightCap=${maxByHeight} -> ${current} => ${next}`
+//          );
+//        }
 
         const isFirstFitForWindow = fittedWindowKeyRef.current !== windowKey;
         const tolerance = isFirstFitForWindow ? INITIAL_RESIZE_TOLERANCE : MODE_RESIZE_TOLERANCE;

@@ -15,6 +15,10 @@ export interface RunAttempt {
   // Solo en supervivencia: el fallo vino de agotar el tiempo, no de mover mal.
   // El grid de progreso los pinta igual (rojo); se guarda para estadísticas.
   timedOut?: boolean;
+  // Puzle en pantalla todavía sin contestar. No cuenta para el resumen ni para
+  // los récords: solo se pinta (en gris) al final del grid, y si la partida
+  // termina con él a medias se queda ahí para poder abrirlo en el repaso.
+  pending?: boolean;
 }
 
 export interface RunSummary {
