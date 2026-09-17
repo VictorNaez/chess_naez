@@ -2,12 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as SQLite from 'expo-sqlite';
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, LayoutAnimationConfig } from 'react-native-reanimated';
+import { useT } from '../../i18n/I18nProvider';
 import { hapticImpact } from '../../lib/haptics';
 import type { RunKind, RunRecords } from '../../types/run';
 import { getRunRecords } from '../../types/runs';
 import { PALETTE } from '../colors';
-import { useT } from '../../i18n/I18nProvider';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -80,6 +80,7 @@ export const RunStartModal = React.memo(({
       <View style={styles.root}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
+        <LayoutAnimationConfig skipExiting>
         <View style={styles.card}>
           <Ionicons name={icon} size={34} color={PALETTE.secondary} />
           <Text style={styles.title}>{title}</Text>
@@ -128,6 +129,7 @@ export const RunStartModal = React.memo(({
             <Text style={styles.cancelText}>{t.common.cancel}</Text>
           </TouchableOpacity>
         </View>
+        </LayoutAnimationConfig>
       </View>
     </Modal>
   );

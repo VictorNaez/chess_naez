@@ -7,7 +7,7 @@ import { CLOCK_DURATIONS, CLOCK_TIMING, DEFAULT_CLOCK_DURATION_MS, getLadderRang
 import { DEFAULT_SURVIVAL_MS, SURVIVAL_SPEEDS, survivalDangerMs, survivalWarnMs } from '@/src/lib/survival';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Chess, Square } from "chess.js";
+import { Chess, Move, Square } from "chess.js";
 import * as SplashScreen from 'expo-splash-screen';
 import * as SQLite from 'expo-sqlite';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -162,6 +162,13 @@ function App() {
   const [promotionModalVisible, setPromotionModalVisible] = useState(false);
   const [pendingMove, setPendingMove] = useState<{ from: string, to: string } | null>(null);
   const [isBoardLocked, setIsBoardLocked] = useState(false);
+  // Reproducción de una línea del multi-PV. El ref guarda el id de la que está
+  // en curso (null = ninguna) y es lo que consultan los guardas: un toque puede
+  // llegar antes del re-render. El estado es su espejo para ChessBoard, que
+  // bloquea los gestos en el hilo de UI (si no, la pieza se levanta y vuelve).
+  const activeSequenceRef = useRef<number | null>(null);
+  const sequenceCounterRef = useRef(0);
+  const [isSequencePlaying, setIsSequencePlaying] = useState(false);
   const [viewIndex, setViewIndex] = useState(0); // Qué movimiento del historial estamos viendo
   const [isReviewMode, setIsReviewMode] = useState(false); // Si estamos viendo el pasado o el presente
   const [isRetryMode, setIsRetryMode] = useState(false);
@@ -441,6 +448,16 @@ const syncPiecesFromGame = (chessGame: Chess) => {
 };
 
 
+// Corta la línea del motor que se esté reproduciendo y libera el tablero. El
+// bucle de handleEngineSequencePress comprueba su id tras cada espera y se
+// retira solo. Lo llama todo lo que saca del análisis o cambia de posición.
+const cancelEngineSequence = () => {
+  if (activeSequenceRef.current === null) return;
+  activeSequenceRef.current = null;
+  analysisEngine.isSequencePlayingRef.current = false;
+  setIsSequencePlaying(false);
+};
+
 // Función para reiniciar el estado del puzzle, usada tanto al cargar un nuevo puzzle como al hacer Retry después de resolverlo
 // isRetry: true SOLO cuando se reinicia un puzzle que el usuario ya intentó.
 // Determina si el puzzle otorga ELO o no. Es explícito a propósito:
@@ -462,6 +479,7 @@ const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false
   setLegalMoves([]);      
   setSelectedSquare(null); 
   setMessage("");         
+  cancelEngineSequence();
   analysisEngine.exitAnalysisMode();
   setSuccessSquare(null);
   setErrorSquare(null);
@@ -564,6 +582,7 @@ const loadSinglePuzzle = async (
   setHintSquare(null);
   setIsBoardLocked(false);
   setIsReviewMode(false);
+  cancelEngineSequence();
   analysisEngine.exitAnalysisMode();
   setEloFeedback(null);
   resetTimer(); 
@@ -828,6 +847,7 @@ const showSolution = async () => {
 
 // Función central para manejar la interacción del usuario con el tablero
 function onSquarePress(square: string | null, isDraggingInteraction: boolean = false) {
+  if (activeSequenceRef.current !== null) return;
   if (!square) {
     clearSelection();
     return;
@@ -902,6 +922,7 @@ function onSquarePress(square: string | null, isDraggingInteraction: boolean = f
 
 // Función central para ejecutar un movimiento, tanto en modo puzzle como análisis
 const executeMove = async (from: string, to: string, promotion: string = 'q') => {
+  if (activeSequenceRef.current !== null) return;
   if (!currentPuzzle || (isBoardLocked && !analysisEngine.isAnalysisMode)) return;
 
   // 1. Bloqueo de seguridad para evitar doble toque
@@ -1144,6 +1165,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
 };
 
 const handleDragMove = (from: string, to: string) => {
+  if (activeSequenceRef.current !== null) return;
   // 1. Buscamos qué pieza se está moviendo
   const movingPiece = game.get(from as any);
   if (!movingPiece) return;
@@ -1206,6 +1228,9 @@ useEffect(() => {
 // (Antes handleMovePress no tocaba isReviewMode: si venías de pulsar la flecha
 // atrás, el tablero se quedaba en modo revisión para siempre.)
 const goToViewIndex = (targetIndex: number) => {
+  // Flechas y lista de jugadas: saltar a mitad de una línea desincroniza el
+  // índice local del bucle con el historial.
+  if (activeSequenceRef.current !== null) return;
   if (targetIndex === viewIndex) return;
   if (targetIndex < 0 || targetIndex > fenHistory.length - 1) return;
 
@@ -1302,6 +1327,7 @@ const startAnalysis = () => {
 // Salir del análisis sin cambiar de puzle: apaga el motor y devuelve el tablero
 // exactamente a como estaba al entrar.
 const exitAnalysis = () => {
+  cancelEngineSequence();
   analysisEngine.exitAnalysisMode();
   analysisEngine.clearBestMove();
   clearSelection();
@@ -1762,14 +1788,25 @@ const handleEngineSequencePress = async (moves: string[]) => {
 
   // Si ya hay una secuencia en curso, ignoramos el nuevo clic en vez de
   // dejar que compita con la llamada anterior.
-  if (analysisEngine.isSequencePlayingRef.current) return;
+  if (activeSequenceRef.current !== null) return;
+
+  // Tablero bloqueado desde YA (ref, síncrono) hasta que la última pieza llegue
+  // a su casilla. Si alguien la cancela (salir del análisis, otro puzle), el id
+  // deja de coincidir y el bucle se retira sin tocar nada más.
+  const runId = ++sequenceCounterRef.current;
+  activeSequenceRef.current = runId;
+  const isCancelled = () => activeSequenceRef.current !== runId;
+  setIsSequencePlaying(true);
 
   clearSelection(); // limpia casilla seleccionada y movimientos legales al instante, sin esperar a que termine la animación.
+  setPromotionModalVisible(false);
+  setPendingMove(null);
 
   // 0. Pausamos el motor mientras se reproduce la secuencia animada,
   // para que no reposicione ni busque en cada posición intermedia.
   analysisEngine.isSequencePlayingRef.current = true;
   await analysisEngine.pauseSearch();
+  if (isCancelled()) return;
 
   // 1. Creamos copias locales del tablero y el índice actual.
   // Estas copias se irán actualizando en cada iteración del bucle,
@@ -1785,9 +1822,17 @@ const handleEngineSequencePress = async (moves: string[]) => {
     const to = uciMove.slice(2, 4) as Square;
     const promotion = uciMove.length === 5 ? uciMove[4] : 'q'; 
     
-    // 2. Aplicamos el movimiento en nuestro motor local
-    const move = localGame.move({ from, to, promotion });
-    if (!move) continue; // Si es ilegal por algún motivo, saltamos
+    // 2. Aplicamos el movimiento en nuestro motor local. chess.js 1.x LANZA
+    // con una jugada ilegal (no devuelve null): sin el catch, la excepción
+    // dejaría el tablero bloqueado para siempre. Tras una ilegal el resto de
+    // la línea tampoco vale, así que se corta ahí.
+    let move: Move | null = null;
+    try {
+      move = localGame.move({ from, to, promotion });
+    } catch {
+      move = null;
+    }
+    if (!move) break;
     
     const nextFen = localGame.fen();
     const isCapture = 'captured' in move;
@@ -1831,6 +1876,7 @@ const handleEngineSequencePress = async (moves: string[]) => {
     // 7. Pausa para dar tiempo a la animación de la pieza antes del siguiente movimiento
     if (i < moves.length - 1) {
       await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.sequenceStep));
+      if (isCancelled()) return;
     }
   }
   
@@ -1843,6 +1889,13 @@ const handleEngineSequencePress = async (moves: string[]) => {
   if (analysisEngine.isAnalysisMode) {
     analysisEngine.restartSearch(localGame.fen());
   }
+
+  // El motor no espera (corre en la WebView), pero el tablero sí: la última
+  // pieza sigue animándose `pieceMove` ms tras el setState.
+  await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.pieceMove));
+  if (isCancelled()) return;
+  activeSequenceRef.current = null;
+  setIsSequencePlaying(false);
 };
 
 // Abrir un modal justo cuando otro se está cerrando parpadea en Android.
@@ -2360,6 +2413,7 @@ return (
                 moveDurationMs={isRunPlaying ? CLOCK_TIMING.pieceMove : PUZZLE_TIMING.pieceMove}
                 size={boardFit.boardSize}
                 positionKey={currentPuzzle?.id ?? null}
+                inputLocked={isSequencePlaying}
               />
             </Animated.View>
           </View>

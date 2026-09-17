@@ -51,6 +51,12 @@ interface ChessBoardProps {
    * funde; si no cambia (reintentar, salir del análisis) entra con un fundido.
    */
   positionKey?: string | null;
+  /**
+   * Ignora todo toque y arrastre (p.ej. mientras se reproduce una línea del
+   * motor). Se comprueba en los worklets: bloquear solo en JS no basta, porque
+   * la pieza se levantaría y seguiría al dedo antes de que JS diga que no.
+   */
+  inputLocked?: boolean;
 }
 
 /** Alto que añade la eval bar en modo análisis: 20 de barra + 10 de marginBottom. */
@@ -250,13 +256,15 @@ const ArrowLayer = React.memo(function ArrowLayer({ engineOutput, hintMove, orie
 // por pieza y el memo de abajo deja de fallar en cada toque.
 const AnimatedPiece = React.memo(({ 
   p, visualRow, visualCol, isSuccess, isError, isSelected, isKingInCheck, orientation, onSquarePress, onDragMove, legalMovesSV,
-  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedPieceIdSV, squareToPieceIdSV, onInvalidTarget, moveDurationMs, squareSize
+  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedPieceIdSV, squareToPieceIdSV, onInvalidTarget, moveDurationMs, squareSize,
+  inputLockedSV,
 }: { 
   p: PieceItem, visualRow: number, visualCol: number, isSuccess: boolean, isError: boolean, isSelected: boolean, isKingInCheck: boolean, orientation: 'w' | 'b', 
   onSquarePress: (sq: string | null, isDraggingInteraction?: boolean) => void,  onDragMove: (from: string, to: string) => void, legalMovesSV: SharedValue<string[]>,
   shadowX: SharedValue<number>, shadowY: SharedValue<number>, showShadow: SharedValue<boolean>, turnSV: SharedValue<'w' | 'b'>, selectedSquareSV: SharedValue<string | null>,
   capturedPieceIdSV: SharedValue<string | null>, squareToPieceIdSV: SharedValue<Record<string, string>>,
-  onInvalidTarget: (square: string) => void, moveDurationMs: number, squareSize: number
+  onInvalidTarget: (square: string) => void, moveDurationMs: number, squareSize: number,
+  inputLockedSV: SharedValue<boolean>,
 }) => {
   
   const targetX = visualCol * squareSize;
@@ -324,6 +332,7 @@ const AnimatedPiece = React.memo(({
     Gesture.Tap()
       .numberOfTaps(1)
       .onStart(() => {
+        if (inputLockedSV.value) return;
         if (p.color === turnSV.value) {
           if (wasSelectedOnBegin.value) {
             runOnJS(onSquarePress)(p.square);
@@ -349,13 +358,14 @@ const AnimatedPiece = React.memo(({
   const panGesture = useMemo(() =>
     Gesture.Pan()
       .onBegin(() => {
+        if (inputLockedSV.value) return;
         if (p.color === turnSV.value) {
           wasSelectedOnBegin.value = selectedSquareSV.value === p.square;
           runOnJS(onSquarePress)(p.square, true);
         }
       })
       .onStart(() => {
-        if (p.color !== turnSV.value) return;
+        if (p.color !== turnSV.value || inputLockedSV.value) return;
         isDragging.value = true;
         isLifted.value = true;
         liftToken.value = liftToken.value + 1;
@@ -363,7 +373,9 @@ const AnimatedPiece = React.memo(({
         showShadow.value = true; 
       })
       .onUpdate((event) => {
-        if (p.color !== turnSV.value) return;
+        // Por "este arrastre empezó de verdad" y no por el turno: una línea del
+        // motor puede cambiar el turno con el dedo aún en la pantalla.
+        if (!isDragging.value) return;
         dragX.value = event.translationX;
         dragY.value = event.translationY - 40;
 
@@ -382,7 +394,7 @@ const AnimatedPiece = React.memo(({
         shadowY.value = targetRowIdx * squareSize;
       })
       .onEnd((event) => {     
-        if (p.color !== turnSV.value) {
+        if (!isDragging.value) {
           isLifted.value = false;
           return;
         }
@@ -403,7 +415,9 @@ const AnimatedPiece = React.memo(({
 
           const isMoveLegal = legalMovesSV.value.includes(targetSquare);
           
-          if (targetSquare !== p.square && isMoveLegal) {
+          // Si el tablero se bloqueó a mitad del arrastre, la pieza vuelve a su
+          // sitio: JS rechazaría la jugada y se quedaría pintada en el destino.
+          if (targetSquare !== p.square && isMoveLegal && !inputLockedSV.value) {
             isLegalMoveExecuted = true;
           }
         }
@@ -745,6 +759,7 @@ function ChessBoard({
   moveDurationMs = 200,
   size,
   positionKey = null,
+  inputLocked = false,
 }: ChessBoardProps) {
   const boardSize = size;
   const squareSize = size / 8;
@@ -770,6 +785,11 @@ function ChessBoard({
   useEffect(() => { selectedSquareSV.value = selectedSquare; }, [selectedSquare]);
   useEffect(() => { legalMovesSV.value = legalMoves; }, [legalMoves]);
   useEffect(() => { turnSV.value = turn; }, [turn]);
+
+  // Mismo patrón: identidad estable, así que bloquear/desbloquear no re-renderiza
+  // las piezas (y por eso no está en el comparador del memo).
+  const inputLockedSV = useSharedValue(inputLocked);
+  useEffect(() => { inputLockedSV.value = inputLocked; }, [inputLocked]);
 
   // --- SEÑAL DE CLICK INVÁLIDO (flash rojo + haptic) ---
   const invalidFlashSquare = useSharedValue<string | null>(null);
@@ -1003,6 +1023,7 @@ function ChessBoard({
                     onInvalidTarget={triggerInvalidTarget}
                     moveDurationMs={moveDurationMs}
                     squareSize={squareSize}
+                    inputLockedSV={inputLockedSV}
                   />
                 );
               })}
