@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Chess } from "chess.js";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, runOnJS, SharedValue, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from "react-native-reanimated";
@@ -275,6 +275,10 @@ const AnimatedPiece = React.memo(({
   const scale = useSharedValue(1);
   const isDragging = useSharedValue(false);
   const wasSelectedOnBegin = useSharedValue(false);   // Marca si la pieza YA estaba seleccionada cuando empezó ESTE toque.
+  // La captura por click se resuelve en onBegin (touch down). El Tap del mismo
+  // toque llegará igualmente al soltar el dedo: esta bandera es lo que evita
+  // que repita la jugada.
+  const handledOnBegin = useSharedValue(false);
 
   const dragX = useSharedValue(0);
   const dragY = useSharedValue(0);
@@ -291,7 +295,11 @@ const AnimatedPiece = React.memo(({
   const originX = useSharedValue(targetX);
   const originY = useSharedValue(targetY);
 
-  useEffect(() => {
+  // useLayoutEffect y no useEffect: los efectos pasivos corren DESPUÉS del
+  // pintado, así que la orden de withTiming salía un frame tarde y la pieza
+  // arrancaba en el siguiente. Como efecto de layout se despacha dentro del
+  // mismo commit y la animación empieza en el primer frame del render nuevo.
+  useLayoutEffect(() => {
     originX.value = targetX;
     originY.value = targetY;
     if (!isDragging.value) {
@@ -332,6 +340,11 @@ const AnimatedPiece = React.memo(({
     Gesture.Tap()
       .numberOfTaps(1)
       .onStart(() => {
+        // La captura ya se disparó al bajar el dedo (panGesture.onBegin).
+        if (handledOnBegin.value) {
+          handledOnBegin.value = false;
+          return;
+        }
         if (inputLockedSV.value) return;
         if (p.color === turnSV.value) {
           if (wasSelectedOnBegin.value) {
@@ -358,10 +371,23 @@ const AnimatedPiece = React.memo(({
   const panGesture = useMemo(() =>
     Gesture.Pan()
       .onBegin(() => {
+        handledOnBegin.value = false;
         if (inputLockedSV.value) return;
         if (p.color === turnSV.value) {
           wasSelectedOnBegin.value = selectedSquareSV.value === p.square;
           runOnJS(onSquarePress)(p.square, true);
+          return;
+        }
+
+        // CAPTURA POR CLICK EN EL TOUCH DOWN.
+        // Seleccionar ya ocurría aquí, en onBegin; comer ocurría en el Tap, que
+        // solo pasa a ACTIVE al levantar el dedo. Esos 60-150 ms que el dedo
+        // pasa apoyado eran la mayor parte del retraso percibido, y explicaban
+        // que arrastrar se sintiera instantáneo y hacer click no.
+        const selected = selectedSquareSV.value;
+        if (selected && legalMovesSV.value.includes(p.square)) {
+          handledOnBegin.value = true;
+          runOnJS(onDragMove)(selected, p.square);
         }
       })
       .onStart(() => {
@@ -587,6 +613,12 @@ interface BoardSquareProps {
   isSelected: boolean;
   isHint: boolean;
   isLegal: boolean;
+  /**
+   * Legalidad REAL del destino con la selección actual. `isLegal` no sirve para
+   * esto: viene filtrado por el ajuste "mostrar movimientos legales" y solo
+   * decide si se pinta el punto. Esta es la que decide si el toque mueve.
+   */
+  isLegalTarget: boolean;
   isCapture: boolean;
   isLastMove: boolean;
   hasKingInMate: boolean;
@@ -600,7 +632,7 @@ interface BoardSquareProps {
 
 const BoardSquare = React.memo(({
   square, vRow, vCol, isDark,
-  isSelected, isHint, isLegal, isCapture,
+  isSelected, isHint, isLegal, isLegalTarget, isCapture,
   isLastMove, hasKingInMate,
   onSquarePress, 
   isInvalidTarget, invalidFlashSquare, invalidFlashNonce, onInvalidTarget,
@@ -647,14 +679,38 @@ const BoardSquare = React.memo(({
     opacity: flashOpacity.value,
   }));
 
+  // --- ACTIVACIÓN EN EL TOUCH DOWN ---
+  // `onPress` de Pressable dispara al SOLTAR. La selección de pieza, en cambio,
+  // ya iba en panGesture.onBegin (touch down), así que mover a casilla vacía
+  // arrastraba de regalo la duración entera del toque. El ref evita que el
+  // onPress del release repita la jugada que ya resolvió el onPressIn.
+  const handledOnPressIn = useRef(false);
+
+  const activate = () => {
+    if (isInvalidTarget) {
+      onInvalidTarget(square);
+    }
+    onSquarePress(square);
+  };
 
   return (
     <Pressable
+      onPressIn={() => {
+        handledOnPressIn.current = false;
+        // Solo el destino legal se adelanta al touch down. Deseleccionar o
+        // tocar una casilla muerta sigue en el release: ahí el retraso no se
+        // nota y mantenerlo evita que un roce al empezar un arrastre cancele
+        // la selección.
+        if (!isLegalTarget) return;
+        handledOnPressIn.current = true;
+        activate();
+      }}
       onPress={() => {
-        if (isInvalidTarget) {
-          onInvalidTarget(square);
+        if (handledOnPressIn.current) {
+          handledOnPressIn.current = false;
+          return;
         }
-        onSquarePress(square);
+        activate();
       }}
       hitSlop={4}
       style={[
@@ -965,6 +1021,7 @@ function ChessBoard({
               isSelected={square === selectedSquare}
               isHint={hintSquare === square}
               isLegal={showDot}
+              isLegalTarget={isLegal && !!selectedSquare && square !== selectedSquare}
               isCapture={showDot && occupiedSquares.has(square)}
               isLastMove={square === lastMoveFrom || square === lastMoveTo}
               hasKingInMate={mateKingSquare === square}

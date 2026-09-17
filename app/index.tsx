@@ -65,6 +65,16 @@ import type { RepasoOrder } from '../src/types/repaso';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+// --- FEEDBACK FUERA DEL CAMINO CRÍTICO DE LA JUGADA ---
+// hapticImpact y el par seekTo(0)/play() de expo-audio son llamadas nativas
+// SÍNCRONAS: ejecutadas donde estaban, bloqueaban el hilo JS dentro del mismo
+// bloque que los setState de la jugada, o sea ANTES de que React hiciera flush
+// del lote. Ese tiempo se lo comía entero el primer frame de la pieza.
+// setTimeout(0) es un macrotask y el flush de React es un microtask: cuando
+// corre esto, el render ya está hecho. El desfase con la animación es de un
+// tick, imperceptible; el que se quita de delante no lo era.
+const deferFeedback = (fn: () => void) => { setTimeout(fn, 0); };
+
 // --- ALTURAS DE LAS ZONAS QUE CAMBIAN SEGÚN EL ESTADO ---
 // Viven aquí y no dentro de App porque las leen tanto los estilos animados como
 // el cálculo del tamaño del tablero (useBoardFit): tienen que ser las mismas.
@@ -950,13 +960,15 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
       // --- A. LÓGICA PARA MODO ANÁLISIS ---
       if (analysisEngine.isAnalysisMode) {
         // Feedback táctil para modo análisis
-        if (isCapture) {
-          hapticImpact('heavy');
-          playSound('capture');
-        } else {
-          hapticImpact('medium');
-          playSound('move');
-        }
+        deferFeedback(() => {
+          if (isCapture) {
+            hapticImpact('heavy');
+            playSound('capture');
+          } else {
+            hapticImpact('medium');
+            playSound('move');
+          }
+        });
 
         applyMoveIdentity(move);
         const nextFen = gameCopy.fen();
@@ -1016,8 +1028,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           const solveMs = stopTimer(true);
           // Veredicto dado: el puzle ya no se guarda para reanudarlo.
           setIsPuzzleConsumed(true);
-          hapticSuccess();
-          playSound('success');
+          deferFeedback(() => { hapticSuccess(); playSound('success'); });
           
           const solvedHistory = [...fenHistory, nextFen];
           setFenHistory(solvedHistory);
@@ -1061,13 +1072,15 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           }, isRunPlaying ? 80 : PUZZLE_TIMING.solvedFeedback);
         } else {
           // MOVIMIENTO CORRECTO (pero el puzzle sigue): Vibración de movimiento
-          if (isCapture) {
-            	hapticImpact('heavy');
-            playSound('capture');
-          } else {
-            	hapticImpact('medium');
-            playSound('move');
-          }
+          deferFeedback(() => {
+            if (isCapture) {
+              hapticImpact('heavy');
+              playSound('capture');
+            } else {
+              hapticImpact('medium');
+              playSound('move');
+            }
+          });
 
           // TURNO DE LA MÁQUINA (Respuesta automática)
           setSolutionStep(nextStep + 1);
@@ -1084,7 +1097,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             if (mResp) {
               // Vibración ligera cuando la máquina te responde (opcional, pero da un gran feedback)
               const machineCaptured = 'captured' in mResp;
-              hapticImpact(machineCaptured ? 'medium' : 'light');
+              deferFeedback(() => hapticImpact(machineCaptured ? 'medium' : 'light'));
 
               setMoveHistory(prev => [...prev, mResp.san]);
               applyMoveIdentity(mResp);
@@ -1109,8 +1122,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         const solveMs = stopTimer(false);
         // Fallar también consume el puzle: el ELO ya se ha descontado.
         setIsPuzzleConsumed(true);
-        hapticError();
-        playSound('error');
+        deferFeedback(() => { hapticError(); playSound('error'); });
 
         const failedHistory = [...fenHistory, nextFen];
         setFenHistory(failedHistory);
