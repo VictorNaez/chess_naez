@@ -63,6 +63,34 @@ export const getKFactor = (attempts: number): number => {
 };
 
 // ---------------------------------------------------------
+// PENALIZACIÓN POR PISTAS
+// ---------------------------------------------------------
+// Resolver con ayuda no puede pagar lo mismo que resolver a pelo. El índice es
+// el número de clics de pista ACUMULADOS en el puzle: iluminar la pieza y
+// pintar la flecha son dos clics, y cada jugada nueva vuelve a empezar por la
+// pieza.
+//
+//   clics   qué ha llegado a ver el jugador          multiplicador
+//   0       nada                                        +100%
+//   1       la pieza que hay que mover                   +30%
+//   2       la jugada entera (flecha)                    -30%
+//   3       la pieza de la jugada siguiente              -60%
+//   4+      la jugada siguiente entera, o más            -90%
+//
+// La escala está anclada a los dos extremos reales del puzle: +100% es lo que
+// se gana resolviéndolo a pelo, K·(1-E), y -100% lo que cuesta fallarlo, K·E.
+// NO son simétricos (dependen de la expectativa), así que el multiplicador se
+// aplica sobre uno o sobre otro según su signo, y no como un porcentaje de la
+// subida. Así -90% es siempre algo menos que fallar el puzle, esté el puzle
+// por encima o por debajo de tu nivel.
+const HINT_MULTIPLIERS: readonly number[] = [1, 0.3, -0.3, -0.6, -0.9];
+
+export const getHintMultiplier = (hintClicks: number): number => {
+  const safe = Math.max(0, Math.trunc(hintClicks));
+  return HINT_MULTIPLIERS[Math.min(safe, HINT_MULTIPLIERS.length - 1)];
+};
+
+// ---------------------------------------------------------
 // CÁLCULO DEL AJUSTE
 // ---------------------------------------------------------
 // Función pura: mismas entradas, misma salida, sin base de datos de por medio.
@@ -72,11 +100,33 @@ export const computeEloVariation = (
   puzzleElo: number,
   isSuccess: boolean,
   attempts: number,
+  hintClicks: number = 0,
 ): number => {
   const expectedScore = 1 / (1 + Math.pow(10, (puzzleElo - currentElo) / 400));
-  const actualScore = isSuccess ? 1 : 0;
+  const k = getKFactor(attempts);
 
-  const variation = Math.round(getKFactor(attempts) * (actualScore - expectedScore));
+  // Los dos extremos de la escala, siempre en positivo.
+  const fullGain = k * (1 - expectedScore); // resolverlo sin ayuda
+  const fullLoss = k * expectedScore;       // fallarlo
+
+  // Las pistas solo tocan el acierto. Si encima de mirar la pista lo fallas, se
+  // paga la bajada entera: recortar también el fallo haría que pedir pista
+  // saliera a cuenta en puzles difíciles y el rating se inflaría solo.
+  if (!isSuccess) return Math.round(-fullLoss);
+
+  const multiplier = getHintMultiplier(hintClicks);
+  const reference = multiplier >= 0 ? fullGain : fullLoss;
+  let variation = Math.round(multiplier * reference);
+
+  // Con multiplicador distinto de cero, un redondeo a 0 borraría el efecto de
+  // la pista (y la UI no enseña feedback cuando la variación es 0), así que el
+  // rating siempre se mueve al menos un punto en el sentido que toca.
+  if (variation === 0 && multiplier !== 0) variation = multiplier > 0 ? 1 : -1;
+
+  // Ese suelo de un punto puede pasarse de frenada cuando fallar apenas cuesta
+  // (puzle muy por encima del jugador): el castigo por pistas nunca puede
+  // superar al de no sacarlo.
+  if (multiplier < 0) variation = Math.max(variation, Math.round(-fullLoss));
 
   return variation;
   // Suelo de movimiento: acertar nunca da menos de +5 ni fallar menos de -5.

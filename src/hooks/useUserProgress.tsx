@@ -218,6 +218,7 @@ export const useUserProgress = (db: SQLite.SQLiteDatabase | null) => {
     puzzleElo: number,
     solveMs: number = 0,
     isRecommendedMode: boolean = false,
+    hintClicks: number = 0,
   ): Promise<number> => {
     if (!db || lockRef.current) return 0;
     lockRef.current = true;
@@ -251,7 +252,7 @@ export const useUserProgress = (db: SQLite.SQLiteDatabase | null) => {
 
       // --- Fórmula de expectativa tipo Elo, con K progresivo ---
       const oldGlobalElo = current['global'] ?? DEFAULT_ELO;
-      const eloVariation = computeEloVariation(oldGlobalElo, puzzleElo, isSuccess, attempts);
+      const eloVariation = computeEloVariation(oldGlobalElo, puzzleElo, isSuccess, attempts, hintClicks);
 
       const newGlobalElo = Math.max(MIN_ELO, oldGlobalElo + eloVariation);
 

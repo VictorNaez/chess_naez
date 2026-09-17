@@ -150,6 +150,10 @@ function App() {
   const [lastMoveTo, setLastMoveTo] = useState<string | null>(null);
   const [hintSquare, setHintSquare] = useState<string | null>(null);
   const [hintMove, setHintMove] = useState<string | null>(null);
+  // Clics de pista gastados en el puzle actual, para recortar el ELO al
+  // puntuar. Ref y no estado: solo se lee en el momento de puntuar, y como
+  // estado obligaría a un render por cada pista sin pintar nada distinto.
+  const hintClicksRef = useRef(0);
   const [successSquare, setSuccessSquare] = useState<string | null>(null);
   const [errorSquare, setErrorSquare] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -497,6 +501,7 @@ const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false
   setLastMoveTo(null);
   setHintSquare(null);
   setHintMove(null); 
+  hintClicksRef.current = 0;
   resetTimer();  
 
   seedIdentityMap(newGame);
@@ -1058,7 +1063,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
 
             } else if (!isHistoryMode && !isRetryMode) {
               const temasArray = currentPuzzle.themes.split(' ');
-              const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true,  currentPuzzle.rating, solveMs, isRecommendedMode);
+              const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true,  currentPuzzle.rating, solveMs, isRecommendedMode, hintClicksRef.current);
               if (puntosGanados !== 0) {
                 setEloFeedback({ value: puntosGanados });
               }
@@ -1158,7 +1163,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
 
           } else if (!isHistoryMode && !isRetryMode) {
             const temasArray = currentPuzzle.themes.split(' ');
-            const puntosPerdidos = await updateElo(currentPuzzle.id, temasArray, false, currentPuzzle.rating, solveMs, isRecommendedMode);
+            const puntosPerdidos = await updateElo(currentPuzzle.id, temasArray, false, currentPuzzle.rating, solveMs, isRecommendedMode, hintClicksRef.current);
             if (puntosPerdidos !== 0) {
               setEloFeedback({ value: puntosPerdidos });
             }
@@ -1306,10 +1311,13 @@ const handleHint = () => {
     
     // Si la casilla ya estaba iluminada, es el SEGUNDO click
     if (hintSquare === fromSquare) {
+      // Insistir con la flecha ya pintada no enseña nada nuevo: no cuenta.
+      if (!hintMove) hintClicksRef.current += 1;
       setHintMove(moveStr); // Guardamos el movimiento completo ('e2e4') para la flecha
     } 
     // Si no estaba iluminada, es el PRIMER click
     else {
+      hintClicksRef.current += 1;
       setLegalMoves([]);
       setSelectedSquare(null);
       setHintSquare(fromSquare);
