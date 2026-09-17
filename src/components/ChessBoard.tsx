@@ -5,6 +5,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, runOnJS, SharedValue, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from "react-native-reanimated";
 import Svg, { G, Path, Rect } from 'react-native-svg';
+import { useEngineOutput, type EngineOutputStore } from '../lib/engineOutput';
 import { hapticImpact } from '../lib/haptics';
 import { PALETTE } from "./colors";
 
@@ -32,10 +33,13 @@ interface ChessBoardProps {
   turn?: 'w' | 'b';
   lastMoveFrom?: string | null;
   lastMoveTo?: string | null;
-  bestEngineMove?: string | null;
   isAnalysisMode?: boolean;
-  centipawnScore?: string | null;
-  mateInMoves?: string | null;
+  /**
+   * Salida del motor (flecha y barra de evaluación). Se pasa el store y no los
+   * valores: así cada actualización del motor re-renderiza solo la barra y la
+   * capa de flechas, ni App ni el tablero.
+   */
+  engineOutput?: EngineOutputStore | null;
   showLegalMoves?: boolean;
   showCoordinates?: boolean;
   moveDurationMs?: number;
@@ -94,7 +98,11 @@ export const pieceImages: Record<string, any> = {
 };
 
 
-const EvalBar = ({ centipawnScore, mateInMoves, turn }: { centipawnScore: number | null | undefined; mateInMoves?: number | null; turn?: 'w' | 'b' }) => {
+const EvalBar = ({ engineOutput, turn }: { engineOutput?: EngineOutputStore | null; turn?: 'w' | 'b' }) => {
+  const centipawnText = useEngineOutput(engineOutput, (s) => s.centipawn);
+  const mateText = useEngineOutput(engineOutput, (s) => s.mateIn);
+  const centipawnScore = centipawnText === null ? null : Number(centipawnText);
+  const mateInMoves = mateText === null ? null : Number(mateText);
   const animatedWidth = useSharedValue(50);
   
   const hasMate = mateInMoves !== null && mateInMoves !== undefined;
@@ -162,6 +170,75 @@ const getSquareCenter = (sq: string, orientation: 'w' | 'b', squareSize: number)
     y: y * squareSize + squareSize / 2,
   };
 };
+
+// --- GENERADOR DE FLECHAS REUTILIZABLE ---
+const renderArrow = (moveStr: string, color: string, orientation: 'w' | 'b', squareSize: number) => {
+  if (!moveStr || moveStr.length < 4) return null;
+
+  const fromSq = moveStr.substring(0, 2);
+  const toSq = moveStr.substring(2, 4);
+
+  const centerStart = getSquareCenter(fromSq, orientation, squareSize);
+  const end = getSquareCenter(toSq, orientation, squareSize);
+
+  const dx = end.x - centerStart.x;
+  const dy = end.y - centerStart.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const angle = Math.atan2(dy, dx);
+  const offset = squareSize * 0.3;
+
+  const startX = distance > 0 ? centerStart.x + (dx / distance) * offset : centerStart.x;
+  const startY = distance > 0 ? centerStart.y + (dy / distance) * offset : centerStart.y;
+
+  const headSize = squareSize * 0.3;
+  const strokeW = Math.max(6, Math.round(squareSize * 0.24)); // 12 en un móvil típico
+  const neckX = end.x - (headSize * Math.cos(angle));
+  const neckY = end.y - (headSize * Math.sin(angle));
+
+  return (
+    <G opacity={0.8}>
+      <Path
+        d={`M ${startX} ${startY} L ${neckX} ${neckY}`}
+        stroke={color}
+        strokeWidth={strokeW}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d={`M ${end.x} ${end.y}
+            L ${neckX - (headSize * Math.cos(angle + Math.PI/2))} ${neckY - (headSize * Math.sin(angle + Math.PI/2))}
+            L ${neckX - (headSize * Math.cos(angle - Math.PI/2))} ${neckY - (headSize * Math.sin(angle - Math.PI/2))}
+            Z`}
+        fill={color}
+      />
+    </G>
+  );
+};
+
+// --- CAPA DE FLECHAS ---
+// Componente propio y suscrito al store: la flecha del motor cambia con cada
+// actualización de la búsqueda sin re-renderizar el tablero.
+const ArrowLayer = React.memo(function ArrowLayer({ engineOutput, hintMove, orientation, squareSize }: {
+  engineOutput?: EngineOutputStore | null;
+  hintMove: string | null;
+  orientation: 'w' | 'b';
+  squareSize: number;
+}) {
+  const bestEngineMove = useEngineOutput(engineOutput, (s) => s.bestMove);
+  if (!((bestEngineMove && bestEngineMove.length >= 4) || hintMove)) return null;
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="none">
+      <Svg width="100%" height="100%">
+        {/* Flecha verde para el motor de análisis */}
+        {bestEngineMove && renderArrow(bestEngineMove, PALETTE.success || "#2ecc71", orientation, squareSize)}
+
+        {/* Flecha azul (primary) para la segunda pista del jugador */}
+        {hintMove && renderArrow(hintMove, PALETTE.primary || "rgba(52, 152, 219, 1)", orientation, squareSize)}
+      </Svg>
+    </View>
+  );
+});
 
 // --- COMPONENTE DE PIEZA INDIVIDUAL ---
 // `turnSV`, `selectedSquareSV` y `legalMovesSV` son SharedValue y NO props
@@ -661,10 +738,8 @@ function ChessBoard({
   turn = 'w',
   lastMoveFrom = null,
   lastMoveTo = null,
-  bestEngineMove = null,
   isAnalysisMode = false,
-  centipawnScore = null,
-  mateInMoves = null,
+  engineOutput = null,
   showLegalMoves = true,
   showCoordinates = true,
   moveDurationMs = 200,
@@ -820,50 +895,6 @@ function ChessBoard({
     transform: [{ translateY: (1 - analysisProgress.value) * -8 }],
   }));
   
-// --- GENERADOR DE FLECHAS REUTILIZABLE ---
-  const renderArrow = (moveStr: string, color: string) => {
-    if (!moveStr || moveStr.length < 4) return null;
-    
-    const fromSq = moveStr.substring(0, 2);
-    const toSq = moveStr.substring(2, 4);
-    
-    const centerStart = getSquareCenter(fromSq, orientation, squareSize);
-    const end = getSquareCenter(toSq, orientation, squareSize);
-
-    const dx = end.x - centerStart.x;
-    const dy = end.y - centerStart.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const angle = Math.atan2(dy, dx);
-    const offset = squareSize * 0.3;
-    
-    const startX = distance > 0 ? centerStart.x + (dx / distance) * offset : centerStart.x;
-    const startY = distance > 0 ? centerStart.y + (dy / distance) * offset : centerStart.y;
-    
-    const headSize = squareSize * 0.3;
-    const strokeW = Math.max(6, Math.round(squareSize * 0.24)); // 12 en un móvil típico
-    const neckX = end.x - (headSize * Math.cos(angle));
-    const neckY = end.y - (headSize * Math.sin(angle));
-
-    return (
-      <G opacity={0.8}>
-        <Path
-          d={`M ${startX} ${startY} L ${neckX} ${neckY}`}
-          stroke={color}
-          strokeWidth={strokeW}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <Path
-          d={`M ${end.x} ${end.y} 
-              L ${neckX - (headSize * Math.cos(angle + Math.PI/2))} ${neckY - (headSize * Math.sin(angle + Math.PI/2))}
-              L ${neckX - (headSize * Math.cos(angle - Math.PI/2))} ${neckY - (headSize * Math.sin(angle - Math.PI/2))}
-              Z`}
-          fill={color}
-        />
-      </G>
-    );
-  };
-
   // --- Conjuntos derivados: O(n) una sola vez por render ---
   const occupiedSquares = useMemo(() => new Set(rendered.pieces.map(p => p.square)), [rendered.pieces]);
   const legalSet = useMemo(() => new Set(legalMoves), [legalMoves]);
@@ -878,19 +909,7 @@ function ChessBoard({
         
       <Animated.View style={[{ width: boardSize, overflow: 'hidden' }, evalBarWrapperStyle]}>
         <View style={{ marginBottom: 10 }}>
-          <EvalBar
-            centipawnScore={
-              centipawnScore === null || centipawnScore === undefined
-                ? null
-                : Number(centipawnScore)
-            }
-            mateInMoves={
-              mateInMoves === null || mateInMoves === undefined
-                ? null
-                : Number(mateInMoves)
-            }
-            turn={turn}
-          />
+          <EvalBar engineOutput={engineOutput} turn={turn} />
         </View>
       </Animated.View>
 
@@ -995,17 +1014,12 @@ function ChessBoard({
           {showCoordinates && <CoordinateOverlay orientation={rendered.orientation} squareSize={squareSize} />}
 
           {/* CAPA DE FLECHAS */}
-          {((bestEngineMove && bestEngineMove.length >= 4 )|| hintMove) && (
-            <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="none">
-              <Svg width="100%" height="100%">
-                {/* Flecha verde para el motor de análisis */}
-                {bestEngineMove && renderArrow(bestEngineMove, PALETTE.success || "#2ecc71")}
-                
-                {/* Flecha azul (primary) para la segunda pista del jugador */}
-                {hintMove && renderArrow(hintMove, PALETTE.primary || "rgba(52, 152, 219, 1)")}
-              </Svg>
-            </View>
-          )}
+          <ArrowLayer
+            engineOutput={engineOutput}
+            hintMove={hintMove}
+            orientation={orientation}
+            squareSize={squareSize}
+          />
           
       </View>
     </View>

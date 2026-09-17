@@ -2038,12 +2038,12 @@ useEffect(() => {
 // cuando se pasaban directamente.
 const controlsRef = useRef({
   navigateHistory, handleMovePress, showSolution, startAnalysis,
-  exitAnalysis, handleRetry, handleNextPuzzle, handleHint,
+  exitAnalysis, handleRetry, handleNextPuzzle, handleHint, handleEngineSequencePress,
 });
 useLayoutEffect(() => {
   controlsRef.current = {
     navigateHistory, handleMovePress, showSolution, startAnalysis,
-    exitAnalysis, handleRetry, handleNextPuzzle, handleHint,
+    exitAnalysis, handleRetry, handleNextPuzzle, handleHint, handleEngineSequencePress,
   };
 });
 const stableNavigateHistory = useCallback((direction: 'prev' | 'next') => controlsRef.current.navigateHistory(direction), []);
@@ -2054,6 +2054,21 @@ const stableExitAnalysis = useCallback(() => controlsRef.current.exitAnalysis(),
 const stableRetry = useCallback(() => { void controlsRef.current.handleRetry(); }, []);
 const stableNextPuzzle = useCallback(() => controlsRef.current.handleNextPuzzle(), []);
 const stableHint = useCallback(() => controlsRef.current.handleHint(), []);
+const stableEngineSequencePress = useCallback((moves: string[]) => { void controlsRef.current.handleEngineSequencePress(moves); }, []);
+
+// --- PRECARGA DEL MOTOR ---
+// Cuando el puzle termina (✅ o ❌) aparece el botón de análisis: se arranca el
+// motor en segundo plano para que, al pulsarlo, la evaluación salga al momento
+// en vez de esperar a crear la WebView, compilar el wasm y hacer el handshake.
+// Con un pequeño retraso para no coincidir con la animación de resultado (crear
+// la WebView toca el hilo de UI). Solo ocurre una vez por sesión: luego el motor
+// sigue vivo.
+const canOfferAnalysis = !isRunPlaying && (message.includes('✅') || message.includes('❌'));
+useEffect(() => {
+  if (!canOfferAnalysis) return;
+  const timer = setTimeout(analysisEngine.prewarm, PUZZLE_TIMING.enginePrewarm);
+  return () => clearTimeout(timer);
+}, [canOfferAnalysis, analysisEngine.prewarm]);
 
 if (bootError) {
   return (
@@ -2287,10 +2302,8 @@ return (
                 turn={boardStatus.turn}
                 lastMoveFrom={lastMoveFrom}
                 lastMoveTo={lastMoveTo}
-                bestEngineMove={analysisEngine.bestEngineMove}
                 isAnalysisMode={analysisEngine.isAnalysisMode}
-                centipawnScore={analysisEngine.centiPawnScore}
-                mateInMoves={analysisEngine.mateInMoves}
+                engineOutput={analysisEngine.outputStore}
                 showLegalMoves={settings.showLegalMoves}
                 showCoordinates={settings.showCoordinates}
                 moveDurationMs={isRunPlaying ? CLOCK_TIMING.pieceMove : PUZZLE_TIMING.pieceMove}
@@ -2340,10 +2353,9 @@ return (
                 </Animated.View>
               ) : (
                 <Animated.View key="multi-pv" entering={FadeIn.duration(200).delay(120)} exiting={FadeOut.duration(120)} style={styles.analysisLinesContainer}>
-                  <AnalysisLines 
-                    engineLines={analysisEngine.engineLines} 
-                    fen={boardStatus.fen} onSequencePress={handleEngineSequencePress} 
-                    isEvaluating={analysisEngine.isEvaluating} 
+                  <AnalysisLines
+                    engineOutput={analysisEngine.outputStore}
+                    onSequencePress={stableEngineSequencePress}
                     placeholderHeight={MULTI_PV_HEIGHT - 20}/>
                 </Animated.View>
               )}
@@ -2524,11 +2536,11 @@ return (
       onExit={() => { repaso.closeResult(); handleExitRepaso(); }}
     />
 
-    {analysisEngine.isAnalysisMode && (
-      <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}>
-        {analysisEngine.StockfishWebView}
-      </View>
-    )}
+    {/* El motor se monta la primera vez que se pide (precarga o análisis) y ya
+        no se desmonta: salir de análisis lo para, no lo destruye. */}
+    <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}>
+      {analysisEngine.StockfishWebView}
+    </View>
   </View>
 </GestureHandlerRootView>
 );

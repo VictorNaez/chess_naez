@@ -77,6 +77,11 @@
   };
 </script>
 
+<!-- chess.js empaquetado (global ChessLib): convierte las PV a SAN aquí, con el
+     JIT de V8 de la WebView, en vez de en el hilo JS de React Native. -->
+<script src="./chess-1.4.0.cjs"
+        onerror="window.ReactNativeWebView.postMessage('[SF] JS-ERROR: CHESS-SCRIPT-404-OR-ERROR')"></script>
+
 <script>
   var module = { exports: {} };
   var exports = module.exports;
@@ -99,19 +104,79 @@
   var pendingCommands = [];
   var commandChain = Promise.resolve();
 
-  // --- THROTTLE de líneas 'info' ---
-  // 60ms ≈ 1 frame. Suficiente para cortar el grueso del tráfico del puente
-  // sin introducir latencia perceptible.
+  // --- ESTADO DE LA BÚSQUEDA (lo actualiza sendToEngine al EJECUTAR cada comando) ---
+  var positionFen = null;      // último 'position fen' ejecutado
+  var searchFen = null;        // FEN de la búsqueda en curso (se fija en el 'go')
+  var expectedMultiPV = 1;     // último 'setoption name MultiPV' ejecutado
+  var firstInfoPending = false;
+
+  // --- AGRUPADO de líneas 'info' ---
+  // Se guarda la última línea de cada multipv y se envían TODAS en un único
+  // postMessage (antes era un mensaje por línea: 3 eventos del puente y 3
+  // renders en React Native por cada vaciado).
+  //
+  // Esta build solo devuelve el control al event loop cada ~45 ms mientras
+  // busca (medido), así que un timer nunca salta antes. postMessage, en cambio,
+  // se puede llamar de forma síncrona desde print(): cuando llega la última
+  // línea multipv de una profundidad se envía ya, sin timer, si es la primera
+  // de la búsqueda o han pasado 60 ms desde el último envío. El timer queda
+  // para lo que no completa ráfaga (posiciones con menos jugadas que MultiPV).
+  var FLUSH_INTERVAL_MS = 60;
   var infoBuffer = {};
   var flushTimer = null;
+  var lastFlushAt = 0;
+  var sanCache = {};           // multipv -> { fen, pv, san }
+
+  // Misma conversión que src/lib/uci.ts (uciLineToSan): se corta en la primera
+  // jugada ilegal.
+  function pvToSan(fen, pv) {
+    if (!window.ChessLib || !fen || !pv) return null;
+    var scratch;
+    try { scratch = new ChessLib.Chess(fen); } catch (e) { return null; }
+    var moves = pv.split(' ');
+    var san = [];
+    for (var i = 0; i < moves.length; i++) {
+      var uci = moves[i];
+      if (!uci || uci.length < 4) break;
+      try {
+        var move = scratch.move({
+          from: uci.substring(0, 2),
+          to: uci.substring(2, 4),
+          promotion: uci.length === 5 ? uci[4] : 'q'
+        });
+        if (!move) break;
+        san.push(move.san);
+      } catch (e) {
+        break;
+      }
+    }
+    return san;
+  }
 
   function flushInfo() {
     if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     var keys = Object.keys(infoBuffer);
+    if (keys.length === 0) return;
+    var out = [];
     for (var i = 0; i < keys.length; i++) {
-      window.ReactNativeWebView.postMessage('[SF-OUT] ' + infoBuffer[keys[i]]);
+      var key = keys[i];
+      var line = infoBuffer[key];
+      out.push('[SF-OUT] ' + line);
+      // La PV en SAN va justo detrás de su línea, en el mismo mensaje.
+      var pvAt = line.indexOf(' pv ');
+      if (pvAt !== -1 && searchFen) {
+        var pv = line.substring(pvAt + 4).trim();
+        var cached = sanCache[key];
+        var san = (cached && cached.fen === searchFen && cached.pv === pv)
+          ? cached.san
+          : pvToSan(searchFen, pv);
+        sanCache[key] = { fen: searchFen, pv: pv, san: san };
+        if (san) out.push('[SF-SAN] ' + key + ' ' + san.join(' '));
+      }
     }
     infoBuffer = {};
+    lastFlushAt = Date.now();
+    window.ReactNativeWebView.postMessage(out.join('\n'));
   }
 
   // indexOf en vez de regex: este código corre en el mismo hilo que el WASM,
@@ -125,9 +190,16 @@
   }
 
   function queueInfo(line) {
-    infoBuffer[multipvKey(line)] = line;
+    var key = multipvKey(line);
+    infoBuffer[key] = line;
+    var burstComplete = Number(key) >= expectedMultiPV;
+    if (burstComplete && (firstInfoPending || Date.now() - lastFlushAt >= FLUSH_INTERVAL_MS)) {
+      firstInfoPending = false;
+      flushInfo();
+      return;
+    }
     if (!flushTimer) {
-      flushTimer = setTimeout(flushInfo, 60);
+      flushTimer = setTimeout(flushInfo, FLUSH_INTERVAL_MS);
     }
   }
 
@@ -159,14 +231,53 @@
     }
   }
 
+  // Estado que depende del comando, fijado en el orden real de ejecución.
+  function trackCommand(cmd) {
+    if (cmd.indexOf('position fen ') === 0) {
+      positionFen = cmd.substring(13).split(' moves ')[0];
+    } else if (cmd.indexOf('go') === 0) {
+      searchFen = positionFen;
+      firstInfoPending = true;
+      infoBuffer = {};
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    } else if (cmd.indexOf('setoption name MultiPV value ') === 0) {
+      expectedMultiPV = parseInt(cmd.substring(29), 10) || 1;
+    }
+  }
+
+  // --- 'stop' FUERA DE LA CADENA ---
+  // Con esta build la promesa de un 'go' no resuelve hasta que la búsqueda
+  // TERMINA. Si 'stop' fuera por commandChain esperaría detrás de ese 'go' y no
+  // pararía nada: el bestmove llegaba cuando la búsqueda acababa sola (o saltaba
+  // el timeout de 2 s en React Native). Medido con este mismo .wasm: por la
+  // cadena, un 'go depth 40' seguía buscando pasados 120 s; llamado directamente,
+  // el bestmove llega en 0 ms. 'stop' solo activa un flag que la búsqueda mira
+  // cuando retoma, así que es seguro llamarlo mientras el 'go' está suspendido.
+  var pendingGo = 0;          // 'go' recibidos que aún no han arrancado
+  var stopAfterGo = false;    // llegó un 'stop' con un 'go' todavía en la cola
+
+  function stopNow() {
+    try {
+      engine.ccall('command', null, ['string'], ['stop'], { async: false });
+    } catch (e) {
+      reportEngineError('stop', e);
+    }
+  }
+
   function sendToEngine(cmd) {
     dbg('[SF] enviando -> ' + cmd);
     commandChain = commandChain.then(function () {
+      trackCommand(cmd);
       try {
         if (typeof engine.ccall === 'function') {
-          return Promise.resolve(
-            engine.ccall('command', null, ['string'], [cmd], { async: true })
-          ).catch(function (e) { reportEngineError(cmd, e); });
+          var result = engine.ccall('command', null, ['string'], [cmd], { async: true });
+          if (cmd.indexOf('go') === 0) {
+            // El ccall vuelve en cuanto la búsqueda cede el control por primera
+            // vez: ya está en marcha y se puede parar.
+            pendingGo = Math.max(0, pendingGo - 1);
+            if (stopAfterGo) { stopAfterGo = false; stopNow(); }
+          }
+          return Promise.resolve(result).catch(function (e) { reportEngineError(cmd, e); });
         } else {
           window.ReactNativeWebView.postMessage('[SF] FATAL: ccall no existe en el motor.');
         }
@@ -185,6 +296,12 @@
 
   function receive(cmd) {
     dbg('[SF] receive() cmd=' + cmd + ' engineWarm=' + engineWarm);
+    if (cmd === 'stop' && engineWarm) {
+      if (pendingGo > 0) stopAfterGo = true;   // se para nada más arrancar
+      else stopNow();
+      return;
+    }
+    if (typeof cmd === 'string' && cmd.indexOf('go') === 0) pendingGo++;
     if (engineWarm) {
       sendToEngine(cmd);
     } else {
@@ -209,11 +326,17 @@
       dbg('[SF] ENGINE-PROMISE-RESOLVED');
       engine = sf;
 
-      setTimeout(function () {
-        engineWarm = true;
-        dbg('[SF] engineWarm=true');
-        flushQueue();
-      }, 200);
+      // Sin espera fija (antes 200 ms): el motor acepta comandos en cuanto la
+      // promesa resuelve, y quien lo usa no manda 'position'/'go' hasta recibir
+      // 'readyok' del handshake.
+      engineWarm = true;
+      dbg('[SF] engineWarm=true');
+      flushQueue();
+
+      // Primera conversión a SAN aquí, con el motor recién creado: el JIT de V8
+      // compila chess.js ahora y no en el primer lote de líneas del análisis
+      // (en frío, esa primera conversión se come ~20 ms).
+      pvToSan('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 'e2e4 e7e5 g1f3 b8c6 f1b5');
 
     }).catch(function (err) {
       window.ReactNativeWebView.postMessage('[SF] JS-ERROR: ENGINE-PROMISE-REJECTED: ' + String(err));

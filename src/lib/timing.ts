@@ -51,4 +51,8 @@ export const PUZZLE_TIMING = {
 
   // Pausa entre jugadas al reproducir una línea del motor en modo análisis.
   sequenceStep: 400,
+
+  // Retraso para precargar el motor tras el resultado del puzle (✅/❌): deja
+  // pasar la animación de resultado y el ELO antes de crear la WebView.
+  enginePrewarm: 1200,
 };

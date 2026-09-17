@@ -1,392 +1,353 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createEngineOutputStore, EMPTY_ENGINE_OUTPUT, type EngineLine } from '../lib/engineOutput';
 import { useSettings } from './useSettings';
 import { useStockfishWebview } from './useStockfishWebview';
 
-export interface EngineLine {
-  id: number;
-  score: string;
-  move: string;
-  pv: string;
-  mateIn: number | null;
-}
+export type { EngineLine } from '../lib/engineOutput';
 
-// Gestiona todo el ciclo de vida del motor Stockfish: encendido/apagado al
-// entrar/salir de modo análisis, reposicionado automático al cambiar la FEN,
-// parseo de la salida UCI, y las primitivas de pausa/reanudación que usa
-// `handleEngineSequencePress` (en App) para reproducir una línea de análisis
-// sobre el tablero sin que el motor compita por CPU con la animación.
+// Gestiona todo el ciclo de vida del motor Stockfish: arranque (precargado o al
+// entrar en análisis), reposicionado al cambiar la FEN, parseo de la salida UCI
+// y las primitivas de pausa/reanudación que usa `handleEngineSequencePress` (en
+// App) para reproducir una línea de análisis sobre el tablero.
+//
+// Lo que se pinta (evaluación, flecha, líneas) NO vive aquí como estado de
+// React: va a `outputStore` (src/lib/engineOutput.ts) y solo se re-renderizan
+// sus consumidores, no App.
+//
+// El motor, una vez arrancado, vive toda la sesión: salir de análisis lo para
+// pero no lo destruye. Antes la WebView se desmontaba al salir y cada entrada
+// volvía a crearla, a compilar el wasm y a repetir el handshake.
 export function useAnalysisEngine(fen: string) {
   const [isAnalysisMode, setIsAnalysisMode] = useState(false);
+  // true en cuanto alguien pide el motor (prewarm o entrar en análisis).
+  const [engineRequested, setEngineRequested] = useState(false);
   const [isEngineReady, setIsEngineReady] = useState(false);
-  const [bestEngineMove, setBestEngineMove] = useState<string | null>(null);
-  const [centiPawnScore, setCentiPawnScore] = useState<string | null>(null);
-  const [mateInMoves, setMateInMoves] = useState<string | null>(null);
-  const [engineLines, setEngineLines] = useState<EngineLine[]>([]);
-  // true mientras esperamos la primera línea real del motor para la posición
-  // actual: evita mostrar la evaluación de la posición anterior como si fuera
-  // la de la posición nueva.
-  const [isEvaluating, setIsEvaluating] = useState(false);
+  const [outputStore] = useState(createEngineOutputStore);
 
   const { engineDepth, engineHash, engineMultiPV } = useSettings();
 
-  // Los ajustes se leen desde callbacks estables (processStockfishLine tiene deps
-  // vacías, restartSearch solo depende de sendCommandToStockfish). Un ref evita
-  // recrear esas funciones y, con ellas, disparar el EFECTO 2 en cada cambio.
+  // Los ajustes se leen desde callbacks estables mediante un ref.
   const engineCfgRef = useRef({ depth: engineDepth, hash: engineHash, multiPV: engineMultiPV });
   useEffect(() => {
     engineCfgRef.current = { depth: engineDepth, hash: engineHash, multiPV: engineMultiPV };
   }, [engineDepth, engineHash, engineMultiPV]);
 
-  // Clave de la última configuración aplicada al motor. Evita que el EFECTO 3
-  // relance una búsqueda nada más entrar en análisis (el handshake ya la mandó).
-  const lastAppliedCfgRef = useRef<string>('');
+  // Opciones ya aplicadas al motor vivo. Hash solo se reenvía si cambia:
+  // reasignarla vacía la tabla y se pierde lo ya calculado.
+  const appliedOptionsRef = useRef<{ hash: number; multiPV: number } | null>(null);
+  // Qué está buscando (o buscó por última vez) el motor.
+  const searchRef = useRef<{ fen: string; depth: number } | null>(null);
 
-  const isEngineStarted = useRef(false);
-  const ignoreEngineOutputRef = useRef(false); // true mientras cancelamos una búsqueda obsoleta
+  const handshakeSentRef = useRef(false);
+  const ignoreEngineOutputRef = useRef(true);   // true mientras la salida es de una búsqueda obsoleta
   const linesRef = useRef<Record<number, EngineLine>>({});
   const isSequencePlayingRef = useRef(false);
-  const lastUpdateTime = useRef(0);
-  const searchActiveRef = useRef(false);               // ¿hay un "go" en curso?
-  const pendingStopResolveRef = useRef<(() => void) | null>(null); // resuelve cuando llega el bestmove del "stop"
+  const searchActiveRef = useRef(false);        // ¿hay un "go" sin su bestmove?
+  const stopWaitersRef = useRef<(() => void)[]>([]);  // se resuelven con el siguiente bestmove
   const searchTurnRef = useRef<'w' | 'b'>('w');
 
-  const processStockfishLine = useCallback((rawLine: string) => {
-    let cleanLine = rawLine.trim();
+  // Se rellenan tras llamar a useStockfishWebview (los callbacks de salida se
+  // le pasan antes de que existan sendCommandToStockfish y reloadEngine).
+  const crashRecoveryRef = useRef<() => void>(() => {});
+  const engineResetRef = useRef<() => void>(() => {});
 
-    if (cleanLine === '[SF] FATAL-CRASH') {
-      console.warn('[SF] ⚠️ Motor WASM colapsado. Recuperando...');
+  // Una llamada por mensaje de la WebView. engine.html ya agrupa las líneas de
+  // cada vaciado en un único mensaje, así que aquí se publica en el store una
+  // sola vez por mensaje, sin throttle propio. (El anterior de 100 ms dejaba
+  // pasar la primera línea y descartaba las que llegaban detrás sin volcarlas
+  // después: las líneas 2 y 3 se quedaban una profundidad por detrás.)
+  const handleStockfishOutput = useCallback((output: string) => {
+    let linesChanged = false;
 
-      // Reseteamos todo el estado que pudiera quedar bloqueado
-      setIsEngineReady(false);
-      setBestEngineMove(null);
-      setCentiPawnScore(null);
-      setMateInMoves(null);
-      setEngineLines([]);
-      linesRef.current = {};
-      searchActiveRef.current = false;
-      isSequencePlayingRef.current = false;
-      pendingStopResolveRef.current = null;
-      ignoreEngineOutputRef.current = false;
+    const publishLines = () => {
+      const ids = Object.keys(linesRef.current).map(Number).sort((a, b) => a - b);
+      const lines = ids.map((id) => linesRef.current[id]);
+      const first = lines[0];
+      if (!first) return;
+      const previous = outputStore.get().lines;
+      const unchanged = previous.length === lines.length && lines.every((l, i) => l === previous[i]);
+      outputStore.set({
+        lines: unchanged ? previous : lines,
+        isEvaluating: false,              // ya hay datos reales de la posición actual
+        bestMove: first.move || null,
+        centipawn: first.mateIn === null ? first.score : null,
+        mateIn: first.mateIn === null ? null : String(first.mateIn),
+      });
+    };
 
-      reloadEngine();
+    for (const rawLine of output.split('\n')) {
+      let line = rawLine.trim();
+      if (!line) continue;
 
-      // Tras la recarga, la WebView vuelve a disparar onLoadEnd y readyRef se pone a true,
-      // pero el handshake UCI (uci/setoption/isready) solo se manda cuando cambia isAnalysisMode.
-      // Como seguimos en modo análisis, lo reenviamos manualmente tras dar tiempo a que cargue.
-      setTimeout(() => {
-        sendCommandToStockfish('uci');
-        sendCommandToStockfish('setoption name Threads value 1');
-        sendCommandToStockfish(`setoption name Hash value ${engineCfgRef.current.hash}`);
-        sendCommandToStockfish(`setoption name MultiPV value ${engineCfgRef.current.multiPV}`);
-        sendCommandToStockfish('isready');
-      }, 800); // margen para que la WebView recargue e inicialice el WASM de nuevo
+      if (line === '[SF] FATAL-CRASH') {
+        console.warn('[SF] ⚠️ Motor WASM colapsado. Recuperando...');
+        crashRecoveryRef.current();
+        return;
+      }
 
-      return;
-    }
-
-    if (!cleanLine) return;
-
-    if (cleanLine.startsWith('[SF-OUT] ')) {
-      cleanLine = cleanLine.replace('[SF-OUT] ', '');
-    }
-
-    if (cleanLine === 'readyok') {
-      setIsEngineReady(true);
-      return;
-    }
-
-    if (cleanLine.startsWith('info') && cleanLine.includes(' score ')) {
-      // Descartamos cualquier línea que pertenezca a una búsqueda que estamos
-      // cancelando (llegan tras mandar 'stop', antes de que llegue 'bestmove').
-      // Sin esto, esos datos "viejos" pisan brevemente al análisis nuevo.
-      if (ignoreEngineOutputRef.current) return;
-
-      const multipvMatch = cleanLine.match(/multipv (\d+)/);
-      const pvIdx = multipvMatch ? parseInt(multipvMatch[1], 10) : 1;
-
-      let formattedScore = '0.00';
-      let mateIn: number | null = null;
-      const scoreMatch = cleanLine.match(/score (cp|mate) (-?\d+)/);
-
-      if (scoreMatch) {
-        const type = scoreMatch[1];
-        const rawValue = parseInt(scoreMatch[2], 10);
-        const normalized = searchTurnRef.current === 'b' ? -rawValue : rawValue;
-
-        if (type === 'mate') {
-          mateIn = normalized;
-          formattedScore = rawValue === 0 ? 'M0' : `#${normalized > 0 ? '+' : ''}${normalized}`;
-        } else {
-          const val = normalized / 100;
-          formattedScore = `${val > 0 ? '+' : ''}${val.toFixed(2)}`;
+      // PV en SAN calculada en la WebView: siempre llega justo detrás de su línea.
+      if (line.startsWith('[SF-SAN] ')) {
+        if (ignoreEngineOutputRef.current) continue;
+        const rest = line.slice(9);
+        const sep = rest.indexOf(' ');
+        const id = parseInt(sep === -1 ? rest : rest.slice(0, sep), 10);
+        const current = linesRef.current[id];
+        if (current) {
+          linesRef.current[id] = { ...current, san: sep === -1 ? [] : rest.slice(sep + 1).split(' ') };
+          linesChanged = true;
         }
+        continue;
       }
 
-      let firstMove = '';
-      let fullPv = '';
-      if (cleanLine.includes(' pv ')) {
-        fullPv = cleanLine.split(' pv ')[1].trim();
-        firstMove = fullPv.split(' ')[0];
+      if (line.startsWith('[SF-OUT] ')) line = line.slice(9);
+
+      if (line === 'readyok') {
+        setIsEngineReady(true);
+        continue;
       }
 
-      if (pvIdx <= engineCfgRef.current.multiPV) {
-        linesRef.current[pvIdx] = {
-          id: pvIdx,
-          score: formattedScore,
-          move: firstMove,
-          pv: fullPv,
-          mateIn,
-        };
-      }
+      if (line.startsWith('info') && line.includes(' score ')) {
+        // Líneas de una búsqueda que estamos cancelando: no deben pisar la nueva.
+        if (ignoreEngineOutputRef.current) continue;
 
-      const now = Date.now();
-      if (now - lastUpdateTime.current > 100) {
-        const sortedLines = Object.values(linesRef.current).sort((a, b) => a.id - b.id);
-        setEngineLines(sortedLines);
+        const multipvMatch = line.match(/multipv (\d+)/);
+        const pvIdx = multipvMatch ? parseInt(multipvMatch[1], 10) : 1;
 
-        if (sortedLines[0]) {
-          setIsEvaluating(false); // ya tenemos datos reales de la posición actual
-          setBestEngineMove(sortedLines[0].move);
-          if (sortedLines[0].mateIn !== null) {
-            setMateInMoves(String(sortedLines[0].mateIn));
-            setCentiPawnScore(null);
+        let formattedScore = '0.00';
+        let mateIn: number | null = null;
+        const scoreMatch = line.match(/score (cp|mate) (-?\d+)/);
+        if (scoreMatch) {
+          const rawValue = parseInt(scoreMatch[2], 10);
+          const normalized = searchTurnRef.current === 'b' ? -rawValue : rawValue;
+          if (scoreMatch[1] === 'mate') {
+            mateIn = normalized;
+            formattedScore = rawValue === 0 ? 'M0' : `#${normalized > 0 ? '+' : ''}${normalized}`;
           } else {
-            setMateInMoves(null);
-            setCentiPawnScore(sortedLines[0].score);
+            const val = normalized / 100;
+            formattedScore = `${val > 0 ? '+' : ''}${val.toFixed(2)}`;
           }
         }
-        lastUpdateTime.current = now;
-      }
-    }
 
-    if (cleanLine.startsWith('bestmove')) {
-      const parts = cleanLine.split(' ');
-      if (parts.length > 1 && parts[1] !== '(none)') {
-        setBestEngineMove(parts[1]);
-      }
+        let fullPv = '';
+        if (line.includes(' pv ')) fullPv = line.split(' pv ')[1].trim();
 
-      // Volcado final forzado: la búsqueda terminó, no llegarán más líneas 'info',
-      // así que sincronizamos el estado con el contenido completo de linesRef.current
-      // sin esperar al throttle de 100ms.
-      const finalLines = Object.values(linesRef.current).sort((a, b) => a.id - b.id);
-      if (finalLines.length > 0) {
-        setEngineLines(finalLines);
-        setIsEvaluating(false);
-        if (finalLines[0].mateIn !== null && finalLines[0].mateIn !== undefined) {
-          setMateInMoves(String(finalLines[0].mateIn));
-          setCentiPawnScore(null);
-        } else {
-          setMateInMoves(null);
-          setCentiPawnScore(finalLines[0].score);
+        if (pvIdx <= engineCfgRef.current.multiPV) {
+          linesRef.current[pvIdx] = {
+            id: pvIdx,
+            score: formattedScore,
+            move: fullPv.split(' ')[0] ?? '',
+            pv: fullPv,
+            mateIn,
+            fen: searchRef.current?.fen ?? '',
+            san: null,
+          };
+          linesChanged = true;
         }
+        continue;
       }
-      lastUpdateTime.current = Date.now();
 
-      searchActiveRef.current = false;
-      if (pendingStopResolveRef.current) {
-        pendingStopResolveRef.current();
-        pendingStopResolveRef.current = null;
+      if (line.startsWith('bestmove')) {
+        searchActiveRef.current = false;
+        if (!ignoreEngineOutputRef.current) {
+          // Volcado final: no llegarán más líneas de esta búsqueda.
+          publishLines();
+          linesChanged = false;
+          const parts = line.split(' ');
+          if (parts.length > 1 && parts[1] !== '(none)') {
+            outputStore.set({ bestMove: parts[1] });
+          }
+        }
+        const waiters = stopWaitersRef.current;
+        stopWaitersRef.current = [];
+        waiters.forEach((resolve) => resolve());
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  // El bridge puede entregarte varias líneas UCI pegadas en una sola llamada
-  // (sobre todo en "go infinite", que genera ráfagas). Las separamos siempre,
-  // así funcione ya línea a línea o no.
-  const handleStockfishOutput = useCallback((output: string) => {
-    output.split('\n').forEach(processStockfishLine);
-  }, [processStockfishLine]);
+    if (linesChanged) publishLines();
+  }, [outputStore]);
+
+  const handleEngineReset = useCallback(() => engineResetRef.current(), []);
 
   const stockfishConfig = useMemo(() => ({
     onOutput: handleStockfishOutput,
     onError: (error: string) => {
       console.error('❌ [Stockfish Error Nativo]:', error);
     },
-    // Los ficheros del motor no se copian a disco hasta la primera entrada en
-    // análisis. Antes se preparaban en el arranque de la app aunque el usuario
-    // no fuera a usarlos nunca.
-    enabled: isAnalysisMode,
-  }), [handleStockfishOutput, isAnalysisMode]);
+    onEngineReset: handleEngineReset,
+    enabled: engineRequested,
+  }), [handleStockfishOutput, handleEngineReset, engineRequested]);
 
   const { StockfishWebView, sendCommandToStockfish, reloadEngine } = useStockfishWebview(stockfishConfig);
 
-  const enterAnalysisMode = useCallback(() => setIsAnalysisMode(true), []);
-  const exitAnalysisMode = useCallback(() => setIsAnalysisMode(false), []);
-  const clearBestMove = useCallback(() => setBestEngineMove(null), []);
+  // Deja el motor como recién creado: sin handshake, sin búsqueda y sin salida visible.
+  const resetEngineState = useCallback(() => {
+    setIsEngineReady(false);
+    handshakeSentRef.current = false;
+    appliedOptionsRef.current = null;
+    searchRef.current = null;
+    searchActiveRef.current = false;
+    isSequencePlayingRef.current = false;
+    ignoreEngineOutputRef.current = true;
+    linesRef.current = {};
+    const waiters = stopWaitersRef.current;
+    stopWaitersRef.current = [];
+    waiters.forEach((resolve) => resolve());
+    outputStore.set(EMPTY_ENGINE_OUTPUT);
+  }, [outputStore]);
 
-  // Detiene la búsqueda en curso (si la hay) y espera a que el motor confirme
-  // que paró, antes de continuar. Usado por quien reproduce una secuencia de
-  // movimientos animada (ver handleEngineSequencePress en App) para pausar
-  // el motor mientras las piezas se mueven solas.
+  // Sin esperas fijas (antes 250 ms aquí + 200 ms en engine.html): los comandos
+  // esperan en cola a que cargue la WebView y a que el motor exista, y nadie
+  // manda 'position'/'go' antes del 'readyok'.
+  const sendHandshake = useCallback(() => {
+    const { hash, multiPV } = engineCfgRef.current;
+    handshakeSentRef.current = true;
+    appliedOptionsRef.current = { hash, multiPV };
+    sendCommandToStockfish('uci');
+    sendCommandToStockfish('setoption name Threads value 1');
+    sendCommandToStockfish(`setoption name Hash value ${hash}`);
+    sendCommandToStockfish(`setoption name MultiPV value ${multiPV}`);
+    sendCommandToStockfish('isready');
+  }, [sendCommandToStockfish]);
+
+  useEffect(() => {
+    // El WASM se colgó: se recarga la página y se repite el handshake (queda en
+    // cola hasta que la WebView vuelva a cargar).
+    crashRecoveryRef.current = () => {
+      resetEngineState();
+      reloadEngine();
+      sendHandshake();
+    };
+    // La WebView se ha recreado (proceso de render terminado por el sistema).
+    engineResetRef.current = () => {
+      resetEngineState();
+      sendHandshake();
+    };
+  }, [sendCommandToStockfish, resetEngineState, reloadEngine, sendHandshake]);
+
+  const prewarm = useCallback(() => setEngineRequested(true), []);
+  const enterAnalysisMode = useCallback(() => {
+    setEngineRequested(true);
+    setIsAnalysisMode(true);
+  }, []);
+  const exitAnalysisMode = useCallback(() => setIsAnalysisMode(false), []);
+  const clearBestMove = useCallback(() => outputStore.set({ bestMove: null }), [outputStore]);
+
+  // HANDSHAKE: una vez por motor vivo, en cuanto se pide.
+  useEffect(() => {
+    if (!engineRequested || handshakeSentRef.current) return;
+    sendHandshake();
+  }, [engineRequested, sendHandshake]);
+
+  // 'stop' y espera al bestmove. Varios pueden esperar el mismo bestmove.
+  // engine.html ejecuta 'stop' fuera de su cola, así que llega en milisegundos;
+  // los 2 s son solo una red de seguridad.
+  const stopAndWait = useCallback(() => new Promise<void>((resolve) => {
+    if (!searchActiveRef.current) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const safeResolve = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    stopWaitersRef.current.push(safeResolve);
+    sendCommandToStockfish('stop');
+    setTimeout(safeResolve, 2000);
+  }), [sendCommandToStockfish]);
+
+  // Reposiciona el motor y lanza la búsqueda YA. Antes el 'go' esperaba 250 ms
+  // "para no competir con la animación", pero el motor corre en el proceso de la
+  // WebView, no en el hilo de UI donde se anima la pieza.
+  const restartSearch = useCallback((targetFen: string) => {
+    const depth = engineCfgRef.current.depth;
+    searchTurnRef.current = targetFen.split(' ')[1] === 'b' ? 'b' : 'w';
+    searchRef.current = { fen: targetFen, depth };
+    linesRef.current = {};
+    sendCommandToStockfish(`position fen ${targetFen}`);
+    sendCommandToStockfish(`go depth ${depth}`);
+    searchActiveRef.current = true;
+    ignoreEngineOutputRef.current = false;
+  }, [sendCommandToStockfish]);
+
+  // Detiene la búsqueda en curso y espera a que el motor confirme. Lo usa quien
+  // reproduce una secuencia animada (handleEngineSequencePress en App). Las
+  // líneas se quedan a la vista, atenuadas, hasta que haya datos nuevos.
   const pauseSearch = useCallback(async () => {
     ignoreEngineOutputRef.current = true;
     linesRef.current = {};
-    setIsEvaluating(true);
-    setBestEngineMove(null);
+    outputStore.set({ isEvaluating: true, bestMove: null });
+    await stopAndWait();
+  }, [outputStore, stopAndWait]);
 
-    if (searchActiveRef.current) {
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const safeResolve = () => {
-          if (settled) return;
-          settled = true;
-          resolve();
-        };
-        pendingStopResolveRef.current = safeResolve;
-        sendCommandToStockfish('stop');
-        setTimeout(safeResolve, 2000); // Si en 2.0s no llega 'bestmove', desbloqueamos igualmente
-      });
-    }
-  }, [sendCommandToStockfish]);
-
-  // Reposiciona el motor en una nueva FEN y lanza una búsqueda nueva, con un
-  // pequeño retraso en el 'go' para no competir con la animación en curso.
-  // Devuelve el timer del 'go' para que el llamador pueda cancelarlo si hace falta.
-  const restartSearch = useCallback((targetFen: string) => {
-    searchTurnRef.current = targetFen.split(' ')[1] === 'b' ? 'b' : 'w';
-    sendCommandToStockfish(`position fen ${targetFen}`);
-
-    return setTimeout(() => {
-      sendCommandToStockfish(`go depth ${engineCfgRef.current.depth}`);
-      searchActiveRef.current = true;
-      ignoreEngineOutputRef.current = false;
-    }, 250);
-  }, [sendCommandToStockfish]);
-
-  // EFECTO 1: ENCENDIDO DE MOTOR (STOCKFISH)
+  // SALIR DE ANÁLISIS: el motor se para pero sigue vivo.
   useEffect(() => {
-    let initTimer: ReturnType<typeof setTimeout> | null = null;
+    if (isAnalysisMode) return;
+    ignoreEngineOutputRef.current = true;
+    linesRef.current = {};
+    searchRef.current = null;
+    if (searchActiveRef.current) sendCommandToStockfish('stop');
+    outputStore.set(EMPTY_ENGINE_OUTPUT);
+  }, [isAnalysisMode, sendCommandToStockfish, outputStore]);
 
-    if (isAnalysisMode) {
-      if (!isEngineStarted.current) {
-        isEngineStarted.current = true;
-      }
+  // SINCRONIZAR EL MOTOR con la posición y los ajustes. UCI solo acepta
+  // 'setoption' con el motor parado, así que el orden es siempre
+  // stop → (setoption) → position → go.
+  useEffect(() => {
+    if (!isAnalysisMode || !isEngineReady || isSequencePlayingRef.current) return;
 
-      // Marcamos la config como aplicada AQUÍ (no dentro del setTimeout) para que
-      // el EFECTO 3 no la vuelva a mandar cuando llegue el readyok.
-      lastAppliedCfgRef.current = `${engineHash}-${engineMultiPV}-${engineDepth}`;
-
-      initTimer = setTimeout(() => {
-        sendCommandToStockfish('uci');
-        sendCommandToStockfish('setoption name Threads value 1');
-        sendCommandToStockfish(`setoption name Hash value ${engineCfgRef.current.hash}`);
-        sendCommandToStockfish(`setoption name MultiPV value ${engineCfgRef.current.multiPV}`);
-        sendCommandToStockfish('isready');
-      }, 250);
+    const applied = appliedOptionsRef.current;
+    const optionsChanged = !applied || applied.hash !== engineHash || applied.multiPV !== engineMultiPV;
+    const current = searchRef.current;
+    // Ya busca (o ya buscó y se está pintando) exactamente esto: p.ej. al acabar
+    // de reproducir una línea, App relanza la búsqueda antes de que llegue aquí.
+    if (!optionsChanged && current && current.fen === fen && current.depth === engineDepth
+        && !ignoreEngineOutputRef.current) {
+      return;
     }
 
-    return () => {
-      if (initTimer) clearTimeout(initTimer);
-      if (isEngineStarted.current) {
-        sendCommandToStockfish('stop');
-        setIsEngineReady(false);
-        setBestEngineMove(null);
-        setCentiPawnScore(null);
-        isEngineStarted.current = false;
-        searchActiveRef.current = false;
-        pendingStopResolveRef.current = null;
-        ignoreEngineOutputRef.current = false;
-        lastAppliedCfgRef.current = '';   // al salir de análisis, forzamos handshake nuevo la próxima vez
-      }
-    };
-  }, [isAnalysisMode, sendCommandToStockfish]);
-
-  // EFECTO 2: REPOSICIONAR EL MOTOR CADA VEZ QUE CAMBIA LA POSICIÓN
-  useEffect(() => {
-    if (!(isAnalysisMode && isEngineReady) || isSequencePlayingRef.current) return;
-
     let cancelled = false;
-    let goTimer: ReturnType<typeof setTimeout> | null = null;
-    let ownResolve: (() => void) | null = null;
-
-    const reposition = async () => {
-      ignoreEngineOutputRef.current = true;
-      linesRef.current = {};
-      setIsEvaluating(true);
-      setBestEngineMove(null);
-
-      if (searchActiveRef.current) {
-        await new Promise<void>((resolve) => {
-          let settled = false;
-          const safeResolve = () => {
-            if (settled) return;
-            settled = true;
-            resolve();
-          };
-          ownResolve = safeResolve;
-          pendingStopResolveRef.current = safeResolve;
-          sendCommandToStockfish('stop');
-          setTimeout(safeResolve, 2000);
-        });
-      }
-
-      if (cancelled) return;
-
-      setBestEngineMove(null);
-      goTimer = restartSearch(fen);
-    };
-
-    reposition();
-
-    return () => {
-      cancelled = true;
-      if (goTimer) clearTimeout(goTimer);
-      if (ownResolve && pendingStopResolveRef.current === ownResolve) {
-        pendingStopResolveRef.current = null;
-      }
-    };
-  }, [fen, isAnalysisMode, isEngineReady, sendCommandToStockfish, restartSearch]);
-
-  // EFECTO 3: APLICAR CAMBIOS DE AJUSTES DEL MOTOR EN CALIENTE
-  // UCI solo acepta 'setoption' con el motor parado, así que el orden es
-  // obligatoriamente stop → setoption → position → go.
-  useEffect(() => {
-    if (!(isAnalysisMode && isEngineReady)) return;
-    if (isSequencePlayingRef.current) return;
-
-    const cfgKey = `${engineHash}-${engineMultiPV}-${engineDepth}`;
-    if (lastAppliedCfgRef.current === cfgKey) return;
-    lastAppliedCfgRef.current = cfgKey;
-
-    let cancelled = false;
-    let goTimer: ReturnType<typeof setTimeout> | null = null;
+    ignoreEngineOutputRef.current = true;
+    linesRef.current = {};
+    outputStore.set({ isEvaluating: true, bestMove: null });
 
     (async () => {
-      await pauseSearch();
-      if (cancelled) return;
+      await stopAndWait();
+      if (cancelled || isSequencePlayingRef.current) return;
 
-      sendCommandToStockfish(`setoption name Hash value ${engineHash}`);
-      sendCommandToStockfish(`setoption name MultiPV value ${engineMultiPV}`);
+      const previous = appliedOptionsRef.current;
+      if (!previous || previous.hash !== engineHash) {
+        sendCommandToStockfish(`setoption name Hash value ${engineHash}`);
+      }
+      if (!previous || previous.multiPV !== engineMultiPV) {
+        sendCommandToStockfish(`setoption name MultiPV value ${engineMultiPV}`);
+        // Con menos líneas, las sobrantes ya no las va a sobrescribir el motor.
+        const kept = outputStore.get().lines.filter((l) => l.id <= engineMultiPV);
+        outputStore.set({ lines: kept });
+      }
+      appliedOptionsRef.current = { hash: engineHash, multiPV: engineMultiPV };
 
-      // Si bajamos MultiPV, las líneas sobrantes seguirían en el ref y se
-      // pintarían indefinidamente: el motor ya no las va a sobrescribir.
-      linesRef.current = {};
-      setEngineLines([]);
-
-      goTimer = restartSearch(fen);
+      restartSearch(fen);
     })();
 
     return () => {
       cancelled = true;
-      if (goTimer) clearTimeout(goTimer);
     };
-  }, [engineHash, engineMultiPV, engineDepth, isAnalysisMode, isEngineReady, fen, pauseSearch, restartSearch, sendCommandToStockfish]);
+  }, [fen, isAnalysisMode, isEngineReady, engineDepth, engineHash, engineMultiPV,
+    stopAndWait, restartSearch, sendCommandToStockfish, outputStore]);
 
-return {
-  isAnalysisMode,
-  isEngineReady,
-  bestEngineMove,
-  centiPawnScore,
-  mateInMoves,
-  engineLines,
-  isEvaluating,
-  StockfishWebView,
-  enterAnalysisMode,
-  exitAnalysisMode,
-  clearBestMove,
-  pauseSearch,
-  restartSearch,
-  isSequencePlayingRef,
-};
+  return {
+    isAnalysisMode,
+    isEngineReady,
+    outputStore,
+    StockfishWebView,
+    prewarm,
+    enterAnalysisMode,
+    exitAnalysisMode,
+    clearBestMove,
+    pauseSearch,
+    restartSearch,
+    isSequencePlayingRef,
+  };
 }

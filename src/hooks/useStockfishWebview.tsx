@@ -8,16 +8,18 @@ const FILES = [
   { mod: require('../../assets/stockfish/engine.html'), name: 'engine.html' },
   { mod: require('../../assets/stockfish/stockfish-18-lite-single.cjs'), name: 'stockfish-18-lite-single.cjs' },
   { mod: require('../../assets/stockfish/stockfish-18-lite-single_wasm.wasm'), name: 'stockfish-18-lite-single_wasm.wasm' },
+  // chess.js empaquetado: engine.html convierte las PV a SAN dentro de la WebView.
+  { mod: require('../../assets/stockfish/chess-1.4.0.cjs'), name: 'chess-1.4.0.cjs' },
 ];
 
-// Cada vez que toques cualquiera de los tres ficheros de assets/stockfish/. 
+// Cada vez que toques cualquiera de los ficheros de assets/stockfish/.
 // Si editas engine.html y no subes ENGINE_VERSION, la app seguirá usando la 
 // copia antigua del disco y te volverás loco buscando por qué tus cambios no hacen 
 // nada. Déjalo anotado.
 
-// Súbelo cada vez que modifiques engine.html, el .cjs o el .wasm.
+// Súbelo cada vez que modifiques engine.html, cualquiera de los .cjs o el .wasm.
 // Si no cambia, los ficheros no se recopian en el arranque.
-const ENGINE_VERSION = '18-lite-1';
+const ENGINE_VERSION = '18-lite-2';
 const STAMP_PATH = STOCKFISH_DIR + 'version.txt';
 
 async function ensureEngineFilesOnDisk(): Promise<string> {
@@ -37,7 +39,8 @@ async function ensureEngineFilesOnDisk(): Promise<string> {
         const wasmInfo = await FileSystem.getInfoAsync(
           STOCKFISH_DIR + 'stockfish-18-lite-single_wasm.wasm'
         );
-        if (htmlInfo.exists && wasmInfo.exists) {
+        const chessInfo = await FileSystem.getInfoAsync(STOCKFISH_DIR + 'chess-1.4.0.cjs');
+        if (htmlInfo.exists && wasmInfo.exists && chessInfo.exists) {
           return finalUri;   // ← camino rápido: cero I/O
         }
       }
@@ -71,19 +74,26 @@ async function ensureEngineFilesOnDisk(): Promise<string> {
 export function useStockfishWebview({
   onOutput,
   onError,
+  onEngineReset,
   enabled = true,
 }: {
   onOutput: (output: string) => void;
   onError?: (error: string) => void;
-  // false hasta que el usuario entra en análisis. Sin esto, ensureEngineFilesOnDisk
-  // corría en el ARRANQUE de la app (useAnalysisEngine se monta dentro de App),
-  // haciendo I/O de disco antes del primer frame aunque nunca se abriera el motor.
+  // La WebView se ha recreado desde cero (el sistema mató su proceso): el motor
+  // nuevo no ha recibido ningún comando todavía.
+  onEngineReset?: () => void;
+  // false hasta que se precalienta el motor o el usuario entra en análisis. Sin
+  // esto, ensureEngineFilesOnDisk corría en el ARRANQUE de la app, haciendo I/O
+  // de disco antes del primer frame aunque nunca se abriera el motor. Una vez a
+  // true, la WebView ya no se desmonta (ver App).
   enabled?: boolean;
 }) {
   const webviewRef = useRef<WebView>(null);
   const readyRef = useRef(false);
   const queueRef = useRef<string[]>([]);
   const [engineUri, setEngineUri] = useState<string | null>(null);
+  // Cambiarla fuerza una WebView nueva (y con ella un proceso de render nuevo).
+  const [webviewKey, setWebviewKey] = useState(0);
   const hasPreparedRef = useRef(false);
 
   useEffect(() => {
@@ -125,8 +135,20 @@ export function useStockfishWebview({
     onOutput(event.nativeEvent.data);
   }, [onOutput]);
 
+  // Android puede matar el proceso de render de una WebView en segundo plano
+  // (memoria). Ahora que la WebView vive toda la sesión, eso hay que
+  // contemplarlo: se recrea y quien usa el motor repite el handshake.
+  const handleRenderProcessGone = useCallback((e: any) => {
+    console.log('[SF] ❌ Proceso de render de la WebView terminado:', e?.nativeEvent);
+    readyRef.current = false;
+    queueRef.current = [];
+    setWebviewKey((k) => k + 1);
+    onEngineReset?.();
+  }, [onEngineReset]);
+
   const StockfishWebView = engineUri ? (
     <WebView
+      key={webviewKey}
       ref={webviewRef}
       originWhitelist={['*']}
       source={{ uri: engineUri }}
@@ -135,6 +157,7 @@ export function useStockfishWebview({
       allowUniversalAccessFromFileURLs={true}
       onLoadEnd={handleLoadEnd}
       onMessage={handleMessage}
+      onRenderProcessGone={handleRenderProcessGone}
       onError={(e) => {
         console.log('[SF] ❌ WebView onError (navegación):', e.nativeEvent);
         onError?.(e.nativeEvent.description);
