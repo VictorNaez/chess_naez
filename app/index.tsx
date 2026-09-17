@@ -10,7 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Chess, Square } from "chess.js";
 import * as SplashScreen from 'expo-splash-screen';
 import * as SQLite from 'expo-sqlite';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { GestureHandlerRootView, Pressable } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
@@ -50,6 +50,7 @@ import { useUserProgress } from "../src/hooks/useUserProgress";
 import { I18nProvider, useT } from '../src/i18n/I18nProvider';
 import { DEFAULT_ELO } from '../src/lib/elo';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
+import { getLegalDestinations } from '../src/lib/legalMoves';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored, readGlobalElo } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
@@ -85,6 +86,23 @@ const MAIN_CONTENT_MARGIN_BOTTOM = 30;
 const HEADER_MARGIN_TOP = Platform.OS === 'ios' ? 10 : 20;
 const FOOTER_MARGIN_BOTTOM = 20;
 
+// --- PUZLE PRECARGADO ---
+type PrefetchedPuzzle = { themesKey: string; puzzle: Puzzle };
+
+const themesKeyOf = (themes: string[]) => themes.join(',');
+
+// El precargado sirve si se pidió con los mismos temas y su rating cae dentro
+// del rango que se va a usar ahora. Antes la clave era el rango exacto: en modo
+// recomendado cada puzle puntuado mueve la ventana unos puntos y el precargado
+// se volvía a pedir (o se tiraba) aunque siguiera cumpliendo el filtro.
+const pickPrefetched = (
+  cached: PrefetchedPuzzle | null, range: number[], themes: string[],
+): Puzzle | null => {
+  if (!cached || cached.themesKey !== themesKeyOf(themes)) return null;
+  const { rating } = cached.puzzle;
+  return rating >= range[0] && rating <= range[1] ? cached.puzzle : null;
+};
+
 // El provider tiene que envolver a App desde fuera: los hooks que consumen los
 // ajustes (useSounds, useAnalysisEngine, la propia App) viven dentro de App.
 export default function AppRoot() {
@@ -111,7 +129,9 @@ function App() {
   const settings = useSettings();
   const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
   const playSound = useSounds();
-  const [game, setGame] = useState(new Chess());
+  // Inicializador perezoso: `useState(new Chess())` construía un Chess (parseo
+  // de FEN) en CADA render de App y lo tiraba.
+  const [game, setGame] = useState(() => new Chess());
   const boardStatus = useMemo(() => ({ inCheck: game.inCheck(), isMate: game.isCheckmate(), turn: game.turn(),  fen: game.fen(), }), [game]);
   const analysisEngine = useAnalysisEngine(boardStatus.fen);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -200,7 +220,8 @@ function App() {
   const clearSelection = () => {setSelectedSquare(null); setLegalMoves([]); setHintMove(null);};
   const [isNextDisabled, setIsNextDisabled] = useState(false);
   const isAtLastMove = viewIndex === fenHistory.length - 1;
-  const nextPuzzleRef = useRef<{ key: string; puzzle: Puzzle } | null>(null);
+  // Puzle precargado para el siguiente "Next" (ver pickPrefetched).
+  const nextPuzzleRef = useRef<PrefetchedPuzzle | null>(null);
   const clockPrefetchRef = useRef<{ range: number[]; puzzle: Puzzle } | null>(null);
   const prefetchingRef = useRef(false);
 
@@ -325,9 +346,6 @@ useEffect(() => {
   return () => clearTimeout(timer);
 }, [currentStreak, appMode, getUsageMs]);
 
-const puzzleKey = (range: number[], themes: string[]) =>
-  `${range[0]}-${range[1]}-${themes.join(',')}`;
-
 
 const mapRow = (r: any): Puzzle => ({
   id: String(r.ID ?? r.id),
@@ -385,12 +403,11 @@ const prefetchNext = useCallback(async (
   if (!database) return;
 
   if (prefetchingRef.current) return;
-  const key = puzzleKey(range, themes);
-  if (nextPuzzleRef.current?.key === key) return;
+  if (pickPrefetched(nextPuzzleRef.current, range, themes)) return;   // ya hay uno válido para este rango
   prefetchingRef.current = true;
   try {
     const p = await queryPuzzle(database, range, themes);
-    if (p) nextPuzzleRef.current = { key, puzzle: p };
+    if (p) nextPuzzleRef.current = { themesKey: themesKeyOf(themes), puzzle: p };
   } finally {
     prefetchingRef.current = false;
   }
@@ -435,8 +452,10 @@ const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false
   seedIdentityMap(newGame);
   setGame(newGame);
   syncPiecesFromGame(newGame);
-  
-  setTimeout(() => syncPiecesFromGame(newGame), 10);
+  // Aquí había un setTimeout(() => syncPiecesFromGame(newGame), 10) heredado del
+  // primer prototipo. Reconstruía `pieces` con los mismos IDs 10 ms después:
+  // ChessBoard lo tomaba como otra actualización y montaba la posición nueva a
+  // mitad de la transición, con un render extra del tablero en cada carga.
   setFenHistory([newGame.fen()]);
   setViewIndex(0);
   setIsReviewMode(false);
@@ -490,10 +509,9 @@ const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false
     setGame(new Chess(nextFen));
     syncPiecesFromGame(newGame);
 
-    setFenHistory(prev => [...prev, newGame.fen()]);
-
-    const firstMoveFen = newGame.fen();
-    setFenHistory([initialFen, firstMoveFen]); 
+    // El historial queda exactamente en [inicio, jugada de la máquina]. (Había
+    // un setFenHistory(prev => ...) justo antes que esta línea sobrescribía.)
+    setFenHistory([initialFen, nextFen]);
     setViewIndex(1);
     setIsReviewMode(false);
 
@@ -554,12 +572,12 @@ const loadSinglePuzzle = async (
 
   const themesToUse = isFast ? [] : (overrideThemes || selectedThemes);
 
-  // Intenta usar el puzzle precargado; si no coincide, va a la BD
-  const cacheKey = puzzleKey(currentRange, themesToUse);
+  // Intenta usar el puzzle precargado; si no encaja en el rango/temas, va a la BD
   let p: Puzzle | null = null;
+  const cached = isFast ? null : pickPrefetched(nextPuzzleRef.current, currentRange, themesToUse);
 
-  if (!isFast && nextPuzzleRef.current?.key === cacheKey) {
-    p = nextPuzzleRef.current.puzzle;
+  if (cached) {
+    p = cached;
     nextPuzzleRef.current = null;
   } else {
     p = await queryPuzzle(databaseToUse, currentRange, themesToUse);
@@ -812,11 +830,11 @@ function onSquarePress(square: string | null, isDraggingInteraction: boolean = f
         clearSelection();
       }
     } else {
-      // Si toca otra pieza de su color, cambia la selección normalmente
+      // Si toca otra pieza de su color, cambia la selección normalmente.
+      // getLegalDestinations: mismas casillas que moves({ verbose: true }) sin
+      // pagar SAN + FEN por jugada (ver src/lib/legalMoves.ts).
       setSelectedSquare(square);
-      const moves = game.moves({ square: square as any, verbose: true });
-      const uniqueMoves = Array.from(new Set(moves.map(m => m.to)));
-      setLegalMoves(uniqueMoves);
+      setLegalMoves(getLegalDestinations(game, square));
     }
     return;
   }
@@ -829,11 +847,11 @@ function onSquarePress(square: string | null, isDraggingInteraction: boolean = f
       return;
     }
 
-    // Validamos si el movimiento es legal en el motor
-    const moves = game.moves({ square: selectedSquare as any, verbose: true });
-    const moveAttempt = moves.find(m => m.to === square);
+    // Validamos si el movimiento es legal en el motor. Es la misma consulta que
+    // hizo la selección sobre la misma posición: sale de la caché.
+    const isLegalTarget = getLegalDestinations(game, selectedSquare).includes(square);
 
-    if (moveAttempt) {
+    if (isLegalTarget) {
       const fromSquare = selectedSquare; // Guardamos la casilla de origen temporalmente
       
       // Borramos instantáneamente los estados de selección y movimientos legales 
@@ -911,12 +929,11 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           return [...truncatedMoves, move.san];
         });
 
-        setFenHistory(prev => {
-          const truncatedFens = prev.slice(0, viewIndex + 1);
-          const newH = [...truncatedFens, nextFen];
-          setViewIndex(newH.length - 1);
-          return newH;
-        });
+        // Sin setViewIndex dentro del updater: un setState ahí se ejecuta
+        // durante el render y obliga a React a repetir la función App entera.
+        const analysisHistory = [...fenHistory.slice(0, viewIndex + 1), nextFen];
+        setFenHistory(analysisHistory);
+        setViewIndex(analysisHistory.length - 1);
         clearSelection();
         setPromotionModalVisible(false);
         setPendingMove(null);
@@ -959,11 +976,9 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           hapticSuccess();
           playSound('success');
           
-          setFenHistory(prev => {
-            const newH = [...prev, nextFen];
-            setViewIndex(newH.length - 1);
-            return newH;
-          });
+          const solvedHistory = [...fenHistory, nextFen];
+          setFenHistory(solvedHistory);
+          setViewIndex(solvedHistory.length - 1);
           setSuccessSquare(to);
 
           if (currentPuzzle) {
@@ -1036,12 +1051,12 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             setGame(gameAfterResp);
             syncPiecesFromGame(gameAfterResp);
 
-            setFenHistory(prevHistory => {
-              const newHistory = [...prevHistory, nextFen, finalFen];
-              setViewIndex(newHistory.length - 1);
-              setIsReviewMode(false);
-              return newHistory;
-            });
+            // fenHistory es el del render en que jugó el usuario: mientras llega
+            // la respuesta el tablero está bloqueado y el historial no se toca.
+            const replyHistory = [...fenHistory, nextFen, finalFen];
+            setFenHistory(replyHistory);
+            setViewIndex(replyHistory.length - 1);
+            setIsReviewMode(false);
 
             setIsBoardLocked(false); 
           }, isRunPlaying ? CLOCK_TIMING.machineReply : PUZZLE_TIMING.machineReply);
@@ -1054,11 +1069,9 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         hapticError();
         playSound('error');
 
-        setFenHistory(prev => {
-          const newH = [...prev, nextFen];
-          setViewIndex(newH.length - 1);
-          return newH;
-        });
+        const failedHistory = [...fenHistory, nextFen];
+        setFenHistory(failedHistory);
+        setViewIndex(failedHistory.length - 1);
         setErrorSquare(to);
         // En contrarreloj no hay footer ni retry: el puzzle se sustituye solo,
         // así que el tablero debe seguir bloqueado hasta que cargue el siguiente.
@@ -1137,7 +1150,9 @@ const handlersRef = useRef<{
   clearSelection: typeof clearSelection;
 }>({ onSquarePress, handleDragMove, clearSelection });
 
-useEffect(() => {
+// useLayoutEffect y no useEffect: el ref queda al día en el mismo commit, antes
+// de que pueda llegar otro toque con el closure del render anterior.
+useLayoutEffect(() => {
   handlersRef.current = { onSquarePress, handleDragMove, clearSelection };
 });
 
@@ -1283,7 +1298,6 @@ const exitAnalysis = () => {
   seedIdentityMap(restored);
   setGame(restored);
   syncPiecesFromGame(restored);
-  setTimeout(() => syncPiecesFromGame(restored), 10);
 
   setFenHistory(base.fens);
   setMoveHistory(base.moves);
@@ -1314,15 +1328,29 @@ const hasRestoredPrefsRef = useRef(false);
 // id del puzle que ahora mismo está escrito en AsyncStorage, o null si no hay
 // ninguno. Espejo en memoria del almacén para no escribir/borrar de más.
 const storedPuzzleIdRef = useRef<string | null>(null);
+// Último valor escrito de cada clave de filtros (tal cual queda en el almacén),
+// para no reescribir lo que no ha cambiado. Se siembra al restaurar.
+const persistedPrefsRef = useRef<Record<string, string>>({});
 
-// Filtros: solo cambian cuando el usuario toca el modal.
+// Filtros. Temas y modo solo cambian desde el modal, pero en modo recomendado
+// `eloRange` se recalcula desde el ELO en CADA puzle puntuado, y esto escribía
+// las tres claves en AsyncStorage justo en la transición al siguiente puzle.
+// Ese rango no hace falta guardarlo: con el modo activo se vuelve a calcular
+// desde el ELO al arrancar y al pedir cada puzle. El rango que hay que conservar
+// es el manual, y ese solo cambia con el modo desactivado.
 useEffect(() => {
   if (!hasRestoredPrefsRef.current) return;
-  AsyncStorage.multiSet([
-    ['@elo_range', JSON.stringify(eloRange)],
+  const entries: [string, string][] = [
     ['@selected_themes', JSON.stringify(selectedThemes)],
     ['@is_recommended_mode', JSON.stringify(isRecommendedMode)],
-  ]).catch(error => console.error("Error al guardar los filtros en AsyncStorage:", error));
+  ];
+  if (!isRecommendedMode) entries.push(['@elo_range', JSON.stringify(eloRange)]);
+
+  const changed = entries.filter(([key, value]) => persistedPrefsRef.current[key] !== value);
+  if (changed.length === 0) return;
+  changed.forEach(([key, value]) => { persistedPrefsRef.current[key] = value; });
+  AsyncStorage.multiSet(changed)
+    .catch(error => console.error("Error al guardar los filtros en AsyncStorage:", error));
 }, [eloRange, selectedThemes, isRecommendedMode]);
 
 // Puzle activo: se guarda SOLO mientras sigue pendiente de respuesta.
@@ -1923,6 +1951,11 @@ useEffect(() => {
         '@current_puzzle',
       ]);
 
+      // Lo que ya está en el almacén no se vuelve a escribir.
+      if (localRange !== null) persistedPrefsRef.current['@elo_range'] = localRange;
+      if (localThemes !== null) persistedPrefsRef.current['@selected_themes'] = localThemes;
+      if (localRecommended !== null) persistedPrefsRef.current['@is_recommended_mode'] = localRecommended;
+
       if (localRange) {
         const parsedRange = JSON.parse(localRange);
         setEloRange(parsedRange);
@@ -1995,6 +2028,32 @@ useEffect(() => {
   return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [bootAttempt]);
+
+// --- CALLBACKS ESTABLES PARA EL PIE Y LA LISTA DE JUGADAS ---
+// BoardControls y MoveList son React.memo, pero recibían funciones nuevas en
+// cada render de App (que el React Compiler se salta por los eslint-disable),
+// así que se re-renderizaban con cualquier cambio de estado de la pantalla.
+// Mismo patrón que stableSquarePress: ref al día en cada commit y envoltorio de
+// identidad fija. Se llama siempre a la versión del último render, igual que
+// cuando se pasaban directamente.
+const controlsRef = useRef({
+  navigateHistory, handleMovePress, showSolution, startAnalysis,
+  exitAnalysis, handleRetry, handleNextPuzzle, handleHint,
+});
+useLayoutEffect(() => {
+  controlsRef.current = {
+    navigateHistory, handleMovePress, showSolution, startAnalysis,
+    exitAnalysis, handleRetry, handleNextPuzzle, handleHint,
+  };
+});
+const stableNavigateHistory = useCallback((direction: 'prev' | 'next') => controlsRef.current.navigateHistory(direction), []);
+const stableMovePress = useCallback((targetIndex: number) => controlsRef.current.handleMovePress(targetIndex), []);
+const stableShowSolution = useCallback(() => { void controlsRef.current.showSolution(); }, []);
+const stableStartAnalysis = useCallback(() => controlsRef.current.startAnalysis(), []);
+const stableExitAnalysis = useCallback(() => controlsRef.current.exitAnalysis(), []);
+const stableRetry = useCallback(() => { void controlsRef.current.handleRetry(); }, []);
+const stableNextPuzzle = useCallback(() => controlsRef.current.handleNextPuzzle(), []);
+const stableHint = useCallback(() => controlsRef.current.handleHint(), []);
 
 if (bootError) {
   return (
@@ -2236,6 +2295,7 @@ return (
                 showCoordinates={settings.showCoordinates}
                 moveDurationMs={isRunPlaying ? CLOCK_TIMING.pieceMove : PUZZLE_TIMING.pieceMove}
                 size={boardFit.boardSize}
+                positionKey={currentPuzzle?.id ?? null}
               />
             </Animated.View>
           </View>
@@ -2276,7 +2336,7 @@ return (
                 />
               ) : !analysisEngine.isAnalysisMode ? (
                 <Animated.View key="move-history" entering={FadeIn.duration(200).delay(120)} exiting={FadeOut.duration(120)} style={{ flex: 1, justifyContent: 'center' }}>
-                  <MoveList moveHistory={moveHistory} viewIndex={viewIndex} onMovePress={handleMovePress} />
+                  <MoveList moveHistory={moveHistory} viewIndex={viewIndex} onMovePress={stableMovePress} />
                 </Animated.View>
               ) : (
                 <Animated.View key="multi-pv" entering={FadeIn.duration(200).delay(120)} exiting={FadeOut.duration(120)} style={styles.analysisLinesContainer}>
@@ -2298,16 +2358,16 @@ return (
           <BoardControls
             viewIndex={viewIndex}
             fenHistoryLength={fenHistory.length}
-            onNavigate={navigateHistory}
+            onNavigate={stableNavigateHistory}
             message={message}
             isAnalysisMode={analysisEngine.isAnalysisMode}
             solutionRevealed={solutionRevealed}
-            onShowSolution={showSolution}
-            onStartAnalysis={startAnalysis}
-            onExitAnalysis={exitAnalysis}
-            onRetry={handleRetry}
-            onNextPuzzle={handleNextPuzzle}
-            onHint={handleHint}
+            onShowSolution={stableShowSolution}
+            onStartAnalysis={stableStartAnalysis}
+            onExitAnalysis={stableExitAnalysis}
+            onRetry={stableRetry}
+            onNextPuzzle={stableNextPuzzle}
+            onHint={stableHint}
             isNextDisabled={isNextDisabled}
             width={contentWidth}
           />

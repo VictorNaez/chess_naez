@@ -137,35 +137,94 @@ type IdentityMove = {
   promotion?: string;
 };
 
-// Busca el movimiento legal EXACTO que lleva de fromFen a toFen.
-// No es un diff de casillas: probamos los legales y comparamos la posición
-// resultante. Así enroque, captura al paso y coronación se identifican bien,
-// que es donde un diff empareja mal y hace que "se muevan dos piezas".
-const findMoveBetween = (fromFen: string, toFen: string): IdentityMove | null => {
-  let source: Chess;
-  try {
-    source = new Chess(fromFen);
-  } catch {
-    return null;
+// Colocación de una FEN como 64 casillas (a8..h8, a7..h7, ..., a1..h1): la
+// letra de la pieza, o '' si está vacía. null si el campo no tiene 64 casillas.
+const placementOf = (fen: string): string[] | null => {
+  const field = fen.split(' ')[0] ?? '';
+  const cells: string[] = [];
+  for (let i = 0; i < field.length; i++) {
+    const code = field.charCodeAt(i);
+    if (code === 47) continue;                    // '/'
+    if (code >= 49 && code <= 56) {               // '1'..'8'
+      for (let k = 48; k < code; k++) cells.push('');
+    } else {
+      cells.push(field[i]);
+    }
   }
+  return cells.length === 64 ? cells : null;
+};
+
+const squareName = (index: number): string =>
+  String.fromCharCode(97 + (index % 8)) + (8 - Math.floor(index / 8));
+
+// Busca el movimiento legal EXACTO que lleva de fromFen a toFen.
+//
+// Sigue sin ser un diff de casillas: el diff solo PROPONE candidatos y cada
+// candidato se juega de verdad y se compara la posición resultante, así que
+// enroque, captura al paso y coronación se identifican igual que antes.
+//
+// Antes se generaban TODOS los legales en modo verbose, y en chess.js 1.4 cada
+// uno calcula su SAN (regenerando todas las jugadas) y sus FEN before/after:
+// ~10 ms por llamada en Hermes, y goToViewIndex hace 2-3 por paso. La jugada que
+// buscamos siempre deja vacía (o distinta) una casilla que tenía una pieza del
+// bando que mueve, y pone una pieza de ese bando en otra: con esas dos listas
+// sale normalmente UN candidato (dos en un enroque largo).
+//
+// La coincidencia es única (dos jugadas distintas no dejan la misma posición),
+// así que devolver el primer candidato que encaja equivale a recorrer todos.
+const findMoveBetween = (fromFen: string, toFen: string): IdentityMove | null => {
+  const before = placementOf(fromFen);
+  const after = placementOf(toFen);
+  if (!before || !after) return null;
+
+  const moverIsWhite = fromFen.split(' ')[1] !== 'b';
+  const isMoverPiece = (cell: string) =>
+    cell !== '' && (cell === cell.toUpperCase()) === moverIsWhite;
+
+  const origins: number[] = [];
+  const targets: number[] = [];
+  for (let i = 0; i < 64; i++) {
+    if (before[i] === after[i]) continue;
+    if (isMoverPiece(before[i])) origins.push(i);
+    if (isMoverPiece(after[i])) targets.push(i);
+  }
+  if (origins.length === 0 || targets.length === 0) return null;
 
   const targetKey = positionKey(toFen);
 
-  for (const candidate of source.moves({ verbose: true })) {
-    // chess.js >= 1.0 ya trae la FEN resultante en `after`; si no, la calculamos.
-    let afterFen = (candidate as any).after as string | undefined;
-    if (!afterFen) {
-      const played = source.move({
-        from: candidate.from,
-        to: candidate.to,
-        promotion: candidate.promotion ?? 'q',
-      });
-      if (!played) continue;
-      afterFen = source.fen();
-      source.undo();
-    }
-    if (positionKey(afterFen) === targetKey) {
-      return candidate as unknown as IdentityMove;
+  for (const origin of origins) {
+    const moved = before[origin];
+    const isPawn = moved.toLowerCase() === 'p';
+
+    for (const target of targets) {
+      const landed = after[target];
+      const isPromotion = isPawn && landed.toLowerCase() !== 'p';
+      // En destino tiene que estar la misma pieza, salvo que sea una coronación.
+      if (landed !== moved && !isPromotion) continue;
+
+      // Instancia nueva por candidato: undo() en chess.js 1.4 construye otro
+      // Move (SAN + FEN) y sale más caro que volver a parsear la FEN.
+      let probe: Chess;
+      try {
+        probe = new Chess(fromFen);
+      } catch {
+        return null;
+      }
+
+      let played;
+      try {
+        played = probe.move({
+          from: squareName(origin),
+          to: squareName(target),
+          promotion: isPromotion ? landed.toLowerCase() : undefined,
+        });
+      } catch {
+        continue;   // no es legal en fromFen
+      }
+
+      if (positionKey(probe.fen()) === targetKey) {
+        return played as unknown as IdentityMove;
+      }
     }
   }
   return null;

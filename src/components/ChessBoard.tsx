@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Chess } from "chess.js";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { FadeIn, FadeOut, runOnJS, SharedValue, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, runOnJS, SharedValue, useAnimatedReaction, useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from "react-native-reanimated";
 import Svg, { G, Path, Rect } from 'react-native-svg';
 import { hapticImpact } from '../lib/haptics';
 import { PALETTE } from "./colors";
@@ -41,12 +41,42 @@ interface ChessBoardProps {
   moveDurationMs?: number;
   /** Lado del tablero en dp. Lo calcula quien lo monta (ancho y alto disponibles). */
   size: number;
+  /**
+   * Identifica la posición de origen (el id del puzle). Si cambia a la vez que
+   * todas las piezas, App está deslizando el tablero y la capa de piezas no se
+   * funde; si no cambia (reintentar, salir del análisis) entra con un fundido.
+   */
+  positionKey?: string | null;
 }
 
 /** Alto que añade la eval bar en modo análisis: 20 de barra + 10 de marginBottom. */
 export const EVAL_BAR_BLOCK_HEIGHT = 30;
-const LAYER_FADE_OUT = 130;
 const LAYER_FADE_IN = 180;
+const LAYER_SWAP_SCALE = 0.96;
+
+// Una sola instancia por tipo de animación, compartida por las 32 piezas. Con
+// un `FadeOut.duration(300)` inline cada re-render de una pieza llegaba con un
+// objeto nuevo y Reanimated, en componentDidUpdate, reconstruía y volvía a
+// registrar la animación de salida por JSI (compara por identidad).
+const PIECE_ENTERING = FadeIn.duration(300);
+const PIECE_EXITING = FadeOut.duration(300);
+
+/** Lo que hay pintado en la capa de piezas. `key` cambia en cada cambio completo de posición. */
+interface PieceLayer {
+  pieces: PieceItem[];
+  orientation: 'w' | 'b';
+  positionKey: string | null;
+  key: number;
+  fadeIn: boolean;
+}
+
+/** Cambio completo de posición detectado en el render y pendiente de pintar. */
+interface PendingSwap {
+  pieces: PieceItem[];
+  orientation: 'w' | 'b';
+  positionKey: string | null;
+  fadeIn: boolean;
+}
 
 export const pieceImages: Record<string, any> = {
   'p': require('../../assets/pieces/bP.png'),
@@ -143,13 +173,13 @@ const getSquareCenter = (sq: string, orientation: 'w' | 'b', squareSize: number)
 // por pieza y el memo de abajo deja de fallar en cada toque.
 const AnimatedPiece = React.memo(({ 
   p, visualRow, visualCol, isSuccess, isError, isSelected, isKingInCheck, orientation, onSquarePress, onDragMove, legalMovesSV,
-  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedPieceIdSV, squareToPieceIdSV, onInvalidTarget, moveDurationMs, swapping, squareSize
+  shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedPieceIdSV, squareToPieceIdSV, onInvalidTarget, moveDurationMs, squareSize
 }: { 
   p: PieceItem, visualRow: number, visualCol: number, isSuccess: boolean, isError: boolean, isSelected: boolean, isKingInCheck: boolean, orientation: 'w' | 'b', 
   onSquarePress: (sq: string | null, isDraggingInteraction?: boolean) => void,  onDragMove: (from: string, to: string) => void, legalMovesSV: SharedValue<string[]>,
   shadowX: SharedValue<number>, shadowY: SharedValue<number>, showShadow: SharedValue<boolean>, turnSV: SharedValue<'w' | 'b'>, selectedSquareSV: SharedValue<string | null>,
   capturedPieceIdSV: SharedValue<string | null>, squareToPieceIdSV: SharedValue<Record<string, string>>,
-  onInvalidTarget: (square: string) => void, moveDurationMs: number, swapping: boolean, squareSize: number
+  onInvalidTarget: (square: string) => void, moveDurationMs: number, squareSize: number
 }) => {
   
   const targetX = visualCol * squareSize;
@@ -163,6 +193,14 @@ const AnimatedPiece = React.memo(({
 
   const dragX = useSharedValue(0);
   const dragY = useSharedValue(0);
+
+  // La pieza sigue "levantada" (por encima del resto) mientras vuelve o encaja
+  // tras soltarla, no solo durante el arrastre. Antes esto lo garantizaba el
+  // orden de los hijos (la seleccionada iba la última); ahora el orden no se
+  // toca y manda el zIndex. El token evita que el final de un encaje baje una
+  // pieza que ya se ha vuelto a coger.
+  const isLifted = useSharedValue(false);
+  const liftToken = useSharedValue(0);
 
   // Orígenes de la UI estables en memoria nativa
   const originX = useSharedValue(targetX);
@@ -242,6 +280,8 @@ const AnimatedPiece = React.memo(({
       .onStart(() => {
         if (p.color !== turnSV.value) return;
         isDragging.value = true;
+        isLifted.value = true;
+        liftToken.value = liftToken.value + 1;
         scale.value = 1.3;
         showShadow.value = true; 
       })
@@ -265,7 +305,11 @@ const AnimatedPiece = React.memo(({
         shadowY.value = targetRowIdx * squareSize;
       })
       .onEnd((event) => {     
-        if (p.color !== turnSV.value) return;
+        if (p.color !== turnSV.value) {
+          isLifted.value = false;
+          return;
+        }
+        const token = liftToken.value;
 
         const finalX = originX.value + event.translationX + (squareSize / 2);
         const finalY = originY.value + event.translationY + (squareSize / 2);
@@ -313,6 +357,7 @@ const AnimatedPiece = React.memo(({
           scale.value = withTiming(1, { duration: 100 });
           posX.value = withTiming(destX, { duration: 100 });
           posY.value = withTiming(destY, { duration: 100 }, (finished) => {
+            if (liftToken.value === token) isLifted.value = false;
             if (finished) {
               runOnJS(onSquarePress)(null, false);
               runOnJS(onDragMove)(p.square, targetSquare);
@@ -329,7 +374,9 @@ const AnimatedPiece = React.memo(({
           dragY.value = 0;
 
           posX.value = withTiming(targetX, { duration: 120 });
-          posY.value = withTiming(targetY, { duration: 120 });
+          posY.value = withTiming(targetY, { duration: 120 }, () => {
+            if (liftToken.value === token) isLifted.value = false;
+          });
         }
       }),
     // squareSize solo cambia al redimensionar la ventana (rotación, pantalla
@@ -368,7 +415,7 @@ const AnimatedPiece = React.memo(({
         { scale: scale.value },
       ],
       opacity: capturedNow ? withTiming(0, { duration: 60 }) : 1,
-      zIndex: isDragging.value ? 100 : 10,
+      zIndex: isDragging.value || isLifted.value ? 100 : 10,
     };
   });
 
@@ -378,8 +425,8 @@ const AnimatedPiece = React.memo(({
     <GestureDetector gesture={combinedGesture}>
       <Animated.View style={[styles.pieceContainer, { width: squareSize, height: squareSize, zIndex: 10 }, animatedStyle]}>
         <Animated.View
-          entering={swapping ? undefined : FadeIn.duration(300)}
-          exiting={swapping || isBeingCaptured ? undefined : FadeOut.duration(300)}
+          entering={PIECE_ENTERING}
+          exiting={isBeingCaptured ? undefined : PIECE_EXITING}
         >
           <Image 
             source={pieceImages[imageKey]} 
@@ -423,7 +470,6 @@ const AnimatedPiece = React.memo(({
     prev.onDragMove === next.onDragMove &&
     prev.onInvalidTarget === next.onInvalidTarget  &&
     prev.moveDurationMs === next.moveDurationMs &&
-    prev.swapping === next.swapping &&
     prev.squareSize === next.squareSize
   );
 });
@@ -623,6 +669,7 @@ function ChessBoard({
   showCoordinates = true,
   moveDurationMs = 200,
   size,
+  positionKey = null,
 }: ChessBoardProps) {
   const boardSize = size;
   const squareSize = size / 8;
@@ -664,50 +711,76 @@ function ChessBoard({
     analysisProgress.value = withTiming(isAnalysisMode ? 1 : 0, { duration: 350 });
   }, [isAnalysisMode]);
 
-    // --- TRANSICIÓN ENTRE PUZZLES ---
-  // Si NINGUNA pieza sobrevive de un render al siguiente, no es una jugada:
-  // es otra posición. Entonces fundimos la capa entera en lugar de animar
-  // pieza a pieza. Con los IDs salados, esto solo se cumple al cargar puzzle
-  // o al reiniciar, nunca al mover.
+  // --- TRANSICIÓN ENTRE POSICIONES ---
+  // Si NINGUNA pieza sobrevive de un render al siguiente, no es una jugada: es
+  // otra posición (puzle nuevo, reintentar tras ver la solución, salir del
+  // análisis). Con los IDs salados eso nunca pasa al mover.
+  //
+  // La capa nueva se monta de golpe dentro de un LayoutAnimationConfig con otra
+  // `key`: la vieja se desmonta sin el FadeOut de cada pieza (skipExiting) y la
+  // nueva entra sin su FadeIn (skipEntering). Antes eso exigía un estado
+  // `swapping` que re-renderizaba todas las piezas al activarse y otra vez al
+  // desactivarse.
+  //
+  //  - Cambia `positionKey` (otro puzle): App desliza el tablero, así que la
+  //    capa no se funde. Las piezas ya están quietas cuando el tablero entra, y
+  //    la capa hardware del deslizamiento deja de invalidarse en cada frame.
+  //  - No cambia (reintentar, salir del análisis): no hay deslizamiento y la
+  //    capa nueva entra con un fundido corto.
   const layerOpacity = useSharedValue(1);
   const layerScale = useSharedValue(1);
 
-  const [rendered, setRendered] = useState({ pieces, orientation });
-  const [swapping, setSwapping] = useState(false);
-  const pendingRef = useRef({ pieces, orientation });
-  const prevIdsRef = useRef<Set<string>>(new Set());
+  const [rendered, setRendered] = useState<PieceLayer>(() => ({
+    pieces, orientation, positionKey, key: 0, fadeIn: false,
+  }));
+  const [seen, setSeen] = useState({ pieces, orientation });
+  const [pendingSwap, setPendingSwap] = useState<PendingSwap | null>(null);
 
-  const finishSwap = useCallback(() => setSwapping(false), []);
-
-  const commitPosition = useCallback(() => {
-    setRendered(pendingRef.current);
-    layerScale.value = withTiming(1, { duration: LAYER_FADE_IN });
-    layerOpacity.value = withTiming(1, { duration: LAYER_FADE_IN }, (finished) => {
-      if (finished) runOnJS(finishSwap)();
-    });
-  }, [finishSwap]);
-
-  useEffect(() => {
-    pendingRef.current = { pieces, orientation };
-
-    const prevIds = prevIdsRef.current;
+  // Derivado DURANTE el render, no en un efecto: una jugada normal se pinta en
+  // el mismo commit en que llegan las props. Con el efecto, cada jugada eran
+  // dos renders y dos commits del tablero, y la animación de la pieza arrancaba
+  // un ciclo de efectos más tarde.
+  if (pieces !== seen.pieces || orientation !== seen.orientation) {
+    const prevIds = new Set(seen.pieces.map(p => p.id));
     const isFullSwap =
       prevIds.size > 0 && pieces.length > 0 && pieces.every(p => !prevIds.has(p.id));
-    prevIdsRef.current = new Set(pieces.map(p => p.id));
+    setSeen({ pieces, orientation });
 
-    if (!isFullSwap) {
-      setRendered({ pieces, orientation });
-      return;
+    if (isFullSwap) {
+      setPendingSwap({ pieces, orientation, positionKey, fadeIn: positionKey === rendered.positionKey });
+    } else if (pendingSwap) {
+      // Otra actualización antes de que se pinte el cambio: se pinta la última.
+      setPendingSwap({ ...pendingSwap, pieces, orientation });
+    } else {
+      setRendered(prev => ({ ...prev, pieces, orientation, positionKey }));
     }
+  }
 
-    // Apagamos las animaciones por pieza ANTES de desmontarlas: `exiting` se
-    // lee del último render del elemento, no del commit que lo elimina.
-    setSwapping(true);
-    layerScale.value = withTiming(0.96, { duration: LAYER_FADE_OUT });
-    layerOpacity.value = withTiming(0, { duration: LAYER_FADE_OUT }, (finished) => {
-      if (finished) runOnJS(commitPosition)();
-    });
-  }, [pieces, orientation, commitPosition]);
+  // El cambio completo se pinta un render después, desde un efecto, a
+  // propósito: los efectos de los hijos corren antes que los del padre, así que
+  // cuando se monta la capa nueva App ya ha sacado el tablero de pantalla para
+  // deslizarlo. En el mismo render se vería un frame la posición nueva en el
+  // centro antes del salto.
+  useEffect(() => {
+    if (!pendingSwap) return;
+    // Sin fundido, la capa tiene que quedar visible aunque hubiera uno a medias.
+    layerOpacity.value = pendingSwap.fadeIn ? 0 : 1;
+    layerScale.value = pendingSwap.fadeIn ? LAYER_SWAP_SCALE : 1;
+    setRendered(prev => ({
+      pieces: pendingSwap.pieces,
+      orientation: pendingSwap.orientation,
+      positionKey: pendingSwap.positionKey,
+      key: prev.key + 1,
+      fadeIn: pendingSwap.fadeIn,
+    }));
+    setPendingSwap(null);
+  }, [pendingSwap]);
+
+  useEffect(() => {
+    if (!rendered.fadeIn) return;
+    layerScale.value = withTiming(1, { duration: LAYER_FADE_IN });
+    layerOpacity.value = withTiming(1, { duration: LAYER_FADE_IN });
+  }, [rendered.key]);
 
   const pieceLayerStyle = useAnimatedStyle(() => ({
     opacity: layerOpacity.value,
@@ -720,12 +793,12 @@ function ChessBoard({
     squareToPieceIdSV.value = map;
   }, [rendered.pieces]);
 
-  // La marca de captura NO se limpia al cambiar la posición: la pieza sigue
-  // montada un render más (`rendered` va un paso por detrás) y limpiarla aquí
-  // la devolvía a opacity 1 justo antes de desmontarla — ese era el parpadeo.
-  // Solo se limpia si la pieza sigue en el tablero, es decir, si la jugada no
-  // llegó a aplicarse (p.ej. coronación cancelada). Como los IDs no se
-  // reutilizan nunca, una marca obsoleta no puede casar con otra pieza.
+  // La marca de captura NO se limpia en cada cambio de posición: limpiarla
+  // mientras la capturada sigue montada la devolvía a opacity 1 justo antes de
+  // desmontarla — ese era el parpadeo. Solo se limpia si la pieza sigue en el
+  // tablero, es decir, si la jugada no llegó a aplicarse (p.ej. coronación
+  // cancelada). Como los IDs no se reutilizan nunca, una marca obsoleta no
+  // puede casar con otra pieza.
   useEffect(() => {
     const capturedId = capturedPieceIdSV.value;
     if (capturedId && pieces.some(p => p.id === capturedId)) {
@@ -867,52 +940,55 @@ function ChessBoard({
         })}
 
         {/* CAPA DE PIEZAS */}
+        {/* Sin reordenar a los hijos: antes la seleccionada se ponía la última
+            con un sort, y el differ de Fabric convertía cada selección en un
+            remove + insert nativo de todas las piezas que iban detrás. Lo que
+            la pone encima al arrastrarla es su zIndex animado. */}
         <Animated.View
           style={[StyleSheet.absoluteFill, { zIndex: 10 }, pieceLayerStyle]}
-          pointerEvents={swapping ? 'none' : 'box-none'}
+          pointerEvents="box-none"
         >
-          {rendered.pieces
-            .slice()
-            .sort((a: PieceItem, b: PieceItem) => {
-              if (a.square === selectedSquare) return 1;
-              if (b.square === selectedSquare) return -1;
-              return 0;
-            })
-            .map((p: PieceItem) => {
-              const col = p.square.charCodeAt(0) - 97;
-              const row = 8 - parseInt(p.square[1]);
-              
-              const isKing = p.type.toLowerCase() === 'k';
-              const isThisKingInCheck = inCheck && isKing && p.color === turn;
+          {/* key nueva = posición nueva (ver TRANSICIÓN ENTRE POSICIONES).
+              Un único hijo nativo (no aplanable) para que skipExiting afecte a
+              todo el subárbol al desmontarse. */}
+          <LayoutAnimationConfig key={rendered.key} skipEntering skipExiting>
+            <View style={StyleSheet.absoluteFill} pointerEvents="box-none" collapsable={false}>
+              {rendered.pieces.map((p: PieceItem) => {
+                const col = p.square.charCodeAt(0) - 97;
+                const row = 8 - parseInt(p.square[1]);
 
-              return (
-                <AnimatedPiece 
-                  key={p.id} 
-                  p={p} 
-                  visualRow={rendered.orientation === 'w' ? row : 7 - row}
-                  visualCol={rendered.orientation === 'w' ? col : 7 - col}
-                  isSuccess={p.square === successSquare}
-                  isError={p.square === errorSquare}
-                  isSelected={p.square === selectedSquare} 
-                  isKingInCheck={isThisKingInCheck}
-                  orientation={rendered.orientation}
-                  onSquarePress={onSquarePress}
-                  onDragMove={onDragMove}
-                  legalMovesSV={legalMovesSV}
-                  shadowX={shadowX}      
-                  shadowY={shadowY}
-                  showShadow={showShadow}
-                  turnSV={turnSV}
-                  selectedSquareSV={selectedSquareSV}
-                  capturedPieceIdSV={capturedPieceIdSV}
-                  squareToPieceIdSV={squareToPieceIdSV}
-                  onInvalidTarget={triggerInvalidTarget}
-                  moveDurationMs={moveDurationMs}
-                  swapping={swapping}
-                  squareSize={squareSize}
-                />
-              );
-            })}
+                const isKing = p.type.toLowerCase() === 'k';
+                const isThisKingInCheck = inCheck && isKing && p.color === turn;
+
+                return (
+                  <AnimatedPiece
+                    key={p.id}
+                    p={p}
+                    visualRow={rendered.orientation === 'w' ? row : 7 - row}
+                    visualCol={rendered.orientation === 'w' ? col : 7 - col}
+                    isSuccess={p.square === successSquare}
+                    isError={p.square === errorSquare}
+                    isSelected={p.square === selectedSquare}
+                    isKingInCheck={isThisKingInCheck}
+                    orientation={rendered.orientation}
+                    onSquarePress={onSquarePress}
+                    onDragMove={onDragMove}
+                    legalMovesSV={legalMovesSV}
+                    shadowX={shadowX}
+                    shadowY={shadowY}
+                    showShadow={showShadow}
+                    turnSV={turnSV}
+                    selectedSquareSV={selectedSquareSV}
+                    capturedPieceIdSV={capturedPieceIdSV}
+                    squareToPieceIdSV={squareToPieceIdSV}
+                    onInvalidTarget={triggerInvalidTarget}
+                    moveDurationMs={moveDurationMs}
+                    squareSize={squareSize}
+                  />
+                );
+              })}
+            </View>
+          </LayoutAnimationConfig>
           </Animated.View>
 
           {/* CAPA DE COORDENADAS (encima de las piezas) */}
