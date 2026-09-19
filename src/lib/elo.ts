@@ -27,10 +27,10 @@ export const MIN_ELO_STEP = 5;
 //
 // `until` es exclusivo y se compara contra el número de intentos YA puntuados.
 const K_SCHEDULE: readonly { until: number; k: number }[] = [
-  { until: 15, k: 85 },   // calibración: el rating se mueve a saltos de ~50
-  { until: 30, k: 50 },   // afinado
-  { until: 50, k: 25 },  // convergencia
-  { until: Infinity, k: 14 }, // crucero: el valor histórico
+  { until: 15, k: 90 },   // calibración: el rating se mueve a saltos de ~50
+  { until: 30, k: 55 },   // afinado
+  { until: 50, k: 30 },  // convergencia
+  { until: Infinity, k: 18 }, // crucero: el valor histórico
 ];
 
 // Intentos a partir de los cuales K ya es el de crucero. Sirve para pintar un
@@ -42,7 +42,7 @@ export const getKFactor = (attempts: number): number => {
   for (const step of K_SCHEDULE) {
     if (safe < step.until) return step.k;
   }
-  return 8;
+  return 18;
 };
 
 // ---------------------------------------------------------
@@ -59,13 +59,13 @@ export const getKFactor = (attempts: number): number => {
 //       ~50 puntos por encima de tu rating de media; por eso la tasa real queda
 //       algo por debajo del objetivo nominal, que es "a igual rating".
 
-export const TARGET_SUCCESS_RATE = 0.7;
+export const TARGET_SUCCESS_RATE = 0.65;
 
 // Handicap equivalente, en puntos de rating. Se calcula en vez de escribirse a
 // mano para que cambiar la tasa objetivo sea una sola línea.
 export const EXPECTATION_HANDICAP = Math.round(
   400 * Math.log10(TARGET_SUCCESS_RATE / (1 - TARGET_SUCCESS_RATE)),
-); // 147 con 0.70
+);
 
 // ---------------------------------------------------------
 // PENALIZACIÓN POR PISTAS
