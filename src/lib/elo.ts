@@ -21,23 +21,6 @@ export const MIN_ELO_STEP = 5;
 // ---------------------------------------------------------
 // FACTOR K PROGRESIVO
 // ---------------------------------------------------------
-// K es cuánto pesa un intento suelto. Con K fijo a 16, un jugador que en
-// realidad vale 1800 tardaba ~175 puzles en llegar desde 400: la mitad de su
-// primera semana jugando contra puzles que no le dicen nada.
-//
-// La solución es la de toda la vida en ajedrez (rating provisional): K alto
-// mientras la app no sabe quién eres, y bajando hasta el valor de crucero según
-// se acumulan intentos. El régimen permanente sigue siendo 16, así que la
-// estabilidad a largo plazo es idéntica a la de antes.
-//
-// Simulado sobre 120 jugadores sintéticos por escalón, seleccionando puzles con
-// getRecommendedRange e intentos hasta quedar a ±100 del valor real:
-//
-//   fuerza real   K=16 fijo   este calendario
-//   600              28             4
-//   1200            109            17
-//   1800            175            36
-//   2400            243            58
 //
 // La desviación del rating una vez estabilizado es la misma en ambos (~19
 // puntos), porque a partir del intento 100 los dos usan K=16.
@@ -45,9 +28,9 @@ export const MIN_ELO_STEP = 5;
 // `until` es exclusivo y se compara contra el número de intentos YA puntuados.
 const K_SCHEDULE: readonly { until: number; k: number }[] = [
   { until: 15, k: 85 },   // calibración: el rating se mueve a saltos de ~50
-  { until: 30, k: 40 },   // afinado
-  { until: 50, k: 15 },  // convergencia
-  { until: Infinity, k: 5 }, // crucero: el valor histórico
+  { until: 30, k: 50 },   // afinado
+  { until: 50, k: 25 },  // convergencia
+  { until: Infinity, k: 14 }, // crucero: el valor histórico
 ];
 
 // Intentos a partir de los cuales K ya es el de crucero. Sirve para pintar un
@@ -59,8 +42,30 @@ export const getKFactor = (attempts: number): number => {
   for (const step of K_SCHEDULE) {
     if (safe < step.until) return step.k;
   }
-  return 5;
+  return 8;
 };
+
+// ---------------------------------------------------------
+// TASA DE ACIERTO OBJETIVO (asimetría acierto / fallo)
+// ---------------------------------------------------------
+//
+//   objetivo   handicap   fallo/acierto a igual rating   aciertos reales*
+//   50%            0            1,00                         44,7%
+//   65%          108            1,86                         57,0%
+//   70%          147            2,33                         64,6%   <- elegido
+//   75%          191            3,00                         69,6%
+//
+//   (*) medido en simulación sobre la ventana recomendada, que sirve puzles
+//       ~50 puntos por encima de tu rating de media; por eso la tasa real queda
+//       algo por debajo del objetivo nominal, que es "a igual rating".
+
+export const TARGET_SUCCESS_RATE = 0.7;
+
+// Handicap equivalente, en puntos de rating. Se calcula en vez de escribirse a
+// mano para que cambiar la tasa objetivo sea una sola línea.
+export const EXPECTATION_HANDICAP = Math.round(
+  400 * Math.log10(TARGET_SUCCESS_RATE / (1 - TARGET_SUCCESS_RATE)),
+); // 147 con 0.70
 
 // ---------------------------------------------------------
 // PENALIZACIÓN POR PISTAS
@@ -102,7 +107,12 @@ export const computeEloVariation = (
   attempts: number,
   hintClicks: number = 0,
 ): number => {
-  const expectedScore = 1 / (1 + Math.pow(10, (puzzleElo - currentElo) / 400));
+  // El handicap es lo único que se ha añadido a la fórmula clásica: el puzle
+  // cuenta como si valiera EXPECTATION_HANDICAP puntos menos, así que se espera
+  // de ti que lo saques TARGET_SUCCESS_RATE de las veces cuando su rating es el
+  // tuyo. De ahí sale que fallar pese más que acertar.
+  const expectedScore =
+    1 / (1 + Math.pow(10, (puzzleElo - EXPECTATION_HANDICAP - currentElo) / 400));
   const k = getKFactor(attempts);
 
   // Los dos extremos de la escala, siempre en positivo.
@@ -112,7 +122,11 @@ export const computeEloVariation = (
   // Las pistas solo tocan el acierto. Si encima de mirar la pista lo fallas, se
   // paga la bajada entera: recortar también el fallo haría que pedir pista
   // saliera a cuenta en puzles difíciles y el rating se inflaría solo.
-  if (!isSuccess) return Math.round(-fullLoss);
+  //
+  // El suelo de -1 es el espejo del +1 de más abajo: si acertar siempre mueve
+  // el marcador, fallar también. Solo entra en juego en puzles muy por encima
+  // del jugador (filtro manual), donde k·E redondea a cero.
+  if (!isSuccess) return Math.min(-1, Math.round(-fullLoss));
 
   const multiplier = getHintMultiplier(hintClicks);
   const reference = multiplier >= 0 ? fullGain : fullLoss;
