@@ -186,6 +186,7 @@ function App() {
   // bloquea los gestos en el hilo de UI (si no, la pieza se levanta y vuelve).
   const activeSequenceRef = useRef<number | null>(null);
   const sequenceCounterRef = useRef(0);
+  const playbackRunRef = useRef(0);
   const [isSequencePlaying, setIsSequencePlaying] = useState(false);
   const [viewIndex, setViewIndex] = useState(0); // Qué movimiento del historial estamos viendo
   const [isReviewMode, setIsReviewMode] = useState(false); // Si estamos viendo el pasado o el presente
@@ -477,12 +478,25 @@ const cancelEngineSequence = () => {
   setIsSequencePlaying(false);
 };
 
+// Invalida la reproducción animada que hubiera en marcha (solución o
+// rebobinado) y libera el tablero. La llama todo lo que pone otro puzle
+// delante: sin esto, pulsar Saltar/Siguiente mientras corre la solución dejaba
+// el bucle viejo escribiendo sobre el puzle recién cargado.
+const cancelPuzzlePlayback = () => {
+  playbackRunRef.current++;
+  setIsShowingSolution(false);
+};
+
 // Función para reiniciar el estado del puzzle, usada tanto al cargar un nuevo puzzle como al hacer Retry después de resolverlo
 // isRetry: true SOLO cuando se reinicia un puzzle que el usuario ya intentó.
 // Determina si el puzzle otorga ELO o no. Es explícito a propósito:
 const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false, isHistory = false, firstMoveDelayMs = PUZZLE_TIMING.firstMove) => {
   if (!puzzle) return;
-  
+
+  // Antes de tocar nada: si venía corriendo la solución o el rebobinado del
+  // puzle anterior, queda invalidado aquí mismo.
+  cancelPuzzlePlayback();
+
   setIsRetryMode(isRetry);
   setIsHistoryMode(isHistory);
   // Un puzle recién puesto en el tablero vuelve a estar pendiente, salvo en un
@@ -595,6 +609,10 @@ const loadSinglePuzzle = async (
   const isFast = options?.fast === true;
   if (isNextDisabled && !isFast) return;
   setIsNextDisabled(true);
+
+  // También aquí, y no solo en resetPuzzleState: si la consulta no devuelve
+  // puzle, nunca se llega a resetPuzzleState y el bucle seguiría vivo.
+  cancelPuzzlePlayback();
 
   setSolutionRevealed(false);
   setIsRetryMode(false);
@@ -716,6 +734,10 @@ const handleRetry = async () => {
   setHintSquare(null);
   setHintMove(null);
   setIsBoardLocked(false);
+  // Mismo problema que la solución: el rebobinado también espera entre pasos y
+  // puede quedar obsoleto si se cambia de puzle a mitad.
+  const runId = ++playbackRunRef.current;
+  const isStale = () => playbackRunRef.current !== runId;
   setIsShowingSolution(true); // Bloqueamos interacciones durante el rebobinado
   setErrorSquare(null);
   setSuccessSquare(null);
@@ -776,6 +798,7 @@ const handleRetry = async () => {
     syncPiecesFromGame(gameTarget);
 
     await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.rewindStep));
+    if (isStale()) return;
   }
 
   // Finalización del estado
@@ -794,7 +817,11 @@ const handleRetry = async () => {
 // Función para mostrar la solución paso a paso, con animaciones, desde el punto donde el jugador se quedó
 const showSolution = async () => {
   if (!currentPuzzle || isShowingSolution) return;
-  
+
+  // Esta reproducción es la única válida mientras nadie cambie de puzle.
+  const runId = ++playbackRunRef.current;
+  const isStale = () => playbackRunRef.current !== runId;
+
   setIsShowingSolution(true);
   setSolutionRevealed(true);
   setIsPuzzleConsumed(true);
@@ -832,6 +859,7 @@ const showSolution = async () => {
 
   // 2. PAUSA DE ESPERA (800ms)
   await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.solutionPause));
+  if (isStale()) return;
 
   // 3. COMPLETAR LA SOLUCIÓN DESDE DONDE ESTABA
   // Usamos 'solutionStep' para saber por qué movimiento iba el puzzle
@@ -858,6 +886,9 @@ const showSolution = async () => {
 
     // Pausa entre movimientos de la solución
     await new Promise(resolve => setTimeout(resolve, PUZZLE_TIMING.solutionStep));
+    // Si a mitad de la línea el usuario ha saltado de puzle, el resto de la
+    // solución NO se aplica: el tablero ya es otro.
+    if (isStale()) return;
   }
 
   setPuzzleSolved(true);
