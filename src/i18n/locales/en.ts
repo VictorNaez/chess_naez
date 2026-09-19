@@ -30,7 +30,26 @@ export const en: Dictionary = {
     privacy: 'Privacy policy',
     settings: 'Settings',
     donations: 'Donations',
+    feedback: 'Contact & feedback',
     analysisSection: 'ANALYSIS',
+  },
+
+  feedback: {
+    title: 'CONTACT',
+    subtitle: 'Write to me. I read every email, even if I cannot always reply to all of them.',
+    pickCategory: 'WHAT IS IT ABOUT?',
+    categories: {
+      bug: 'Bug',
+      suggestion: 'Suggestion',
+      puzzle: 'Wrong puzzle',
+      translation: 'Translation',
+    },
+    diagnosticsNote: 'These details will be added at the end of the email so the problem can be reproduced. You can delete them before sending.',
+    diagnosticsTitle: 'Technical details (delete them if you would rather not send them):',
+    bodyIntro: 'Write your message here:',
+    send: 'OPEN MY EMAIL APP',
+    noMailApp: 'No email app was found. Write to me at:',
+    close: 'CLOSE',
   },
 
   settings: {

@@ -38,7 +38,26 @@ export const es = {
     settings: 'Ajustes',
     privacy: 'Política de privacidad',
     donations: 'Donaciones',
+    feedback: 'Contacto y sugerencias',
     analysisSection: 'ANÁLISIS',
+  },
+
+  feedback: {
+    title: 'CONTACTO',
+    subtitle: 'Escríbeme. Leo todos los correos, aunque no siempre pueda responder a todos.',
+    pickCategory: '¿DE QUÉ SE TRATA?',
+    categories: {
+      bug: 'Fallo',
+      suggestion: 'Sugerencia',
+      puzzle: 'Puzle incorrecto',
+      translation: 'Traducción',
+    },
+    diagnosticsNote: 'Estos datos se añadirán al final del correo para poder reproducir el problema. Puedes borrarlos antes de enviarlo.',
+    diagnosticsTitle: 'Datos técnicos (bórralos si no quieres enviarlos):',
+    bodyIntro: 'Escribe aquí tu mensaje:',
+    send: 'ABRIR MI CORREO',
+    noMailApp: 'No se ha encontrado ninguna app de correo. Escríbeme a:',
+    close: 'CERRAR',
   },
 
   settings: {
@@ -203,9 +222,9 @@ export const es = {
   },
 
   support: {
-    title: 'APOYA LA APP',
-    thanks: '¡Gracias de verdad! Tu apoyo ayuda a seguir mejorando la app.',
-    subtitle: 'Esta app es gratuita y sin anuncios. Si te resulta útil, puedes apoyar su desarrollo. No desbloquea ninguna función extra: es solo un gesto.',
+    title: 'APOYA EL PROYECTO',
+    thanks: 'Muchisimas gracias! Tu apoyo ayuda a seguir mejorando la app.',
+    subtitle: 'Hola! Soy Víctor, un aficionado de ajedrez que ha hecho esta aplicación para dar a todo el mundo acceso a una plataforma de puzzles de ajedrez totalmente gratuita y sin anuncios de ningún tipo. \n \n Cualquier ayuda es totalmente opcional, pero ayudarás a que el proyecto siga adelante  \n \n ¡Te estaré infinitamente agradecido!',
     unavailable: 'Los pagos no están disponibles ahora mismo. Inténtalo más tarde.',
     close: 'CERRAR',
     notNow: 'AHORA NO',

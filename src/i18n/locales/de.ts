@@ -39,7 +39,26 @@ export const de: Dictionary = {
     privacy: 'Datenschutzerklärung',
     settings: 'Einstellungen',
     donations: 'Spenden',
+    feedback: 'Kontakt & Feedback',
     analysisSection: 'ANALYSE',
+  },
+
+  feedback: {
+    title: 'KONTAKT',
+    subtitle: 'Schreib mir. Ich lese jede E-Mail, auch wenn ich nicht immer auf alle antworten kann.',
+    pickCategory: 'WORUM GEHT ES?',
+    categories: {
+      bug: 'Fehler',
+      suggestion: 'Vorschlag',
+      puzzle: 'Falsches Puzzle',
+      translation: 'Übersetzung',
+    },
+    diagnosticsNote: 'Diese Daten werden am Ende der E-Mail eingefügt, damit das Problem nachvollziehbar ist. Du kannst sie vor dem Senden löschen.',
+    diagnosticsTitle: 'Technische Daten (lösche sie, wenn du sie nicht senden möchtest):',
+    bodyIntro: 'Schreibe hier deine Nachricht:',
+    send: 'E-MAIL-APP ÖFFNEN',
+    noMailApp: 'Keine E-Mail-App gefunden. Schreib mir an:',
+    close: 'SCHLIESSEN',
   },
 
   settings: {

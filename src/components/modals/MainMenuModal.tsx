@@ -21,6 +21,7 @@ interface MainMenuModalProps {
   onOpenSupport: () => void;
   onOpenSettings: () => void;
   onOpenStats: () => void;
+  onOpenFeedback: () => void;
   // Puzles pendientes de repasar. Se pinta como badge en la fila de Repaso: es
   // el recordatorio de que tienes deberes, sin tener que abrir nada.
   repasoCount?: number;
@@ -112,6 +113,7 @@ export const MainMenuModal = React.memo(({
   onOpenStats,
   onOpenSupport,
   onOpenSettings,
+  onOpenFeedback,
   repasoCount = 0,
 }: MainMenuModalProps) => {
   const t = useT();
@@ -207,6 +209,11 @@ export const MainMenuModal = React.memo(({
             icon="settings-outline"
             label={t.menu.settings}
             onPress={() => { hapticImpact('light'); onOpenSettings(); }}
+          />
+          <MenuRow
+            icon="mail-outline"
+            label={t.menu.feedback}
+            onPress={() => { hapticImpact('light'); onOpenFeedback(); }}
           />
           <MenuRow
             icon="shield-checkmark-outline"

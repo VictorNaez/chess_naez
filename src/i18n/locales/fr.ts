@@ -39,7 +39,26 @@ export const fr: Dictionary = {
     privacy: 'Politique de confidentialité',
     settings: 'Réglages',
     donations: 'Dons',
+    feedback: 'Contact et suggestions',
     analysisSection: 'ANALYSE',
+  },
+
+  feedback: {
+    title: 'CONTACT',
+    subtitle: 'Écrivez-moi. Je lis tous les e-mails, même si je ne peux pas toujours répondre à tous.',
+    pickCategory: 'DE QUOI S\'AGIT-IL ?',
+    categories: {
+      bug: 'Bug',
+      suggestion: 'Suggestion',
+      puzzle: 'Puzzle incorrect',
+      translation: 'Traduction',
+    },
+    diagnosticsNote: 'Ces données seront ajoutées à la fin de l\'e-mail afin de pouvoir reproduire le problème. Vous pouvez les supprimer avant l\'envoi.',
+    diagnosticsTitle: 'Données techniques (supprimez-les si vous ne voulez pas les envoyer) :',
+    bodyIntro: 'Écrivez votre message ici :',
+    send: 'OUVRIR MA MESSAGERIE',
+    noMailApp: 'Aucune application de messagerie trouvée. Écrivez-moi à :',
+    close: 'FERMER',
   },
 
   settings: {

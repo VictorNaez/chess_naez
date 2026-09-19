@@ -35,7 +35,26 @@ export const pt: Dictionary = {
     privacy: 'Política de privacidade',
     settings: 'Ajustes',
     donations: 'Doações',
+    feedback: 'Contato e sugestões',
     analysisSection: 'ANÁLISE',
+  },
+
+  feedback: {
+    title: 'CONTATO',
+    subtitle: 'Escreva-me. Leio todos os e-mails, mesmo que nem sempre possa responder a todos.',
+    pickCategory: 'SOBRE O QUE É?',
+    categories: {
+      bug: 'Erro',
+      suggestion: 'Sugestão',
+      puzzle: 'Puzzle incorreto',
+      translation: 'Tradução',
+    },
+    diagnosticsNote: 'Estes dados serão adicionados ao final do e-mail para poder reproduzir o problema. Você pode apagá-los antes de enviar.',
+    diagnosticsTitle: 'Dados técnicos (apague-os se não quiser enviá-los):',
+    bodyIntro: 'Escreva aqui a sua mensagem:',
+    send: 'ABRIR MEU E-MAIL',
+    noMailApp: 'Nenhum aplicativo de e-mail encontrado. Escreva para:',
+    close: 'FECHAR',
   },
 
   settings: {

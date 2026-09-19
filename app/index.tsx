@@ -23,6 +23,7 @@ import { FatalErrorScreen } from '../src/components/ErrorScreen';
 import { EloBadge } from '../src/components/header/EloBadge';
 import { PuzzleTimer } from '../src/components/header/PuzzleTimer';
 import { SessionEloSparkline } from '../src/components/header/SessionEloSparkline';
+import { FeedbackModal } from '../src/components/modals/FeedbackModal';
 import { FilterModal } from '../src/components/modals/FilterModal';
 import { HistoryModal } from '../src/components/modals/HistoryModal';
 import { MainMenuModal } from '../src/components/modals/MainMenuModal';
@@ -47,7 +48,7 @@ import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
 import { useSounds } from '../src/hooks/useSounds';
 import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
 import { useUserProgress } from "../src/hooks/useUserProgress";
-import { I18nProvider, useT } from '../src/i18n/I18nProvider';
+import { I18nProvider, useI18n, useT } from '../src/i18n/I18nProvider';
 import { DEFAULT_ELO } from '../src/lib/elo';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { getLegalDestinations } from '../src/lib/legalMoves';
@@ -127,6 +128,9 @@ export default function AppRoot() {
 
 function App() {
   const t = useT();
+  // El idioma efectivo viaja en el correo de contacto: sin él no se sabe en
+  // qué idioma responder ni qué traducción está mal.
+  const { locale } = useI18n();
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
   const [bootError, setBootError] = useState<Error | null>(null);
   const [bootAttempt, setBootAttempt] = useState(0);
@@ -190,6 +194,7 @@ function App() {
   const [selectedThemes, setSelectedThemes] = useState<string[]>([]);
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
   const [isSupportModalVisible, setIsSupportModalVisible] = useState(false);
+  const [isFeedbackModalVisible, setIsFeedbackModalVisible] = useState(false);
   const [appMode, setAppMode] = useState<AppMode>('puzzles');
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const donations = useDonations();
@@ -2522,6 +2527,7 @@ return (
       onOpenStats={() => openFromMenu(openStats)}
       onOpenSupport={() => openFromMenu(() => setIsSupportModalVisible(true))}
       onOpenSettings={() => openFromMenu(() => setIsSettingsModalVisible(true))}
+      onOpenFeedback={() => openFromMenu(() => setIsFeedbackModalVisible(true))}
       repasoCount={repaso.stats.count}
     />
 
@@ -2539,6 +2545,19 @@ return (
         setIsRecommendedMode(newRecommendedMode);
         setIsFilterModalVisible(false);
         loadSinglePuzzle(db, newRange, newThemes, { recommended: newRecommendedMode });
+      }}
+    />
+
+    <FeedbackModal
+      visible={isFeedbackModalVisible}
+      onClose={() => setIsFeedbackModalVisible(false)}
+      context={{
+        locale,
+        mode: appMode,
+        elo: userRatings['global'] ?? DEFAULT_ELO,
+        // El puzle en pantalla es justo el que el usuario quiere reportar
+        // cuando elige "puzle incorrecto"; sin el id, el aviso no es accionable.
+        puzzleId: currentPuzzle?.id ?? null,
       }}
     />
 
