@@ -19,7 +19,7 @@ const FILES = [
 
 // Súbelo cada vez que modifiques engine.html, cualquiera de los .cjs o el .wasm.
 // Si no cambia, los ficheros no se recopian en el arranque.
-const ENGINE_VERSION = '18-lite-2';
+const ENGINE_VERSION = '18-lite-3';
 const STAMP_PATH = STOCKFISH_DIR + 'version.txt';
 
 async function ensureEngineFilesOnDisk(): Promise<string> {

@@ -44,10 +44,10 @@ export const MIN_ELO_STEP = 5;
 //
 // `until` es exclusivo y se compara contra el número de intentos YA puntuados.
 const K_SCHEDULE: readonly { until: number; k: number }[] = [
-  { until: 20, k: 96 },   // calibración: el rating se mueve a saltos de ~50
-  { until: 50, k: 56 },   // afinado
-  { until: 100, k: 32 },  // convergencia
-  { until: Infinity, k: 16 }, // crucero: el valor histórico
+  { until: 15, k: 85 },   // calibración: el rating se mueve a saltos de ~50
+  { until: 30, k: 40 },   // afinado
+  { until: 50, k: 15 },  // convergencia
+  { until: Infinity, k: 5 }, // crucero: el valor histórico
 ];
 
 // Intentos a partir de los cuales K ya es el de crucero. Sirve para pintar un
@@ -59,7 +59,7 @@ export const getKFactor = (attempts: number): number => {
   for (const step of K_SCHEDULE) {
     if (safe < step.until) return step.k;
   }
-  return 16;
+  return 5;
 };
 
 // ---------------------------------------------------------

@@ -119,13 +119,23 @@
   // busca (medido), así que un timer nunca salta antes. postMessage, en cambio,
   // se puede llamar de forma síncrona desde print(): cuando llega la última
   // línea multipv de una profundidad se envía ya, sin timer, si es la primera
-  // de la búsqueda o han pasado 60 ms desde el último envío. El timer queda
+  // de la búsqueda o han pasado FLUSH_INTERVAL_MS desde el último envío. El timer queda
   // para lo que no completa ráfaga (posiciones con menos jugadas que MultiPV).
-  var FLUSH_INTERVAL_MS = 60;
+  var FLUSH_INTERVAL_MS = 120;
   var infoBuffer = {};
   var flushTimer = null;
   var lastFlushAt = 0;
   var sanCache = {};           // multipv -> { fen, pv, san }
+
+  // --- PROFUNDIDAD MÍNIMA PARA PUBLICAR ---
+  // Las iteraciones 1..7 salen casi todas seguidas en los primeros milisegundos
+  // del 'go', justo cuando la pieza se está animando en el otro proceso, y su
+  // evaluación no le dice nada a nadie (la flecha además baila). Se siguen
+  // guardando en infoBuffer (siempre la última de cada multipv), pero no
+  // disparan vaciado: si la búsqueda acabara antes de llegar al umbral, el
+  // flushInfo() del 'bestmove' las publica igual.
+  var MIN_PUBLISH_DEPTH = 8;
+  var minPublishDepth = MIN_PUBLISH_DEPTH;   // se recorta si el 'go depth N' pide menos
 
   // Misma conversión que src/lib/uci.ts (uciLineToSan): se corta en la primera
   // jugada ilegal.
@@ -181,6 +191,16 @@
 
   // indexOf en vez de regex: este código corre en el mismo hilo que el WASM,
   // así que cada microsegundo aquí es tiempo de búsqueda que le quitamos al motor.
+  // ' depth ' solo casa con la de la iteración: en ' seldepth ' no hay espacio
+  // delante de la 'd'.
+  function lineDepth(line) {
+    var i = line.indexOf(' depth ');
+    if (i === -1) return 0;
+    var start = i + 7;
+    var end = line.indexOf(' ', start);
+    return parseInt(end === -1 ? line.substring(start) : line.substring(start, end), 10) || 0;
+  }
+
   function multipvKey(line) {
     var i = line.indexOf(' multipv ');
     if (i === -1) return '1';
@@ -192,6 +212,7 @@
   function queueInfo(line) {
     var key = multipvKey(line);
     infoBuffer[key] = line;
+    if (lineDepth(line) < minPublishDepth) return;
     var burstComplete = Number(key) >= expectedMultiPV;
     if (burstComplete && (firstInfoPending || Date.now() - lastFlushAt >= FLUSH_INTERVAL_MS)) {
       firstInfoPending = false;
@@ -239,6 +260,10 @@
       searchFen = positionFen;
       firstInfoPending = true;
       infoBuffer = {};
+      // Un 'go depth 6' nunca alcanzaría el umbral: ahí el umbral es la propia
+      // profundidad pedida.
+      var goDepth = cmd.indexOf('go depth ') === 0 ? parseInt(cmd.substring(9), 10) : 0;
+      minPublishDepth = goDepth > 0 ? Math.min(MIN_PUBLISH_DEPTH, goDepth) : MIN_PUBLISH_DEPTH;
       if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     } else if (cmd.indexOf('setoption name MultiPV value ') === 0) {
       expectedMultiPV = parseInt(cmd.substring(29), 10) || 1;

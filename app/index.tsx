@@ -983,6 +983,11 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         applyMoveIdentity(move);
         const nextFen = gameCopy.fen();
 
+        // El motor arranca la búsqueda nueva a los pocos ms de este commit y
+        // las primeras profundidades salen de golpe. Retenemos el repintado del
+        // panel mientras la pieza se anima.
+        analysisEngine.holdOutput(PUZZLE_TIMING.engineOutputHold);
+
         setLastMoveFrom(move.from);
         setLastMoveTo(move.to);
 
@@ -1261,6 +1266,7 @@ const goToViewIndex = (targetIndex: number) => {
   setSelectedSquare(null);
   setLegalMoves([]);
   analysisEngine.clearBestMove();
+  analysisEngine.holdOutput(PUZZLE_TIMING.engineOutputHold);
 
   // Recorremos el historial de una posición a la CONTIGUA, nunca de un salto:
   // así cada paso se resuelve como un movimiento exacto y solo se anima la
@@ -1912,6 +1918,7 @@ const handleEngineSequencePress = async (moves: string[]) => {
   analysisEngine.isSequencePlayingRef.current = false;
   
   if (analysisEngine.isAnalysisMode) {
+    analysisEngine.holdOutput(PUZZLE_TIMING.engineOutputHold);
     analysisEngine.restartSearch(localGame.fen());
   }
 

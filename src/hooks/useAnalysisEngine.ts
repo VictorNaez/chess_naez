@@ -41,6 +41,13 @@ export function useAnalysisEngine(fen: string) {
   const handshakeSentRef = useRef(false);
   const ignoreEngineOutputRef = useRef(true);   // true mientras la salida es de una búsqueda obsoleta
   const linesRef = useRef<Record<number, EngineLine>>({});
+  // Ventana en la que NO se publica al store (la pieza se está animando). El
+  // parseo sigue: solo se retrasa el repintado, y al salir de la ventana se
+  // vuelca lo último que haya.
+  const holdUntilRef = useRef(0);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 'bestmove' llegado durante una retención: lo aplica el volcado diferido.
+  const pendingBestMoveRef = useRef<string | null>(null);
   const isSequencePlayingRef = useRef(false);
   const searchActiveRef = useRef(false);        // ¿hay un "go" sin su bestmove?
   const stopWaitersRef = useRef<(() => void)[]>([]);  // se resuelven con el siguiente bestmove
@@ -51,6 +58,66 @@ export function useAnalysisEngine(fen: string) {
   const crashRecoveryRef = useRef<() => void>(() => {});
   const engineResetRef = useRef<() => void>(() => {});
 
+  // Vuelca al store lo que haya ahora mismo en linesRef. Si ninguna línea ha
+  // cambiado de identidad, se reutiliza el array anterior y `outputStore.set`
+  // no llega a avisar a nadie.
+  const publishLines = useCallback(() => {
+    const ids = Object.keys(linesRef.current).map(Number).sort((a, b) => a - b);
+    const lines = ids.map((id) => linesRef.current[id]);
+    const first = lines[0];
+    if (!first) return;
+    const previous = outputStore.get().lines;
+    const unchanged = previous.length === lines.length && lines.every((l, i) => l === previous[i]);
+    const bestMove = pendingBestMoveRef.current ?? (first.move || null);
+    pendingBestMoveRef.current = null;
+    outputStore.set({
+      lines: unchanged ? previous : lines,
+      isEvaluating: false,              // ya hay datos reales de la posición actual
+      bestMove,
+      centipawn: first.mateIn === null ? first.score : null,
+      mateIn: first.mateIn === null ? null : String(first.mateIn),
+    });
+  }, [outputStore]);
+
+  // Publica salvo que estemos dentro de la ventana de animación; en ese caso
+  // deja un único temporizador que volcará al salir de ella (y que se vuelve a
+  // armar si mientras tanto llega otra jugada).
+  const publishGated = useCallback(() => {
+    const remaining = holdUntilRef.current - Date.now();
+    if (remaining <= 0) {
+      publishLines();
+      return;
+    }
+    if (holdTimerRef.current !== null) return;
+    holdTimerRef.current = setTimeout(function flushHeld() {
+      holdTimerRef.current = null;
+      const left = holdUntilRef.current - Date.now();
+      if (left > 0) {
+        holdTimerRef.current = setTimeout(flushHeld, left);
+        return;
+      }
+      publishLines();
+    }, remaining);
+  }, [publishLines]);
+
+  // La llama App justo al aplicar una jugada (o al navegar por el historial):
+  // durante `ms` el motor trabaja igual pero el panel no se repinta.
+  const holdOutput = useCallback((ms: number) => {
+    const until = Date.now() + ms;
+    if (until > holdUntilRef.current) holdUntilRef.current = until;
+  }, []);
+
+  const cancelHold = useCallback(() => {
+    holdUntilRef.current = 0;
+    if (holdTimerRef.current !== null) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    pendingBestMoveRef.current = null;
+  }, []);
+
+  useEffect(() => cancelHold, [cancelHold]);
+
   // Una llamada por mensaje de la WebView. engine.html ya agrupa las líneas de
   // cada vaciado en un único mensaje, así que aquí se publica en el store una
   // sola vez por mensaje, sin throttle propio. (El anterior de 100 ms dejaba
@@ -58,22 +125,6 @@ export function useAnalysisEngine(fen: string) {
   // después: las líneas 2 y 3 se quedaban una profundidad por detrás.)
   const handleStockfishOutput = useCallback((output: string) => {
     let linesChanged = false;
-
-    const publishLines = () => {
-      const ids = Object.keys(linesRef.current).map(Number).sort((a, b) => a - b);
-      const lines = ids.map((id) => linesRef.current[id]);
-      const first = lines[0];
-      if (!first) return;
-      const previous = outputStore.get().lines;
-      const unchanged = previous.length === lines.length && lines.every((l, i) => l === previous[i]);
-      outputStore.set({
-        lines: unchanged ? previous : lines,
-        isEvaluating: false,              // ya hay datos reales de la posición actual
-        bestMove: first.move || null,
-        centipawn: first.mateIn === null ? first.score : null,
-        mateIn: first.mateIn === null ? null : String(first.mateIn),
-      });
-    };
 
     for (const rawLine of output.split('\n')) {
       let line = rawLine.trim();
@@ -93,8 +144,14 @@ export function useAnalysisEngine(fen: string) {
         const id = parseInt(sep === -1 ? rest : rest.slice(0, sep), 10);
         const current = linesRef.current[id];
         if (current) {
-          linesRef.current[id] = { ...current, san: sep === -1 ? [] : rest.slice(sep + 1).split(' ') };
-          linesChanged = true;
+          const nextSan = sep === -1 ? [] : rest.slice(sep + 1).split(' ');
+          const sameSan = current.san !== null
+            && current.san.length === nextSan.length
+            && current.san.every((move, i) => move === nextSan[i]);
+          if (!sameSan) {
+            linesRef.current[id] = { ...current, san: nextSan };
+            linesChanged = true;
+          }
         }
         continue;
       }
@@ -132,13 +189,22 @@ export function useAnalysisEngine(fen: string) {
         if (line.includes(' pv ')) fullPv = line.split(' pv ')[1].trim();
 
         if (pvIdx <= engineCfgRef.current.multiPV) {
+          const lineFen = searchRef.current?.fen ?? '';
+          const previous = linesRef.current[pvIdx];
+          // Misma puntuación y misma PV que en la iteración anterior: se
+          // conserva el objeto (con su SAN ya calculado) para que el memo de
+          // PvLine acierte y la fila no se reconstruya.
+          if (previous && previous.score === formattedScore && previous.pv === fullPv
+              && previous.mateIn === mateIn && previous.fen === lineFen) {
+            continue;
+          }
           linesRef.current[pvIdx] = {
             id: pvIdx,
             score: formattedScore,
             move: fullPv.split(' ')[0] ?? '',
             pv: fullPv,
             mateIn,
-            fen: searchRef.current?.fen ?? '',
+            fen: lineFen,
             san: null,
           };
           linesChanged = true;
@@ -150,12 +216,12 @@ export function useAnalysisEngine(fen: string) {
         searchActiveRef.current = false;
         if (!ignoreEngineOutputRef.current) {
           // Volcado final: no llegarán más líneas de esta búsqueda.
-          publishLines();
-          linesChanged = false;
           const parts = line.split(' ');
           if (parts.length > 1 && parts[1] !== '(none)') {
-            outputStore.set({ bestMove: parts[1] });
+            pendingBestMoveRef.current = parts[1];
           }
+          publishGated();
+          linesChanged = false;
         }
         const waiters = stopWaitersRef.current;
         stopWaitersRef.current = [];
@@ -163,8 +229,8 @@ export function useAnalysisEngine(fen: string) {
       }
     }
 
-    if (linesChanged) publishLines();
-  }, [outputStore]);
+    if (linesChanged) publishGated();
+  }, [publishGated]);
 
   const handleEngineReset = useCallback(() => engineResetRef.current(), []);
 
@@ -182,6 +248,7 @@ export function useAnalysisEngine(fen: string) {
   // Deja el motor como recién creado: sin handshake, sin búsqueda y sin salida visible.
   const resetEngineState = useCallback(() => {
     setIsEngineReady(false);
+    cancelHold();
     handshakeSentRef.current = false;
     appliedOptionsRef.current = null;
     searchRef.current = null;
@@ -193,7 +260,7 @@ export function useAnalysisEngine(fen: string) {
     stopWaitersRef.current = [];
     waiters.forEach((resolve) => resolve());
     outputStore.set(EMPTY_ENGINE_OUTPUT);
-  }, [outputStore]);
+  }, [outputStore, cancelHold]);
 
   // Sin esperas fijas (antes 250 ms aquí + 200 ms en engine.html): los comandos
   // esperan en cola a que cargue la WebView y a que el motor exista, y nadie
@@ -287,9 +354,10 @@ export function useAnalysisEngine(fen: string) {
     ignoreEngineOutputRef.current = true;
     linesRef.current = {};
     searchRef.current = null;
+    cancelHold();
     if (searchActiveRef.current) sendCommandToStockfish('stop');
     outputStore.set(EMPTY_ENGINE_OUTPUT);
-  }, [isAnalysisMode, sendCommandToStockfish, outputStore]);
+  }, [isAnalysisMode, sendCommandToStockfish, outputStore, cancelHold]);
 
   // SINCRONIZAR EL MOTOR con la posición y los ajustes. UCI solo acepta
   // 'setoption' con el motor parado, así que el orden es siempre
@@ -346,6 +414,7 @@ export function useAnalysisEngine(fen: string) {
     enterAnalysisMode,
     exitAnalysisMode,
     clearBestMove,
+    holdOutput,
     pauseSearch,
     restartSearch,
     isSequencePlayingRef,

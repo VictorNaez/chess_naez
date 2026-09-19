@@ -27,6 +27,14 @@ export const PUZZLE_TIMING = {
   // Duración de la animación de una pieza al desplazarse.
   pieceMove: 200,
 
+  // Ventana en la que el panel de análisis deja de PUBLICAR resultados tras
+  // una jugada. El motor sigue buscando y parseando: lo único que se retrasa
+  // es el repintado, que en Fabric monta vistas en el hilo de UI, el mismo en
+  // el que Reanimated está animando la pieza. Las profundidades bajas salen
+  // casi instantáneas, así que sin esto caen 3-5 re-renders del panel MultiPV
+  // justo encima de la animación. Tiene que cubrir `pieceMove` con holgura.
+  engineOutputHold: 240,
+
   // Retardo del "✅" y del desbloqueo del tablero al completar el puzle.
   // Antes: 250.
   solvedFeedback: 180,
