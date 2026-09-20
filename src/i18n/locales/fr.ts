@@ -264,6 +264,10 @@ export const fr: Dictionary = {
     advancedTactics: 'TACTIQUE AVANCÉE',
     endgames: 'FINALES',
     phases: 'PHASES',
+    pawns: 'PIONS ET RÈGLES',
+    matePatterns: 'MOTIFS DE MAT',
+    goal: 'OBJECTIF',
+    length: 'LONGUEUR',
   },
   
     fatal: {

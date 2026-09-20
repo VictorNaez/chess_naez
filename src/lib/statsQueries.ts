@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { CHESS_THEMES, type ThemeCategoryId } from '../components/chess_themes';
+import { CHESS_THEMES, themeKeysFromRow, type ThemeCategoryId } from '../components/chess_themes';
 import { DEFAULT_ELO } from './elo';
 
 // =========================================================
@@ -303,9 +303,10 @@ export const loadStats = async (
   // de traer una fila por intento, y luego repartimos en JS. Sumas en vez de
   // medias: hay que poder recombinar los grupos por tema.
   const themeRows = await db.getAllAsync<{
-    themes: string | null; attempts: number; solved: number; msSum: number; msCount: number;
+    th0: number; th1: number; th2: number;
+    attempts: number; solved: number; msSum: number; msCount: number;
   }>(`
-    SELECT p.themes                                                              AS themes,
+    SELECT p.th0 AS th0, p.th1 AS th1, p.th2 AS th2,
            COUNT(*)                                                              AS attempts,
            COALESCE(SUM(h.is_success), 0)                                        AS solved,
            COALESCE(SUM(CASE WHEN h.solve_ms BETWEEN 1 AND ? THEN h.solve_ms END), 0) AS msSum,
@@ -313,7 +314,7 @@ export const loadStats = async (
     FROM elo_history h
     JOIN puzzles p ON p.id = h.puzzleID
     WHERE h.puzzleID IS NOT NULL AND ${TS_MS('h')} >= ?
-    GROUP BY p.themes
+    GROUP BY p.th0, p.th1, p.th2
   `, [cap, cap, since]);
 
   const progressRows = await db.getAllAsync<{ theme_id: string; elo: number }>(
@@ -325,8 +326,7 @@ export const loadStats = async (
 
   const acc = new Map<string, { attempts: number; solved: number; msSum: number; msCount: number }>();
   for (const row of themeRows) {
-    if (!row.themes) continue;
-    for (const id of row.themes.trim().split(/\s+/)) {
+    for (const id of themeKeysFromRow(row)) {
       const prev = acc.get(id) ?? { attempts: 0, solved: 0, msSum: 0, msCount: 0 };
       prev.attempts += row.attempts;
       prev.solved += row.solved;
@@ -338,15 +338,15 @@ export const loadStats = async (
 
   const themes: ThemeStat[] = CHESS_THEMES
     .map(t => {
-      const a = acc.get(t.id);
+      const a = acc.get(t.key);
       return {
-        id: t.id,
+        id: t.key,
         categoryId: t.categoryId,
         attempts: a?.attempts ?? 0,
         solved: a?.solved ?? 0,
         accuracy: a && a.attempts > 0 ? a.solved / a.attempts : 0,
         avgMs: a && a.msCount > 0 ? a.msSum / a.msCount : 0,
-        elo: eloByTheme.get(t.id) ?? null,
+        elo: eloByTheme.get(t.key) ?? null,
       };
     })
     .filter(t => t.attempts > 0)

@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { themeKeysFromRow } from '../components/chess_themes';
 import type { Puzzle } from '../types/puzzle';
 import {
   EMPTY_REPASO_STATS,
@@ -53,7 +54,7 @@ export const setupRepasoTable = async (db: SQLite.SQLiteDatabase) => {
 // posición original en el orden "antiguos primero".
 export const enqueueRepaso = async (
   db: SQLite.SQLiteDatabase,
-  puzzle: { id: string; rating: number; themes: string },
+  puzzle: { id: string; rating: number; themes: readonly string[] },
   reason: RepasoReason
 ): Promise<void> => {
   const now = Date.now();
@@ -71,7 +72,7 @@ export const enqueueRepaso = async (
     [
       String(puzzle.id),
       Number(puzzle.rating) || 0,
-      puzzle.themes ?? '',
+      (puzzle.themes ?? []).join(' '),
       rank,
       rank === REPASO_REASON.fail ? 1 : 0,
       now,
@@ -177,7 +178,7 @@ export const getRepasoBatch = async (
 ): Promise<Puzzle[]> => {
   const rows = await db.getAllAsync<any>(
     `SELECT p.id AS id, p.fen AS fen, p.solution AS solution,
-            p.rating AS rating, p.themes AS themes
+            p.rating AS rating, p.th0 AS th0, p.th1 AS th1, p.th2 AS th2
        FROM ${TABLE} q
        JOIN puzzles p ON p.id = q.puzzle_id
       ORDER BY ${ORDER_SQL[order]}
@@ -190,7 +191,7 @@ export const getRepasoBatch = async (
     fen: r.fen,
     solution: String(r.solution ?? '').split(' ').filter(Boolean),
     rating: Number(r.rating) || 0,
-    themes: r.themes ?? '',
+    themes: themeKeysFromRow(r),
   }));
 };
 

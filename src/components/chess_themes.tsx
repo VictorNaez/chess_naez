@@ -1,79 +1,135 @@
 import type { Dictionary } from '../i18n';
+import { THEME_LABEL_EN } from '../data/themeBits';
+import { BITS_PER_COL, THEME_BIT, type ThemeKey } from '../data/themeBits';
 
-// El id numérico es lo ÚNICO que persiste (columna `themes` de SQLite y
-// `elo_history.theme`). Nunca lo toques al traducir.
+// La clave de Lichess es lo ÚNICO que persiste (`elo_history.theme`,
+// `user_progress.theme_id`). El bit numérico solo existe dentro del catálogo,
+// y lo genera build_catalog.py a partir de THEME_VOCAB. Nunca los mezcles:
+// aquí siempre se trabaja con la clave.
 //
-// `categoryId` sustituye al antiguo `category: "Ataque"`. Antes el agrupamiento
-// del radar comparaba la cadena VISIBLE, así que traducir "Ataque" habría
-// vaciado el grupo entero sin dar ningún error de compilación.
+// De los 73 temas del catálogo se exponen 64. Los 9 restantes (mateIn1..5,
+// master, masterVsMaster, superGM, collinearMove) siguen teniendo su bit en el
+// .db y sus puzzles siguen apareciendo; simplemente no se ofrecen como filtro.
+// Añadir uno es meter su clave en la lista de abajo, sin regenerar nada.
+
 export type ThemeCategoryId = keyof Dictionary['themeCategories'];
 
 export interface ChessTheme {
-  id: string;
+  key: ThemeKey;
   categoryId: ThemeCategoryId;
 }
 
+const cat = (categoryId: ThemeCategoryId, keys: ThemeKey[]): ChessTheme[] =>
+  keys.map(key => ({ key, categoryId }));
+
 export const CHESS_THEMES: ChessTheme[] = [
-  // ATAQUE AL REY (MATES)
-  { id: '8',  categoryId: 'attack' },
-  { id: '17', categoryId: 'attack' },
-  { id: '39', categoryId: 'attack' },
-  { id: '21', categoryId: 'attack' },
-  { id: '15', categoryId: 'attack' },
+  // Fases de la partida
+  ...cat('phases', ['opening', 'middlegame', 'endgame']),
 
-  // TÁCTICA FUNDAMENTAL
-  { id: '1',  categoryId: 'basicTactics' },
-  { id: '22', categoryId: 'basicTactics' },
-  { id: '18', categoryId: 'basicTactics' },
-  { id: '25', categoryId: 'basicTactics' },
-  { id: '47', categoryId: 'basicTactics' },
-  { id: '38', categoryId: 'basicTactics' },
+  // Longitud de la solución
+  ...cat('length', ['oneMove', 'short', 'long', 'veryLong']),
 
-  // MANIOBRAS AVANZADAS
-  { id: '9',  categoryId: 'advancedTactics' },
-  { id: '12', categoryId: 'advancedTactics' },
-  { id: '36', categoryId: 'advancedTactics' },
-  { id: '45', categoryId: 'advancedTactics' },
-  { id: '16', categoryId: 'advancedTactics' },
-  { id: '11', categoryId: 'advancedTactics' },
+  // Objetivo / evaluación
+  ...cat('goal', ['mate', 'crushing', 'advantage', 'equality']),
 
-  // FINALES
-  { id: '10', categoryId: 'endgames' },
-  { id: '37', categoryId: 'endgames' },
-  { id: '23', categoryId: 'endgames' },
-  { id: '32', categoryId: 'endgames' },
-  { id: '33', categoryId: 'endgames' },
-  { id: '34', categoryId: 'endgames' },
-  { id: '35', categoryId: 'endgames' },
-  { id: '40', categoryId: 'endgames' },
+  // Táctica fundamental
+  ...cat('basicTactics', [
+    'fork', 'pin', 'skewer', 'hangingPiece', 'discoveredAttack',
+    'discoveredCheck', 'doubleCheck', 'capturingDefender', 'xRayAttack',
+    'trappedPiece',
+  ]),
 
-  // FASES DEL JUEGO
-  { id: '24', categoryId: 'phases' },
-  { id: '13', categoryId: 'phases' },
-  { id: '14', categoryId: 'phases' },
+  // Táctica avanzada
+  ...cat('advancedTactics', [
+    'deflection', 'attraction', 'interference', 'clearance', 'intermezzo',
+    'defensiveMove', 'quietMove', 'sacrifice', 'zugzwang',
+  ]),
+
+  // Ataque al rey
+  ...cat('attack', [
+    'exposedKing', 'kingsideAttack', 'queensideAttack', 'attackingF2F7',
+  ]),
+
+  // Peones y reglas especiales
+  ...cat('pawns', [
+    'advancedPawn', 'promotion', 'underPromotion', 'enPassant', 'castling',
+  ]),
+
+  // Finales
+  ...cat('endgames', [
+    'pawnEndgame', 'knightEndgame', 'bishopEndgame', 'rookEndgame',
+    'queenEndgame', 'queenRookEndgame',
+  ]),
+
+  // Patrones de mate
+  ...cat('matePatterns', [
+    'backRankMate', 'smotheredMate', 'anastasiaMate', 'arabianMate',
+    'bodenMate', 'operaMate', 'epauletteMate', 'dovetailMate', 'hookMate',
+    'killBoxMate', 'cornerMate', 'doubleBishopMate', 'blindSwineMate',
+    'morphysMate', 'pillsburysMate', 'swallowstailMate', 'triangleMate',
+    'vukovicMate', 'balestraMate',
+  ]),
 ];
 
-export const RADAR_CATEGORY_IDS: ThemeCategoryId[] = [
-  'attack',
+/** Orden de las categorías en el FilterModal. */
+export const FILTER_CATEGORY_IDS: ThemeCategoryId[] = [
   'basicTactics',
   'advancedTactics',
+  'matePatterns',
+  'attack',
   'endgames',
+  'pawns',
   'phases',
+  'goal',
+  'length',
 ];
 
-/** Nombre visible de un tema. Devuelve el id si el diccionario no lo cubre. */
-export function themeName(t: Dictionary, id: string): string {
-  return (t.themes as Record<string, string>)[id] ?? id;
+// Ejes del radar. NO son todas las categorías, a propósito.
+//
+// `length` (corto/largo) y `goal` (ventaja/aplastante) etiquetan a la práctica
+// totalidad del catálogo y no describen una habilidad: un "ELO de puzzles
+// cortos" no significa nada al lado de un "ELO de clavadas", y mete ruido en el
+// radar porque siempre tendría muchísimos más intentos que el resto.
+// `phases` se queda fuera por lo mismo, y porque `endgames` ya cubre finales
+// con mucho más detalle.
+export const RADAR_CATEGORY_IDS: ThemeCategoryId[] = [
+  'basicTactics',
+  'advancedTactics',
+  'matePatterns',
+  'attack',
+  'endgames',
+  'pawns',
+];
+
+/** Nombre visible de un tema. Devuelve la clave si el diccionario no la cubre. */
+export function themeName(t: Dictionary, key: string): string {
+  // El respaldo en inglés existe para que los 36 temas nuevos se vean con su
+  // nombre real mientras no estén traducidos a los seis idiomas, en vez de
+  // enseñar la clave cruda ("smotheredMate") en pantalla.
+  return (t.themes as Record<string, string>)[key] ?? THEME_LABEL_EN[key] ?? key;
 }
 
-/** Nombres visibles de una cadena "8 22 47" tal y como viene de la BD. */
-export function themeNames(t: Dictionary, themeIdsString: string): string {
-  if (!themeIdsString) return '';
-  if (themeIdsString === 'global') return t.puzzle.globalElo;
-  return themeIdsString
-    .trim()
-    .split(/\s+/)
-    .map(id => (t.themes as Record<string, string>)[id])
-    .filter(Boolean)
-    .join(', ');
+/** Nombres visibles de una lista de claves. */
+export function themeNames(t: Dictionary, keys: readonly string[]): string {
+  if (!keys.length) return '';
+  if (keys.length === 1 && keys[0] === 'global') return t.puzzle.globalElo;
+  return keys.map(k => themeName(t, k)).filter(Boolean).join(', ');
 }
+
+/**
+ * Claves de tema que lleva un puzle, a partir de sus columnas th0/th1/th2.
+ * Solo devuelve las expuestas: un puzle con `master` no enseñará ese tema.
+ */
+const EXPUESTOS = CHESS_THEMES.map(t => t.key);
+
+export function themeKeysFromMask(cols: readonly number[]): ThemeKey[] {
+  return EXPUESTOS.filter(k => {
+    const i = THEME_BIT[k];
+    const col = cols[(i / BITS_PER_COL) | 0] ?? 0;
+    return (col & (1 << (i % BITS_PER_COL))) !== 0;
+  });
+}
+
+/** Atajo para una fila del catálogo. */
+export const themeKeysFromRow = (r: { th0?: number; th1?: number; th2?: number }): ThemeKey[] =>
+  themeKeysFromMask([r.th0 ?? 0, r.th1 ?? 0, r.th2 ?? 0]);

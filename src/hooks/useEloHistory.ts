@@ -1,4 +1,5 @@
 import { Chess, Square } from 'chess.js';
+import { themeKeysFromRow } from '../components/chess_themes';
 import * as SQLite from 'expo-sqlite';
 import { useCallback, useState } from 'react';
 import { InteractionManager } from 'react-native';
@@ -86,13 +87,12 @@ export function useEloHistory(
       if (idList.length > 0) {
         const placeholders = idList.map(() => '?').join(',');
         const puzzleRows = await db.getAllAsync<any>(
-          `SELECT id, FEN, SOLUTION, themes FROM puzzles WHERE id IN (${placeholders})`,
+          `SELECT id, fen, solution, th0, th1, th2 FROM puzzles WHERE id IN (${placeholders})`,
           idList
         );
 
         puzzleRows.forEach((p) => {
-          const rawId = p.id ?? p.ID;
-          puzzleMap[String(rawId)] = p;
+          puzzleMap[String(p.id)] = p;
         });
       }
 
@@ -104,8 +104,8 @@ export function useEloHistory(
 
         // Aplicamos el primer movimiento (el forzado del rival) para mostrar
         // la posición real desde la que el jugador resuelve el puzzle
-        let displayFen = puzzleRow.FEN ?? puzzleRow.fen ?? null;
-        const solutionStr = puzzleRow.SOLUTION ?? puzzleRow.solution ?? "";
+        let displayFen = puzzleRow.fen ?? null;
+        const solutionStr = puzzleRow.solution ?? "";
         const firstMove = solutionStr ? solutionStr.split(' ')[0] : null;
 
         if (displayFen && firstMove && firstMove.length >= 4) {
@@ -126,7 +126,7 @@ export function useEloHistory(
         return {
           ...row,
           puzzle_fen: displayFen,
-          puzzle_themes: puzzleRow.themes ?? "",
+          puzzle_themes: themeKeysFromRow(puzzleRow),
         };
       });
 
@@ -171,27 +171,19 @@ export function useEloHistory(
 
     try {
       const searchIdStr = String(historyItem.puzzleID);
-      const searchIdNum = Number(historyItem.puzzleID);
 
-      let row = await db.getFirstAsync<any>(
+      const row = await db.getFirstAsync<any>(
         `SELECT * FROM puzzles WHERE id = ?`,
         [searchIdStr]
       );
 
-      if (!row && !isNaN(searchIdNum)) {
-        row = await db.getFirstAsync<any>(
-          `SELECT * FROM puzzles WHERE id = ?`,
-          [searchIdNum]
-        );
-      }
-
       if (row) {
         const formattedPuzzle: Puzzle = {
-          id: String(row.ID ?? row.id),
-          fen: row.FEN ?? row.fen,
-          solution: (row.SOLUTION ?? row.solution).split(' '),
-          rating: Number(row.RATING ?? row.rating),
-          themes: row.themes ?? "",
+          id: String(row.id),
+          fen: row.fen,
+          solution: String(row.solution).split(' ').filter(Boolean),
+          rating: Number(row.rating),
+          themes: themeKeysFromRow(row),
         };
 
         setIsHistoryModalVisible(false);

@@ -1,6 +1,7 @@
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
+import { themeKeysFromRow } from '../components/chess_themes';
 import type { Puzzle } from '../types/puzzle';
 
 // =========================================================
@@ -26,13 +27,16 @@ import type { Puzzle } from '../types/puzzle';
 // Invertir 2 y 3 fue el bug del "no such table: app_meta": app_meta la creaba
 // ensureSchema, que corre en un efecto posterior. Y leer la versión sin
 // conexión hacía que el catálogo se recopiara (12 MB) en cada arranque.
-const CATALOG_DB = 'puzzles_v2.db';
+const CATALOG_DB = 'puzzles_v3_500k.db';
+// El v2 se queda huérfano en el dispositivo tras actualizar: 12 MB que hay que
+// devolverle al usuario.
+const LEGACY_CATALOG_DB = 'puzzles_v2.db';
 const PROGRESS_DB = 'progress.db';
 const SQLITE_DIR = `${FileSystem.documentDirectory}SQLite`;
 
 // Súbela cuando publiques un catálogo nuevo: al no arrastrar ya el progreso,
 // el asset se puede sobrescribir sin miedo.
-const CATALOG_VERSION = 1;
+const CATALOG_VERSION = 3;
 const CATALOG_VERSION_KEY = 'catalog_version';
 
 // ATTACH quiere una ruta del sistema de ficheros, no una URI file://.
@@ -70,12 +74,9 @@ const attachCatalog = async (db: SQLite.SQLiteDatabase) => {
     await db.runAsync('ATTACH DATABASE ? AS catalog', [catalogPath()]);
   }
 
-  // El prefijo `catalog.` es obligatorio: sin él, SQLite intenta crear el
-  // índice en main y falla con "no such table: main.puzzles". Los SELECT sí
-  // caen en cascada a la base adjunta, el DDL no.
-  await db.execAsync(
-    'CREATE INDEX IF NOT EXISTS catalog.idx_puzzles_rating ON puzzles(rating);',
-  );
+  // Ya NO se crea aquí idx_puzzles_rating: viene construido dentro del asset.
+  // Levantarlo en el arranque costaba segundos en cuanto el catálogo pasó del
+  // millón de filas, y encima obligaba a que el primer usuario pagara el sort.
 };
 
 export const openPuzzleDatabase = (): Promise<SQLite.SQLiteDatabase> => {
@@ -139,7 +140,7 @@ const openPuzzleDatabaseOnce = async (): Promise<SQLite.SQLiteDatabase> => {
       await database.execAsync('DETACH DATABASE catalog;');
     }
     await FileSystem.makeDirectoryAsync(SQLITE_DIR, { intermediates: true });
-    const asset = await Asset.fromModule(require('../../assets/puzzles_v2.db')).downloadAsync();
+    const asset = await Asset.fromModule(require('../../assets/puzzles_v3_500k.db')).downloadAsync();
     if (asset.localUri) {
       // copyAsync sobrescribe. Se hace con el catálogo SIN adjuntar: cambiar el
       // fichero por debajo de una conexión abierta es corrupción asegurada.
@@ -149,6 +150,10 @@ const openPuzzleDatabaseOnce = async (): Promise<SQLite.SQLiteDatabase> => {
       'INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)',
       [CATALOG_VERSION_KEY, String(CATALOG_VERSION)],
     );
+    // El catálogo anterior ya no lo abre nadie: fuera, que son 12 MB.
+    await FileSystem
+      .deleteAsync(`${SQLITE_DIR}/${LEGACY_CATALOG_DB}`, { idempotent: true })
+      .catch(() => {});
     cachedMaxRowid = null; // el catálogo nuevo puede tener otro número de filas
     if (__DEV__) console.log('[DB] catálogo provisionado ->', CATALOG_VERSION);
   }
@@ -225,30 +230,26 @@ export const getMaxRowid = async (db: SQLite.SQLiteDatabase): Promise<number> =>
   return cachedMaxRowid;
 };
 
-// Recupera un puzle concreto por su id. Lo usan el repaso post-partida
-// (contrarreloj / supervivencia) y cualquier sitio que guarde solo el id.
-// El id se prueba como texto y como número: según la columna, SQLite compara
-// '12345' con 12345 sin coincidencia.
+// Recupera un puzle concreto por su id.
+//
+// Ya no hace falta probar el id como número además de como texto: aquello
+// existía porque el catálogo v2 se generó pasando por una hoja de cálculo, que
+// convirtió '00008' en 8 y algunos ids en notación científica ('1,00E+12').
+// build_catalog.py lee el CSV con el módulo `csv` y los deja intactos.
 export const getPuzzleById = async (
   db: SQLite.SQLiteDatabase,
   id: string | number,
 ): Promise<Puzzle | null> => {
-  let row = await db.getFirstAsync<any>('SELECT * FROM puzzles WHERE id = ?', [String(id)]);
-
-  if (!row) {
-    const numericId = Number(id);
-    if (!Number.isNaN(numericId)) {
-      row = await db.getFirstAsync<any>('SELECT * FROM puzzles WHERE id = ?', [numericId]);
-    }
-  }
-
+  const row = await db.getFirstAsync<any>(
+    'SELECT * FROM puzzles WHERE id = ?', [String(id)],
+  );
   if (!row) return null;
 
   return {
-    id: String(row.ID ?? row.id),
-    fen: row.FEN ?? row.fen,
-    solution: String(row.SOLUTION ?? row.solution).split(' '),
-    rating: Number(row.RATING ?? row.rating),
-    themes: row.themes ?? '',
+    id: String(row.id),
+    fen: row.fen,
+    solution: String(row.solution).split(' ').filter(Boolean),
+    rating: Number(row.rating),
+    themes: themeKeysFromRow(row),
   };
 };

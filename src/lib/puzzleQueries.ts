@@ -1,18 +1,105 @@
 import type * as SQLite from 'expo-sqlite';
+import { themeMask } from '../data/themeBits';
 
-// Construye la condición SQL para filtrar puzzles por temas.
-// Un puzzle debe contener TODOS los temas seleccionados (AND, no OR).
-export const buildThemeCondition = (themes: string[]): string => {
-  if (themes.length === 0) return "";
-  const conditions = themes
-    .map(id => `(' ' || themes || ' ') LIKE '% ${id} %'`)
-    .join(" AND ");
-  return `AND (${conditions})`;
+// Filtro por temas. Un puzzle debe contener TODOS los seleccionados (AND).
+//
+// Sustituye al viejo `(' ' || themes || ' ') LIKE '% 29 %'`, que no era
+// indexable y obligaba a concatenar cadenas fila a fila: a 3M de filas el
+// COUNT del FilterModal tardaba medio segundo en escritorio.
+//
+// Las columnas th0/th1/th2 son máscaras de 31 bits. NO son de 63 aunque SQLite
+// aguante enteros de 64: los operadores de bits de JavaScript son de 32 bits y
+// `1 << 40` devuelve 256, así que el lado JS no sabría construir la máscara.
+export const themeFilter = (themes: readonly string[]): { sql: string; params: number[] } => {
+  if (themes.length === 0) return { sql: '', params: [] };
+  const cols = themeMask(themes);
+  const sql: string[] = [];
+  const params: number[] = [];
+  cols.forEach((m, i) => {
+    if (m === 0) return;              // columna sin bits: la condición sobra
+    sql.push(`(th${i} & ?) = ?`);
+    params.push(m, m);
+  });
+  return { sql: sql.length ? `AND ${sql.join(' AND ')}` : '', params };
 };
 
-// Extremos reales del catálogo. El slider de FilterModal usa los mismos.
+// Extremos del catálogo. Son un respaldo: los reales los lee
+// readCatalogRatingRange() del propio .db, porque cada regeneración puede
+// moverlos. El catálogo de 1M llega a 3323, y tener 3000 a fuego dejaba
+// inalcanzables todos los puzzles por encima de esa cifra.
 export const CATALOG_MIN_RATING = 400;
-export const CATALOG_MAX_RATING = 3000;
+export const CATALOG_MAX_RATING = 3400;
+
+// Anchura de las bandas de `theme_counts` / `rating_counts`, fijada por
+// build_catalog.py. Si la cambias allí, cámbiala aquí.
+export const BAND = 100;
+
+let cachedRange: [number, number] | null = null;
+
+/** Extremos reales del catálogo, leídos de rating_counts (unas 30 filas). */
+export const readCatalogRatingRange = async (
+  db: SQLite.SQLiteDatabase,
+): Promise<[number, number]> => {
+  if (cachedRange) return cachedRange;
+  try {
+    const row = await db.getFirstAsync<{ lo: number; hi: number }>(
+      'SELECT MIN(banda) AS lo, MAX(banda) AS hi FROM rating_counts',
+    );
+    if (row && row.lo != null && row.hi != null) {
+      cachedRange = [row.lo, row.hi + BAND - 1];
+      return cachedRange;
+    }
+  } catch {
+    // Catálogo viejo sin rating_counts: nos quedamos con las constantes.
+  }
+  cachedRange = [CATALOG_MIN_RATING, CATALOG_MAX_RATING];
+  return cachedRange;
+};
+
+/**
+ * Cuántos puzzles cumplen el filtro.
+ *
+ * Camino rápido: si el rango cae en bandas enteras y hay 0 o 1 tema, la
+ * respuesta sale de las tablas precalculadas (`rating_counts` /
+ * `theme_counts`), que son unos cientos de filas indexadas -> microsegundos.
+ *
+ * Con 2+ temas no hay respuesta precalculada posible: la intersección de dos
+ * temas no se deduce de sus conteos por separado. Ahí sí toca escanear con la
+ * máscara, y por eso quien llama debe hacerlo con debounce.
+ */
+export const countPuzzles = async (
+  db: SQLite.SQLiteDatabase,
+  range: readonly [number, number] | number[],
+  themes: readonly string[],
+): Promise<number> => {
+  const [lo, hi] = [range[0], range[1]];
+  const alineado = lo % BAND === 0 && (hi + 1) % BAND === 0;
+
+  if (alineado && themes.length <= 1) {
+    const hiBanda = hi + 1 - BAND;
+    if (themes.length === 0) {
+      const r = await db.getFirstAsync<{ n: number }>(
+        'SELECT COALESCE(SUM(n), 0) AS n FROM rating_counts WHERE banda BETWEEN ? AND ?',
+        [lo, hiBanda],
+      );
+      return r?.n ?? 0;
+    }
+    const r = await db.getFirstAsync<{ n: number }>(
+      `SELECT COALESCE(SUM(tc.n), 0) AS n FROM theme_counts tc
+         JOIN themes t ON t.bit = tc.bit
+        WHERE t.name = ? AND tc.banda BETWEEN ? AND ?`,
+      [themes[0], lo, hiBanda],
+    );
+    return r?.n ?? 0;
+  }
+
+  const f = themeFilter(themes);
+  const r = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM puzzles WHERE rating BETWEEN ? AND ? ${f.sql}`,
+    [lo, hi, ...f.params],
+  );
+  return r?.n ?? 0;
+};
 
 // Anchura mínima garantizada de la ventana recomendada.
 const MIN_WINDOW = 150;
@@ -26,16 +113,18 @@ const MIN_WINDOW = 150;
 // como [400, 300]: un BETWEEN invertido, cero filas, y el usuario viendo "No
 // puzzles, adjust filters" sin haber tocado un filtro en su vida. Forzar que el
 // máximo siempre quede por encima del mínimo cierra ese agujero.
-export const getRecommendedRange = (globalElo: number): [number, number] => {
-  const low = Math.min(
-    Math.max(CATALOG_MIN_RATING, globalElo - 50),
-    CATALOG_MAX_RATING - MIN_WINDOW,
-  );
-  const high = Math.min(
-    CATALOG_MAX_RATING,
-    Math.max(low + MIN_WINDOW, globalElo + 150),
-  );
-  return [low, high];
+export const getRecommendedRange = (
+  globalElo: number,
+  catalogRange: readonly [number, number] = [CATALOG_MIN_RATING, CATALOG_MAX_RATING],
+): [number, number] => {
+  const [min, max] = catalogRange;
+  const low = Math.min(Math.max(min, globalElo - 50), max - MIN_WINDOW);
+  const high = Math.min(max, Math.max(low + MIN_WINDOW, globalElo + 150));
+  // Se redondea a bandas enteras para que countPuzzles pueda responder desde
+  // las tablas precalculadas en vez de escanear el catálogo.
+  const lowB = Math.floor(low / BAND) * BAND;
+  const highB = Math.min(Math.ceil((high + 1) / BAND) * BAND - 1, max);
+  return [lowB, highB];
 };
 
 // Lee el rating global directamente de SQLite.

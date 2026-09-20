@@ -3,9 +3,9 @@ import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import * as SQLite from 'expo-sqlite';
 import React, { useEffect, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
-import { arraysEqualUnordered, buildThemeCondition, getRecommendedRange } from '../../lib/puzzleQueries';
+import { arraysEqualUnordered, countPuzzles, getRecommendedRange } from '../../lib/puzzleQueries';
 import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
-import { CHESS_THEMES, RADAR_CATEGORY_IDS, themeName } from '../chess_themes';
+import { CHESS_THEMES, FILTER_CATEGORY_IDS, themeName } from '../chess_themes';
 import { useT } from '../../i18n/I18nProvider';
 import { PALETTE } from '../colors';
 
@@ -61,20 +61,30 @@ export const FilterModal = React.memo(({
     }
   }, [visible]);
 
-  // Contador de puzzles disponibles en tiempo real mientras se edita
+  // Contador de puzzles disponibles en tiempo real mientras se edita.
+  //
+  // countPuzzles responde desde las tablas precalculadas cuando puede (rango en
+  // bandas enteras y como mucho un tema), y ahí es instantáneo. Con dos o más
+  // temas la intersección no se puede precalcular y toca escanear con la
+  // máscara, así que va con debounce: a 1M de filas ese escaneo ronda el
+  // segundo en un móvil de gama media, y el slider dispara este efecto en cada
+  // pixel que se arrastra.
   useEffect(() => {
     if (!db || !visible) return;
     let cancelled = false;
 
-    (async () => {
-      const res = await db.getFirstAsync<{ total: number }>(
-        `SELECT COUNT(*) as total FROM puzzles WHERE rating BETWEEN ? AND ? ${buildThemeCondition(tempSelectedThemes)}`,
-        [tempEloRange[0], tempEloRange[1]]
-      );
-      if (!cancelled) setTempAvailableCount(res?.total || 0);
-    })();
+    const lanzar = () => {
+      countPuzzles(db, tempEloRange as [number, number], tempSelectedThemes)
+        .then(n => { if (!cancelled) setTempAvailableCount(n); })
+        .catch(() => { if (!cancelled) setTempAvailableCount(0); });
+    };
 
-    return () => { cancelled = true; };
+    if (tempSelectedThemes.length <= 1) {
+      lanzar();
+      return () => { cancelled = true; };
+    }
+    const id = setTimeout(lanzar, 250);
+    return () => { cancelled = true; clearTimeout(id); };
   }, [tempEloRange, tempSelectedThemes, visible, db]);
 
   const hasFilterChanges =
@@ -171,22 +181,22 @@ export const FilterModal = React.memo(({
           <Text style={styles.filterTitle}>{t.filters.themesTitle}</Text>
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ width: '100%' }}>
-            {RADAR_CATEGORY_IDS.map((categoryId) => (
+            {FILTER_CATEGORY_IDS.map((categoryId) => (
               <View key={categoryId} style={{ marginBottom: 15 }}>
                 <Text style={{ color: PALETTE.primary, fontSize: 12, fontWeight: '900', marginBottom: 8, opacity: 0.8, letterSpacing: 1 }}>
                   {t.themeCategories[categoryId]}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {CHESS_THEMES.filter(th => th.categoryId === categoryId).map((theme) => {
-                    const isSelected = tempSelectedThemes.includes(theme.id);
+                    const isSelected = tempSelectedThemes.includes(theme.key);
                     return (
                       <TouchableOpacity
-                        key={theme.id}
-                        onPress={() => handleToggleTheme(theme.id)}
+                        key={theme.key}
+                        onPress={() => handleToggleTheme(theme.key)}
                         style={[styles.themeChip, isSelected && styles.themeChipActive]}
                       >
                         <Text style={[styles.themeChipText, isSelected && styles.themeChipTextActive]}>
-                          {themeName(t, theme.id)}
+                          {themeName(t, theme.key)}
                         </Text>
                       </TouchableOpacity>
                     );

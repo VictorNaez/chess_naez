@@ -15,6 +15,7 @@ import { AppState, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View
 import { GestureHandlerRootView, Pressable } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { AnalysisLines } from '../src/components/analysis/AnalysisLines';
+import { themeKeysFromRow } from '../src/components/chess_themes';
 import ChessBoard, { EVAL_BAR_BLOCK_HEIGHT, PieceItem, pieceImages } from "../src/components/ChessBoard";
 import { ClockProgressGrid } from '../src/components/clock/ClockProgressGrid';
 import { ClockScoreBar } from '../src/components/clock/ClockScoreBar';
@@ -53,7 +54,7 @@ import { DEFAULT_ELO } from '../src/lib/elo';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { getLegalDestinations } from '../src/lib/legalMoves';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
-import { buildThemeCondition, getRecommendedRange, hasPuzzleBeenScored, readGlobalElo } from '../src/lib/puzzleQueries';
+import { getRecommendedRange, hasPuzzleBeenScored, readGlobalElo, themeFilter } from '../src/lib/puzzleQueries';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
@@ -397,17 +398,17 @@ useEffect(() => {
 
 
 const mapRow = (r: any): Puzzle => ({
-  id: String(r.ID ?? r.id),
-  fen: r.FEN ?? r.fen,
-  solution: (r.SOLUTION ?? r.solution).split(' '),
-  rating: Number(r.RATING ?? r.rating),
-  themes: r.themes ?? "",
+  id: String(r.id),
+  fen: r.fen,
+  solution: String(r.solution).split(' ').filter(Boolean),
+  rating: Number(r.rating),
+  themes: themeKeysFromRow(r),
 });
 
 const queryPuzzle = useCallback(async (
   database: SQLite.SQLiteDatabase, range: number[], themes: string[]
 ): Promise<Puzzle | null> => {
-  const themeCond = buildThemeCondition(themes);
+  const filtro = themeFilter(themes);
   const maxRowid = await getMaxRowid(database);
 
   // Arrancamos en un rowid aleatorio y buscamos la primera fila que cumpla
@@ -421,11 +422,14 @@ const queryPuzzle = useCallback(async (
   //   sin '+': SEARCH USING INDEX idx_puzzles_rating + USE TEMP B-TREE -> 3 ms
   //            (25 ms si además hay filtro de temas)
   //   con '+': SEARCH USING INTEGER PRIMARY KEY (rowid>?)              -> 0,02 ms
+  //
+  // El coste depende de la selectividad del filtro, no del tamaño de la tabla:
+  // medido igual (0,01-0,02 ms) con 100k, 500k, 1M y 3M filas.
   for (let attempt = 0; attempt < 4; attempt++) {
     const startRowid = Math.floor(Math.random() * maxRowid) + 1;
     const r = await database.getFirstAsync<any>(
-      `SELECT * FROM puzzles WHERE rowid >= ? AND +rating BETWEEN ? AND ? ${themeCond} ORDER BY rowid LIMIT 1`,
-      [startRowid, range[0], range[1]]
+      `SELECT * FROM puzzles WHERE rowid >= ? AND +rating BETWEEN ? AND ? ${filtro.sql} ORDER BY rowid LIMIT 1`,
+      [startRowid, range[0], range[1], ...filtro.params]
     );
     if (r) return mapRow(r);
   }
@@ -434,8 +438,8 @@ const queryPuzzle = useCallback(async (
   // (filtro muy raro, mala suerte con el punto de arranque), buscamos sin
   // restricción de rowid. Esto sí puede tardar más, pero solo en el peor caso.
   const r = await database.getFirstAsync<any>(
-    `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${themeCond} LIMIT 1`,
-    [range[0], range[1]]
+    `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${filtro.sql} LIMIT 1`,
+    [range[0], range[1], ...filtro.params]
   );
   return r ? mapRow(r) : null;
 }, []);
@@ -1103,7 +1107,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
               repaso.registerResult(true, currentPuzzle.id);
 
             } else if (!isHistoryMode && !isRetryMode) {
-              const temasArray = currentPuzzle.themes.split(' ');
+              const temasArray = currentPuzzle.themes;
               const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true,  currentPuzzle.rating, solveMs, isRecommendedMode, hintClicksRef.current);
               if (puntosGanados !== 0) {
                 setEloFeedback({ value: puntosGanados });
@@ -1203,7 +1207,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             repaso.registerResult(false, currentPuzzle.id);
 
           } else if (!isHistoryMode && !isRetryMode) {
-            const temasArray = currentPuzzle.themes.split(' ');
+            const temasArray = currentPuzzle.themes;
             const puntosPerdidos = await updateElo(currentPuzzle.id, temasArray, false, currentPuzzle.rating, solveMs, isRecommendedMode, hintClicksRef.current);
             if (puntosPerdidos !== 0) {
               setEloFeedback({ value: puntosPerdidos });

@@ -273,6 +273,10 @@ export const es = {
     advancedTactics: 'TÁCTICA AVANZADA',
     endgames: 'FINALES',
     phases: 'FASES',
+    pawns: 'PEONES Y REGLAS',
+    matePatterns: 'PATRONES DE MATE',
+    goal: 'OBJETIVO',
+    length: 'LONGITUD',
   },
 
   fatal: {

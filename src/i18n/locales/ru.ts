@@ -275,6 +275,10 @@ export const ru: Dictionary = {
     advancedTactics: 'СЛОЖНАЯ ТАКТИКА',
     endgames: 'ЭНДШПИЛИ',
     phases: 'СТАДИИ',
+    pawns: 'ПЕШКИ И ПРАВИЛА',
+    matePatterns: 'МАТОВЫЕ СЕТИ',
+    goal: 'ЦЕЛЬ',
+    length: 'ДЛИНА',
   },
 
   fatal: {
