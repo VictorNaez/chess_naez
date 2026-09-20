@@ -2,12 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import * as SQLite from 'expo-sqlite';
 import React, { useEffect, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
-import { arraysEqualUnordered, countPuzzles, getRecommendedRange } from '../../lib/puzzleQueries';
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useT } from '../../i18n/I18nProvider';
+import { arraysEqualUnordered, countPuzzles, getRecommendedRange, readCatalogRatingRange } from '../../lib/puzzleQueries';
 import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
 import { CHESS_THEMES, FILTER_CATEGORY_IDS, themeName } from '../chess_themes';
-import { useT } from '../../i18n/I18nProvider';
 import { PALETTE } from '../colors';
+
+// Paso del slider de ELO. 50 puntos: countPuzzles ya no necesita que el rango
+// encaje en bandas de 100, así que no hay razón de rendimiento para engordarlo.
+const ELO_STEP = 50;
 
 interface FilterModalProps {
   visible: boolean;
@@ -50,6 +54,25 @@ export const FilterModal = React.memo(({
   const [tempIsRecommendedMode, setTempIsRecommendedMode] = useState(currentIsRecommendedMode);
   const [isSliding, setIsSliding] = useState(false);
   const [tempAvailableCount, setTempAvailableCount] = useState(0);
+  const [contando, setContando] = useState(false);
+
+  // Extremos REALES del catálogo, no constantes a fuego. El slider llevaba
+  // 400-3000 escritos a mano mientras el catálogo llegaba a 3323: los puzzles
+  // por encima de 3000 eran inalcanzables, y el contador decía 495.835 de
+  // 500.000 sin que se entendiera por qué faltaban.
+  const [limites, setLimites] = useState<[number, number]>([400, 3000]);
+
+  useEffect(() => {
+    if (!db) return;
+    let cancelado = false;
+    readCatalogRatingRange(db).then(([lo, hi]) => {
+      if (cancelado) return;
+      // Se redondean HACIA FUERA al paso del slider para que los extremos del
+      // catálogo queden siempre dentro del rango alcanzable.
+      setLimites([Math.floor(lo / ELO_STEP) * ELO_STEP, Math.ceil(hi / ELO_STEP) * ELO_STEP]);
+    }).catch(() => {});
+    return () => { cancelado = true; };
+  }, [db]);
 
   // Al abrir el modal, sincronizamos el estado temporal con el real.
   // Así cada apertura arranca "limpia", sin arrastrar ediciones canceladas.
@@ -74,15 +97,23 @@ export const FilterModal = React.memo(({
     let cancelled = false;
 
     const lanzar = () => {
+      setContando(true);
       countPuzzles(db, tempEloRange as [number, number], tempSelectedThemes)
         .then(n => { if (!cancelled) setTempAvailableCount(n); })
-        .catch(() => { if (!cancelled) setTempAvailableCount(0); });
+        .catch(err => {
+          // No se silencia: un 0 se pinta igual que un filtro legítimamente
+          // vacío, y eso ya nos costó una tarde de depuración.
+          console.warn('[FILTROS] countPuzzles falló', { rango: tempEloRange, err: String(err) });
+          if (!cancelled) setTempAvailableCount(0);
+        })
+        .finally(() => { if (!cancelled) setContando(false); });
     };
 
     if (tempSelectedThemes.length <= 1) {
       lanzar();
       return () => { cancelled = true; };
     }
+    setContando(true);   // el spinner entra ya, antes del debounce
     const id = setTimeout(lanzar, 250);
     return () => { cancelled = true; clearTimeout(id); };
   }, [tempEloRange, tempSelectedThemes, visible, db]);
@@ -97,7 +128,7 @@ export const FilterModal = React.memo(({
     const nextMode = !tempIsRecommendedMode;
     setTempIsRecommendedMode(nextMode);
     if (nextMode) {
-      setTempEloRange(getRecommendedRange(globalElo));
+      setTempEloRange(getRecommendedRange(globalElo, limites));
     }
   };
 
@@ -113,12 +144,21 @@ export const FilterModal = React.memo(({
         <View style={styles.filterModalContent}>
           <Text style={styles.modalTitle}>{t.puzzle.filters}</Text>
 
-          <View style={[styles.availableContainer, { alignSelf: 'center', marginBottom: 20 }]}>
+          <View style={[styles.availableContainer, {
+            alignSelf: 'center', marginBottom: 20,
+            flexDirection: 'row', alignItems: 'center', gap: 8,
+          }]}>
+            {contando && <ActivityIndicator size="small" color={PALETTE.secondary} />}
             <Text style={[
               styles.availableBadge,
-              tempAvailableCount === 0 && { color: PALETTE.warning }
+              !contando && tempAvailableCount === 0 && { color: PALETTE.warning },
+              contando && { opacity: 0.5 },
             ]}>
-              {tempAvailableCount === 0 ? "SIN PUZZLES DISPONIBLES" : `${tempAvailableCount} PUZZLES ENCONTRADOS`}
+              {contando
+                ? " "//"CONTANDO…"
+                : tempAvailableCount === 0
+                  ? "SIN PUZZLES DISPONIBLES"
+                  : `${tempAvailableCount} PUZZLES ENCONTRADOS`}
             </Text>
           </View>
 
@@ -157,9 +197,9 @@ export const FilterModal = React.memo(({
                     setIsSliding(false);
                     setTempEloRange(values as [number, number]);
                   }}
-                  min={400}
-                  max={3000}
-                  step={50}
+                  min={limites[0]}
+                  max={limites[1]}
+                  step={ELO_STEP}
                   snapped={true}
                   enableLabel={isSliding}
                   customLabel={(labelProps) => isSliding ? <CustomSliderLabel {...labelProps} /> : null}
@@ -215,10 +255,10 @@ export const FilterModal = React.memo(({
               style={[
                 styles.modalBtn,
                 styles.btnApply,
-                (tempAvailableCount === 0 || !hasFilterChanges) && { backgroundColor: PALETTE.disabled, opacity: 0.5 }
+                (contando || tempAvailableCount === 0 || !hasFilterChanges) && { backgroundColor: PALETTE.disabled, opacity: 0.5 }
               ]}
               onPress={() => onApply(tempEloRange, tempSelectedThemes, tempIsRecommendedMode)}
-              disabled={tempAvailableCount === 0 || !hasFilterChanges}
+              disabled={contando || tempAvailableCount === 0 || !hasFilterChanges}
             >
               <Text style={styles.btnText}>
                 {tempAvailableCount === 0 ? "REVISAR FILTROS" : "APLICAR"}

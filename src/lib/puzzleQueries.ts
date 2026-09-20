@@ -59,46 +59,60 @@ export const readCatalogRatingRange = async (
 /**
  * Cuántos puzzles cumplen el filtro.
  *
- * Camino rápido: si el rango cae en bandas enteras y hay 0 o 1 tema, la
- * respuesta sale de las tablas precalculadas (`rating_counts` /
- * `theme_counts`), que son unos cientos de filas indexadas -> microsegundos.
+ * Con 0 o 1 tema casi toda la respuesta sale de las tablas precalculadas
+ * (`rating_counts` / `theme_counts`): se suman las bandas que caen ENTERAS
+ * dentro del rango y solo los dos bordes parciales se cuentan a mano. Cada
+ * borde abarca menos de una banda, así que el indice de rating lo resuelve en
+ * milisegundos aunque el rango vaya de 350 a 3350.
  *
- * Con 2+ temas no hay respuesta precalculada posible: la intersección de dos
- * temas no se deduce de sus conteos por separado. Ahí sí toca escanear con la
- * máscara, y por eso quien llama debe hacerlo con debounce.
+ * Antes esto exigia que el rango encajase exacto en bandas y, si no, escaneaba
+ * el catalogo entero: con el slider en 400-3000 eso era un segundo de espera,
+ * porque 3001 no es multiplo de 100.
+ *
+ * Con 2+ temas no hay atajo posible: la interseccion de dos temas no se deduce
+ * de sus conteos por separado. Ahi se escanea con la mascara, y por eso quien
+ * llama debe hacerlo con debounce.
  */
 export const countPuzzles = async (
   db: SQLite.SQLiteDatabase,
   range: readonly [number, number] | number[],
   themes: readonly string[],
 ): Promise<number> => {
-  const [lo, hi] = [range[0], range[1]];
-  const alineado = lo % BAND === 0 && (hi + 1) % BAND === 0;
+  const lo = range[0];
+  const hi = range[1];
+  if (hi < lo) return 0;
 
-  if (alineado && themes.length <= 1) {
-    const hiBanda = hi + 1 - BAND;
-    if (themes.length === 0) {
-      const r = await db.getFirstAsync<{ n: number }>(
-        'SELECT COALESCE(SUM(n), 0) AS n FROM rating_counts WHERE banda BETWEEN ? AND ?',
-        [lo, hiBanda],
-      );
-      return r?.n ?? 0;
-    }
+  const exacto = async (a: number, b: number): Promise<number> => {
+    if (b < a) return 0;
+    const f = themeFilter(themes);
     const r = await db.getFirstAsync<{ n: number }>(
-      `SELECT COALESCE(SUM(tc.n), 0) AS n FROM theme_counts tc
-         JOIN themes t ON t.bit = tc.bit
-        WHERE t.name = ? AND tc.banda BETWEEN ? AND ?`,
-      [themes[0], lo, hiBanda],
+      `SELECT COUNT(*) AS n FROM puzzles WHERE rating BETWEEN ? AND ? ${f.sql}`,
+      [a, b, ...f.params],
     );
     return r?.n ?? 0;
-  }
+  };
 
-  const f = themeFilter(themes);
-  const r = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM puzzles WHERE rating BETWEEN ? AND ? ${f.sql}`,
-    [lo, hi, ...f.params],
-  );
-  return r?.n ?? 0;
+  if (themes.length > 1) return exacto(lo, hi);
+
+  // Primera y ultima banda contenidas por completo en [lo, hi].
+  const primera = lo % BAND === 0 ? lo : (Math.floor(lo / BAND) + 1) * BAND;
+  const ultimaFin = (hi + 1) % BAND === 0 ? hi : Math.floor(hi / BAND) * BAND - 1;
+  if (primera > ultimaFin) return exacto(lo, hi);   // no cabe ni una banda entera
+
+  const sql = themes.length === 0
+    ? 'SELECT COALESCE(SUM(n), 0) AS n FROM rating_counts WHERE banda BETWEEN ? AND ?'
+    : `SELECT COALESCE(SUM(tc.n), 0) AS n FROM theme_counts tc
+         JOIN themes t ON t.bit = tc.bit
+        WHERE tc.banda BETWEEN ? AND ? AND t.name = ?`;
+  const args: (number | string)[] = [primera, ultimaFin + 1 - BAND];
+  if (themes.length === 1) args.push(themes[0]);
+
+  const [centro, bordeBajo, bordeAlto] = await Promise.all([
+    db.getFirstAsync<{ n: number }>(sql, args).then(r => r?.n ?? 0),
+    exacto(lo, primera - 1),
+    exacto(ultimaFin + 1, hi),
+  ]);
+  return centro + bordeBajo + bordeAlto;
 };
 
 // Anchura mínima garantizada de la ventana recomendada.
