@@ -55,11 +55,12 @@ export const FilterModal = React.memo(({
   const [tempIsRecommendedMode, setTempIsRecommendedMode] = useState(currentIsRecommendedMode);
   const [isSliding, setIsSliding] = useState(false);
   // Disponibles = cumplen el filtro Y no los has resuelto: son los que te
-  // puede servir el tablero. Si llega a 0 con resueltos > 0, aplicar solo
-  // llevaría al aviso de "todos resueltos", así que APLICAR se desactiva igual
-  // que con un filtro vacío.
+  // puede servir el tablero. Con 0 disponibles pero resueltos > 0 SÍ se puede
+  // aplicar: el tablero mostrará el aviso de "todos resueltos", que ofrece
+  // permitir repetidos. Solo un filtro vacío de verdad desactiva APLICAR.
   const [tempAvailableCount, setTempAvailableCount] = useState(0);
   const [tempSolvedCount, setTempSolvedCount] = useState(0);
+  const isEmptyFilter = tempAvailableCount === 0 && tempSolvedCount === 0;
   const [contando, setContando] = useState(false);
 
   // Extremos REALES del catálogo, no constantes a fuego. El slider llevaba
@@ -169,9 +170,21 @@ export const FilterModal = React.memo(({
             ]}>
               {contando
                 ? " "//"CONTANDO…"
-                : tempAvailableCount === 0 && tempSolvedCount === 0
+                : isEmptyFilter
                   ? t.filters.noneAvailable
-                  : t.filters.available(tempAvailableCount, tempSolvedCount)}
+                  : (
+                    <>
+                      {t.filters.availableCount(tempAvailableCount)}
+                      {/* Texto anidado: comparte línea base con el número y se
+                          lee como una nota al margen. Sin resueltos no aporta
+                          nada, así que no se pinta. */}
+                      {tempSolvedCount > 0 && (
+                        <Text style={styles.solvedNote}>
+                          {'  '}{t.filters.solvedCount(tempSolvedCount)}
+                        </Text>
+                      )}
+                    </>
+                  )}
             </Text>
           </View>
 
@@ -268,13 +281,13 @@ export const FilterModal = React.memo(({
               style={[
                 styles.modalBtn,
                 styles.btnApply,
-                (contando || tempAvailableCount === 0 || !hasFilterChanges) && { backgroundColor: PALETTE.disabled, opacity: 0.5 }
+                (contando || isEmptyFilter || !hasFilterChanges) && { backgroundColor: PALETTE.disabled, opacity: 0.5 }
               ]}
               onPress={() => onApply(tempEloRange, tempSelectedThemes, tempIsRecommendedMode)}
-              disabled={contando || tempAvailableCount === 0 || !hasFilterChanges}
+              disabled={contando || isEmptyFilter || !hasFilterChanges}
             >
               <Text style={styles.btnText}>
-                {tempAvailableCount === 0 ? "REVISAR FILTROS" : "APLICAR"}
+                {isEmptyFilter ? "REVISAR FILTROS" : "APLICAR"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -294,7 +307,11 @@ const styles = StyleSheet.create({
     filterModalContent: { width: '95%', maxWidth: MODAL_MAX_WIDTH, height: '90%', backgroundColor: PALETTE.surfaceDark, borderRadius: 30, padding: 25, borderWidth: 1, borderColor: PALETTE.chipBorder },
     filterSection: { marginBottom: 30, alignItems: 'center' },
     availableContainer: { marginTop: 5, backgroundColor: PALETTE.tagBg, paddingVertical: 4, paddingHorizontal: 12, borderRadius: 12 },
-    availableBadge: { color: PALETTE.secondary, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+    availableBadge: { color: PALETTE.secondary, fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+    // Anidado dentro de availableBadge: hereda el color (azul, o naranja si no
+    // quedan disponibles) y se apaga con opacidad en vez de con un gris fijo.
+    // Minúsculas y sin tracking para que se note que es secundario.
+    solvedNote: { fontSize: 11, fontWeight: '600', textTransform: 'none', letterSpacing: 0.2, opacity: 0.6 },
     sliderMarker: { backgroundColor: '#ffffff', height: 20, width: 20, borderRadius: 10, borderWidth: 2, borderColor: PALETTE.secondary, elevation: 5, shadowColor: '#000000' },
     themeChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, backgroundColor: PALETTE.chipBg, marginRight: 10, borderWidth: 1, borderColor: PALETTE.chipBorder },
     themeChipActive: { backgroundColor: PALETTE.chipActiveBg, borderColor: PALETTE.secondary, borderWidth: 2 },

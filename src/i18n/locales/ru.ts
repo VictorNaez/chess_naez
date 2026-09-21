@@ -183,6 +183,9 @@ export const ru: Dictionary = {
     allSolvedTitle: 'Всё решено',
     allSolvedBody: 'Вы уже решили все задачи, подходящие под эти фильтры. Хотите их изменить?',
     changeFilters: 'Изменить фильтры',
+    allowRepeats: 'Разрешить повторы',
+    replayTag: 'Без ELO',
+    replayA11y: 'Повторная задача: уже решена, ELO не меняется',
     noMatchTitle: 'Задачи не найдены',
     noMatchBody: 'Нет задач, подходящих под эти фильтры. Попробуйте их изменить.',
   },
@@ -200,8 +203,8 @@ export const ru: Dictionary = {
     themesTitle: 'ТАКТИЧЕСКИЕ ТЕМЫ',
     dynamicLevel: 'Динамический уровень по вашему текущему прогрессу',
     noneAvailable: 'Нет доступных задач',
-    available: (n: number, s: number) =>
-      `${n} ${plural(n, 'задача доступна', 'задачи доступны', 'задач доступно')} (${s} уже ${plural(s, 'решена', 'решены', 'решено')})`,
+    availableCount: (n: number) => `${n} ${plural(n, 'задача', 'задачи', 'задач')}`,
+    solvedCount: (s: number) => `(${s} ${plural(s, 'решена', 'решены', 'решено')})`,
   },
 
   run: {

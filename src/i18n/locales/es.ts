@@ -174,6 +174,9 @@ export const es = {
     allSolvedTitle: 'Todos resueltos',
     allSolvedBody: 'Ya has resuelto todos los puzles que cumplen estos filtros. ¿Quieres cambiarlos?',
     changeFilters: 'Cambiar filtros',
+    allowRepeats: 'Permitir puzles repetidos',
+    replayTag: 'Sin ELO',
+    replayA11y: 'Puzle repetido: ya lo resolviste, no suma ni resta ELO',
     noMatchTitle: 'Ningún puzle encontrado',
     noMatchBody: 'Ningún puzle cumple estos filtros. Prueba a cambiarlos.',
   },
@@ -192,8 +195,8 @@ export const es = {
     themesTitle: 'TEMAS TÁCTICOS',
     dynamicLevel: 'Nivel dinámico basado en tu progreso actual',
     noneAvailable: 'Sin puzles disponibles',
-    available: (n: number, s: number) =>
-      `${n} ${n === 1 ? 'puzle disponible' : 'puzles disponibles'} (${s} ${s === 1 ? 'ya resuelto' : 'ya resueltos'})`,
+    availableCount: (n: number) => `${n} ${n === 1 ? 'puzle' : 'puzles'}`,
+    solvedCount: (s: number) => `(${s} ${s === 1 ? 'resuelto' : 'resueltos'})`,
   },
 
   run: {

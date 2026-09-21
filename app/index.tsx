@@ -55,7 +55,7 @@ import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { getLegalDestinations } from '../src/lib/legalMoves';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { getRecommendedRange, hasPuzzleBeenScored, readGlobalElo, themeFilter } from '../src/lib/puzzleQueries';
-import { UNSOLVED_FILTER } from '../src/data/puzzleStats';
+import { recordPuzzleResult, UNSOLVED_FILTER } from '../src/data/puzzleStats';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
@@ -290,6 +290,23 @@ function App() {
   // Se apaga solo en cuanto entra cualquier puzle, venga del modo que venga
   // (ver el efecto de entrada del tablero).
   const [boardNotice, setBoardNotice] = useState<'exhausted' | 'empty' | null>(null);
+
+  // "Permitir puzles repetidos" (botón del aviso 'exhausted'). Dura hasta que
+  // se aplican filtros nuevos: con otro filtro vuelve a avisar antes de repetir.
+  // Ref y no estado: loadSinglePuzzle llega a slidePuzzle desde closures viejas.
+  const allowRepeatsRef = useRef(false);
+
+  // Id del puzle cargado como repetición. Un puzle repetido no da ni quita ELO,
+  // no escribe en elo_history (estadísticas y racha intactas) ni va a Repaso;
+  // solo suma a su contador en puzzle_stats. Se guarda el id y no un booleano
+  // para que caduque solo en cuanto el tablero muestra cualquier otro puzle,
+  // venga del modo que venga.
+  const [replayPuzzleId, setReplayPuzzleId] = useState<string | null>(null);
+  // Repaso, historial y partidas pueden mostrar ese mismo id por su cuenta:
+  // ahí mandan sus propias reglas, no las de la repetición.
+  const isReplay =
+    !!currentPuzzle && currentPuzzle.id === replayPuzzleId &&
+    !isRunMode && !isRepasoMode && !isHistoryMode;
 
   // --- ARRANQUE: true una sola vez, cuando ya hay datos reales que pintar ---
   const [hasBooted, setHasBooted] = useState(false);
@@ -707,6 +724,7 @@ const loadSinglePuzzle = async (
   // Intenta usar el puzzle precargado; si no encaja en el rango/temas, va a la BD
   let p: Puzzle | null = null;
   let exhausted = false;
+  let replayId: string | null = null;   // la precarga solo guarda puzles nuevos
   const cached = isFast ? null : pickPrefetched(nextPuzzleRef.current, currentRange, themesToUse);
 
   if (cached) {
@@ -721,9 +739,13 @@ const loadSinglePuzzle = async (
     }
     // Las partidas rápidas repiten sin más; en modo normal no se repite nunca:
     // el hueco del tablero pasa a ser el aviso (boardNotice).
-    exhausted = !!pick && !pick.fresh && !isFast;
+    exhausted = !!pick && !pick.fresh && !isFast && !allowRepeatsRef.current;
     p = exhausted ? null : pick?.puzzle ?? null;
+    // Repetición aceptada (el jugador lo permitió): se marca como tal.
+    // En partidas rápidas no: ahí el ELO global no se toca de todas formas.
+    if (p && pick && !pick.fresh && !isFast) replayId = p.id;
   }
+  setReplayPuzzleId(replayId);
 
   // Filtro de un solo puzle en contrarreloj/supervivencia: vuelve el MISMO id,
   // el efecto de entrada (keyed por currentPuzzle?.id) no corre y el tablero
@@ -1171,6 +1193,12 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
               // elo_history, para no descuadrar el panel de estadísticas.
               repaso.registerResult(true, currentPuzzle.id);
 
+            } else if (isReplay && !isRetryMode) {
+              // Repetido: ya lo resolviste antes, no hay premio. Solo el contador.
+              // (Un reintento tras fallarlo cae abajo y no cuenta nada, como
+              // cualquier reintento.)
+              if (db) recordPuzzleResult(db, currentPuzzle.id, true).catch(() => {});
+
             } else if (!isHistoryMode && !isRetryMode) {
               const temasArray = currentPuzzle.themes;
               const puntosGanados = await updateElo(currentPuzzle.id, temasArray, true,  currentPuzzle.rating, solveMs, isRecommendedMode, hintClicksRef.current);
@@ -1270,6 +1298,10 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             // Sigue en la cola: sube fail_count y due_at lo manda al final,
             // así que la próxima sesión no te lo pone el primero.
             repaso.registerResult(false, currentPuzzle.id);
+
+          } else if (isReplay && !isRetryMode) {
+            // Repetido: tampoco castiga ni va a Repaso. Solo el contador.
+            if (db) recordPuzzleResult(db, currentPuzzle.id, false).catch(() => {});
 
           } else if (!isHistoryMode && !isRetryMode) {
             const temasArray = currentPuzzle.themes;
@@ -1547,6 +1579,7 @@ useEffect(() => {
   const isResumable =
     !!currentPuzzle &&
     !isPuzzleConsumed &&
+    !isReplay &&
     !isRepasoMode &&
     !isRunMode &&
     !isHistoryMode &&
@@ -1563,7 +1596,7 @@ useEffect(() => {
     AsyncStorage.removeItem('@current_puzzle')
       .catch(error => console.error("Error al borrar el puzle activo de AsyncStorage:", error));
   }
-}, [currentPuzzle, isPuzzleConsumed, isRepasoMode, isRunMode, isHistoryMode, isRetryMode]);
+}, [currentPuzzle, isPuzzleConsumed, isReplay, isRepasoMode, isRunMode, isHistoryMode, isRetryMode]);
 
 // Efecto para bloquear el tablero si estamos viendo un movimiento anterior o si el puzzle ya fue resuelto
 useEffect(() => {
@@ -1681,6 +1714,9 @@ const sc = useMemo(() => ({
   pillBtn: { paddingVertical: s(10), paddingHorizontal: s(15), borderRadius: s(12) },
   pillIcon: s(16),
   noticeIcon: s(48),
+  replayTag: { marginLeft: s(10), paddingVertical: s(3), paddingHorizontal: s(8), borderRadius: s(6), gap: s(4) },
+  replayIcon: s(12),
+  replayText: { fontSize: s(11) },
   noticeTitle: { fontSize: s(18) },
   noticeBody: { fontSize: s(14), lineHeight: s(20) },
   pillText: { fontSize: s(12) },
@@ -2593,6 +2629,23 @@ return (
                     </View>
                   </TouchableOpacity>
                 )}
+                {boardNotice === 'exhausted' && !isRunMode && !isRepasoMode && (
+                  <TouchableOpacity
+                    style={[styles.openFiltersBtn, sc.pillBtn]}
+                    onPress={() => {
+                      allowRepeatsRef.current = true;
+                      // El tablero ya está fuera y currentPuzzle es null: el
+                      // puzle que llegue entra por la derecha sin slidePuzzle.
+                      loadSinglePuzzle(db);
+                    }}
+                    accessibilityRole="button"
+                  >
+                    <View style={styles.filterLeftGroup}>
+                      <Ionicons name="repeat" size={sc.pillIcon} color={PALETTE.primary} />
+                      <Text style={[styles.openFiltersText, sc.pillText]}>{t.puzzle.allowRepeats}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
               </Animated.View>
             )}
           </View>
@@ -2609,6 +2662,16 @@ return (
                     <Text style={[styles.puzzleMetaText, sc.metaText]}>
                       PUZZLE ELO {currentPuzzle.rating}
                     </Text>
+                    {isReplay && (
+                      <View
+                        style={[styles.replayTag, sc.replayTag]}
+                        accessible
+                        accessibilityLabel={t.puzzle.replayA11y}
+                      >
+                        <Ionicons name="repeat" size={sc.replayIcon} color={PALETTE.warning} />
+                        <Text style={[styles.replayTagText, sc.replayText]}>{t.puzzle.replayTag}</Text>
+                      </View>
+                    )}
                   </>
                 ) : boardNotice ? null : (
                   <>
@@ -2698,6 +2761,7 @@ return (
         setSelectedThemes(newThemes);
         setIsRecommendedMode(newRecommendedMode);
         setIsFilterModalVisible(false);
+        allowRepeatsRef.current = false;
         loadSinglePuzzle(db, newRange, newThemes, { recommended: newRecommendedMode });
       }}
     />
@@ -2884,6 +2948,9 @@ boardNotice: { position: 'absolute', top: 0, alignSelf: 'center', alignItems: 'c
 boardNoticeTitle: { color: PALETTE.accent, fontWeight: '800', letterSpacing: 0.5, textAlign: 'center' },
 boardNoticeBody: { color: PALETTE.primary, textAlign: 'center' },
 boardNoticeBtn: { marginTop: 8 },
+// Ámbar = "esto no puntúa". Mismo patrón de pastilla que minimalTag.
+replayTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(217, 119, 6, 0.12)', borderWidth: 1, borderColor: 'rgba(217, 119, 6, 0.45)' },
+replayTagText: { color: PALETTE.warning, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
 boardWrapper: { borderWidth: 0, borderColor: PALETTE.surface, borderRadius: 4, elevation: 0, shadowColor: '#000000', alignItems: 'center' },
 
 // --- CONTROLES DE NAVEGACIÓN Y ACCIÓN ---

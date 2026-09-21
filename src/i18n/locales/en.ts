@@ -163,6 +163,9 @@ export const en: Dictionary = {
     allSolvedTitle: 'All solved',
     allSolvedBody: 'You’ve already solved every puzzle that matches these filters. Want to change them?',
     changeFilters: 'Change filters',
+    allowRepeats: 'Allow repeated puzzles',
+    replayTag: 'No ELO',
+    replayA11y: 'Repeated puzzle: already solved, no ELO gained or lost',
     noMatchTitle: 'No puzzles found',
     noMatchBody: 'No puzzle matches these filters. Try changing them.',
   },
@@ -181,8 +184,8 @@ export const en: Dictionary = {
     themesTitle: 'TACTICAL THEMES',
     dynamicLevel: 'Dynamic level based on your current progress',
     noneAvailable: 'No puzzles available',
-    available: (n: number, s: number) =>
-      `${n} ${n === 1 ? 'puzzle' : 'puzzles'} available (${s} already solved)`,
+    availableCount: (n: number) => `${n} ${n === 1 ? 'puzzle' : 'puzzles'}`,
+    solvedCount: (s: number) => `(${s} solved)`,
   },
 
   run: {

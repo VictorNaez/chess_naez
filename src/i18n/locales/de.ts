@@ -172,6 +172,9 @@ export const de: Dictionary = {
     allSolvedTitle: 'Alle gelöst',
     allSolvedBody: 'Du hast bereits alle Puzzles gelöst, die zu diesen Filtern passen. Möchtest du sie ändern?',
     changeFilters: 'Filter ändern',
+    allowRepeats: 'Wiederholte Puzzles erlauben',
+    replayTag: 'Ohne ELO',
+    replayA11y: 'Wiederholtes Puzzle: bereits gelöst, kein ELO-Gewinn oder -Verlust',
     noMatchTitle: 'Keine Puzzles gefunden',
     noMatchBody: 'Kein Puzzle passt zu diesen Filtern. Versuche, sie zu ändern.',
   },
@@ -189,8 +192,8 @@ export const de: Dictionary = {
     themesTitle: 'TAKTISCHE THEMEN',
     dynamicLevel: 'Dynamisches Niveau nach deinem aktuellen Fortschritt',
     noneAvailable: 'Keine Puzzles verfügbar',
-    available: (n: number, s: number) =>
-      `${n} ${n === 1 ? 'Puzzle' : 'Puzzles'} verfügbar (${s} bereits gelöst)`,
+    availableCount: (n: number) => `${n} ${n === 1 ? 'Puzzle' : 'Puzzles'}`,
+    solvedCount: (s: number) => `(${s} gelöst)`,
   },
 
   run: {

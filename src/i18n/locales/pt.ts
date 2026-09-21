@@ -168,6 +168,9 @@ export const pt: Dictionary = {
     allSolvedTitle: 'Todos resolvidos',
     allSolvedBody: 'Você já resolveu todos os puzzles que atendem a estes filtros. Quer alterá-los?',
     changeFilters: 'Mudar filtros',
+    allowRepeats: 'Permitir puzzles repetidos',
+    replayTag: 'Sem ELO',
+    replayA11y: 'Puzzle repetido: já resolvido, não ganha nem perde ELO',
     noMatchTitle: 'Nenhum puzzle encontrado',
     noMatchBody: 'Nenhum puzzle atende a estes filtros. Tente alterá-los.',
   },
@@ -185,8 +188,8 @@ export const pt: Dictionary = {
     themesTitle: 'TEMAS TÁTICOS',
     dynamicLevel: 'Nível dinâmico baseado no seu progresso atual',
     noneAvailable: 'Nenhum puzzle disponível',
-    available: (n: number, s: number) =>
-      `${n} ${n === 1 ? 'puzzle disponível' : 'puzzles disponíveis'} (${s} já ${s === 1 ? 'resolvido' : 'resolvidos'})`,
+    availableCount: (n: number) => `${n} ${n === 1 ? 'puzzle' : 'puzzles'}`,
+    solvedCount: (s: number) => `(${s} ${s === 1 ? 'resolvido' : 'resolvidos'})`,
   },
 
   run: {
