@@ -57,6 +57,13 @@ interface ChessBoardProps {
    * la pieza se levantaría y seguiría al dedo antes de que JS diga que no.
    */
   inputLocked?: boolean;
+  /**
+   * Cada vez que cambia, las piezas que se quedaron pintadas fuera de su casilla
+   * vuelven a ella. Lo usa App cuando se suelta un arrastre legal pero la jugada
+   * no llega a aplicarse (coronación cancelada): la pieza ya se animó al destino
+   * y, como su casilla no cambia, nada más la devolvería.
+   */
+  snapBackToken?: number;
 }
 
 /** Alto que añade la eval bar en modo análisis: 20 de barra + 10 de marginBottom. */
@@ -257,7 +264,7 @@ const ArrowLayer = React.memo(function ArrowLayer({ engineOutput, hintMove, orie
 const AnimatedPiece = React.memo(({ 
   p, visualRow, visualCol, isSuccess, isError, isSelected, isKingInCheck, orientation, onSquarePress, onDragMove, legalMovesSV,
   shadowX, shadowY, showShadow, turnSV, selectedSquareSV, capturedPieceIdSV, squareToPieceIdSV, onInvalidTarget, moveDurationMs, squareSize,
-  inputLockedSV,
+  inputLockedSV, snapBackSV,
 }: { 
   p: PieceItem, visualRow: number, visualCol: number, isSuccess: boolean, isError: boolean, isSelected: boolean, isKingInCheck: boolean, orientation: 'w' | 'b', 
   onSquarePress: (sq: string | null, isDraggingInteraction?: boolean) => void,  onDragMove: (from: string, to: string) => void, legalMovesSV: SharedValue<string[]>,
@@ -265,6 +272,7 @@ const AnimatedPiece = React.memo(({
   capturedPieceIdSV: SharedValue<string | null>, squareToPieceIdSV: SharedValue<Record<string, string>>,
   onInvalidTarget: (square: string) => void, moveDurationMs: number, squareSize: number,
   inputLockedSV: SharedValue<boolean>,
+  snapBackSV: SharedValue<number>,
 }) => {
   
   const targetX = visualCol * squareSize;
@@ -310,6 +318,27 @@ const AnimatedPiece = React.memo(({
       posY.value = targetY;
     }
   }, [visualRow, visualCol, targetX, targetY, moveDurationMs]);
+
+  // Vuelta a la casilla cuando App avisa de que el último arrastre no se aplicó.
+  // El efecto de arriba no sirve: visualRow/visualCol no han cambiado (la jugada
+  // nunca ocurrió) y el memo ni siquiera deja re-renderizar la pieza. Solo se
+  // mueve la que está desplazada; las demás ya están en su origen.
+  useAnimatedReaction(
+    () => snapBackSV.value,
+    (curr, prev) => {
+      if (prev === null || curr === prev) return;
+      if (isDragging.value) return;
+      if (posX.value === originX.value && posY.value === originY.value) return;
+      const token = liftToken.value + 1;
+      liftToken.value = token;
+      isLifted.value = true; // que vuelva por encima del resto, no por debajo
+      posX.value = withTiming(originX.value, { duration: moveDurationMs });
+      posY.value = withTiming(originY.value, { duration: moveDurationMs }, () => {
+        if (liftToken.value === token) isLifted.value = false;
+      });
+    },
+    [moveDurationMs]
+  );
 
   useEffect(() => {
     if (isSelected && !isDragging.value) {
@@ -816,6 +845,7 @@ function ChessBoard({
   size,
   positionKey = null,
   inputLocked = false,
+  snapBackToken = 0,
 }: ChessBoardProps) {
   const boardSize = size;
   const squareSize = size / 8;
@@ -846,6 +876,15 @@ function ChessBoard({
   // las piezas (y por eso no está en el comparador del memo).
   const inputLockedSV = useSharedValue(inputLocked);
   useEffect(() => { inputLockedSV.value = inputLocked; }, [inputLocked]);
+
+  // Señal de "el arrastre no se aplicó": devuelve la pieza a su casilla y, si
+  // el soltar había marcado una captura, la anula para que la víctima reaparezca.
+  const snapBackSV = useSharedValue(snapBackToken);
+  useEffect(() => {
+    if (snapBackSV.value === snapBackToken) return;
+    capturedPieceIdSV.value = null;
+    snapBackSV.value = snapBackToken;
+  }, [snapBackToken]);
 
   // --- SEÑAL DE CLICK INVÁLIDO (flash rojo + haptic) ---
   const invalidFlashSquare = useSharedValue<string | null>(null);
@@ -1081,6 +1120,7 @@ function ChessBoard({
                     moveDurationMs={moveDurationMs}
                     squareSize={squareSize}
                     inputLockedSV={inputLockedSV}
+                    snapBackSV={snapBackSV}
                   />
                 );
               })}

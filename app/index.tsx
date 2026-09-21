@@ -180,6 +180,9 @@ function App() {
   const [isPuzzleConsumed, setIsPuzzleConsumed] = useState(false);
   const [promotionModalVisible, setPromotionModalVisible] = useState(false);
   const [pendingMove, setPendingMove] = useState<{ from: string, to: string } | null>(null);
+  // Se incrementa al cancelar la coronación: el tablero devuelve a su casilla el
+  // peón que el arrastre ya había dejado pintado en la última fila.
+  const [snapBackToken, setSnapBackToken] = useState(0);
   const [isBoardLocked, setIsBoardLocked] = useState(false);
   // Reproducción de una línea del multi-PV. El ref guarda el id de la que está
   // en curso (null = ninguna) y es lo que consultan los guardas: un toque puede
@@ -2481,6 +2484,7 @@ return (
                 size={boardFit.boardSize}
                 positionKey={currentPuzzle?.id ?? null}
                 inputLocked={isSequencePlaying}
+                snapBackToken={snapBackToken}
               />
             </Animated.View>
           </View>
@@ -2641,6 +2645,7 @@ return (
         setPendingMove(null);
         clearSelection();
         syncPiecesFromGame(game);
+        setSnapBackToken(t => t + 1);
       }}
     />
 
