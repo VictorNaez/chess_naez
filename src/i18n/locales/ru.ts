@@ -77,6 +77,7 @@ export const ru: Dictionary = {
     sectionBoard: 'ДОСКА',
     sectionEngine: 'ДВИЖОК (STOCKFISH)',
     sectionLanguage: 'ЯЗЫК',
+    sectionPuzzles: 'ЗАДАЧИ',
 
     soundEffects: 'Звуковые эффекты',
     volume: 'Громкость',
@@ -90,6 +91,9 @@ export const ru: Dictionary = {
     legalMovesHint: 'Показывать возможные ходы выбранной фигуры',
     coordinates: 'Координаты доски',
     coordinatesHint: 'Показывать буквы (a - h) и числа (1 - 8) на краях',
+
+    allowRepeats: 'Режим без ELO',
+    allowRepeatsHint: 'Когда задачи фильтра закончились, повторяет решённые. ELO не меняется',
 
     depth: 'Глубина анализа',
     depthHint: 'Больше глубина — точнее ходы, но медленнее и больше расход батареи',

@@ -4,6 +4,7 @@ import * as SQLite from 'expo-sqlite';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { countSolvedPuzzles } from '../../data/puzzleStats';
+import { useSettings } from '../../hooks/useSettings';
 import { useT } from '../../i18n/I18nProvider';
 import { arraysEqualUnordered, countPuzzles, getRecommendedRange, readCatalogRatingRange } from '../../lib/puzzleQueries';
 import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
@@ -55,12 +56,14 @@ export const FilterModal = React.memo(({
   const [tempIsRecommendedMode, setTempIsRecommendedMode] = useState(currentIsRecommendedMode);
   const [isSliding, setIsSliding] = useState(false);
   // Disponibles = cumplen el filtro Y no los has resuelto: son los que te
-  // puede servir el tablero. Con 0 disponibles pero resueltos > 0 SÍ se puede
-  // aplicar: el tablero mostrará el aviso de "todos resueltos", que ofrece
-  // permitir repetidos. Solo un filtro vacío de verdad desactiva APLICAR.
+  // puede servir el tablero. Con 0 disponibles pero resueltos > 0 solo se
+  // puede aplicar con el modo "SIN ELO" activo (ajuste allowRepeats): entonces
+  // el tablero sirve repetidos. Sin él, ese filtro no daría ningún puzle.
   const [tempAvailableCount, setTempAvailableCount] = useState(0);
   const [tempSolvedCount, setTempSolvedCount] = useState(0);
+  const { allowRepeats } = useSettings();
   const isEmptyFilter = tempAvailableCount === 0 && tempSolvedCount === 0;
+  const isBlocked = isEmptyFilter || (tempAvailableCount === 0 && !allowRepeats);
   const [contando, setContando] = useState(false);
 
   // Extremos REALES del catálogo, no constantes a fuego. El slider llevaba
@@ -137,6 +140,13 @@ export const FilterModal = React.memo(({
     tempEloRange[1] !== currentEloRange[1] ||
     tempIsRecommendedMode !== currentIsRecommendedMode ||
     !arraysEqualUnordered(tempSelectedThemes, currentSelectedThemes);
+
+  // APLICAR sin cambios normalmente no hace nada, pero hay un caso en que sí:
+  // el filtro actual está agotado y el modo "SIN ELO" está activo. Aplicarlo
+  // otra vez recarga el tablero con un repetido (p. ej. si activaste el modo
+  // con el aviso de "todos resueltos" en pantalla).
+  const canReapplyExhausted = !hasFilterChanges && allowRepeats && tempAvailableCount === 0 && !isEmptyFilter;
+  const isApplyDisabled = contando || isBlocked || (!hasFilterChanges && !canReapplyExhausted);
 
   const handleToggleRecommended = () => {
     const nextMode = !tempIsRecommendedMode;
@@ -281,13 +291,13 @@ export const FilterModal = React.memo(({
               style={[
                 styles.modalBtn,
                 styles.btnApply,
-                (contando || isEmptyFilter || !hasFilterChanges) && { backgroundColor: PALETTE.disabled, opacity: 0.5 }
+                isApplyDisabled && { backgroundColor: PALETTE.disabled, opacity: 0.5 }
               ]}
               onPress={() => onApply(tempEloRange, tempSelectedThemes, tempIsRecommendedMode)}
-              disabled={contando || isEmptyFilter || !hasFilterChanges}
+              disabled={isApplyDisabled}
             >
               <Text style={styles.btnText}>
-                {isEmptyFilter ? "REVISAR FILTROS" : "APLICAR"}
+                {isBlocked ? "REVISAR FILTROS" : "APLICAR"}
               </Text>
             </TouchableOpacity>
           </View>

@@ -64,6 +64,7 @@ export const pt: Dictionary = {
     sectionBoard: 'TABULEIRO',
     sectionEngine: 'MOTOR (STOCKFISH)',
     sectionLanguage: 'IDIOMA',
+    sectionPuzzles: 'PUZZLES',
 
     soundEffects: 'Efeitos sonoros',
     volume: 'Volume',
@@ -77,6 +78,9 @@ export const pt: Dictionary = {
     legalMovesHint: 'Mostra os lances legais da peça selecionada',
     coordinates: 'Coordenadas do tabuleiro',
     coordinatesHint: 'Mostra as letras (a - h) e números (1 - 8) nos bordos',
+
+    allowRepeats: 'Modo sem ELO',
+    allowRepeatsHint: 'Ao acabar os puzzles de um filtro, repete os já resolvidos. Não somam nem tiram ELO',
 
     depth: 'Profundidade da análise',
     depthHint: 'Mais profundidade, melhores lances, mas mais lento e mais bateria',

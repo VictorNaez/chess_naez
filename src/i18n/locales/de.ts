@@ -68,6 +68,7 @@ export const de: Dictionary = {
     sectionBoard: 'BRETT',
     sectionEngine: 'ENGINE (STOCKFISH)',
     sectionLanguage: 'SPRACHE',
+    sectionPuzzles: 'PUZZLES',
 
     soundEffects: 'Soundeffekte',
     volume: 'Lautstärke',
@@ -81,6 +82,9 @@ export const de: Dictionary = {
     legalMovesHint: 'Zeigt die legalen Züge der ausgewählten Figur',
     coordinates: 'Koordinaten',
     coordinatesHint: 'Zeigt die Buchstaben (a - h) und Zahlen (1 - 8) an den Rändern an',
+
+    allowRepeats: 'Modus ohne ELO',
+    allowRepeatsHint: 'Sind alle Puzzles eines Filters gelöst, werden gelöste wiederholt. Sie ändern dein ELO nicht',
 
     depth: 'Analysetiefe',
     depthHint: 'Mehr Tiefe bringt bessere Züge, ist aber langsamer und braucht mehr Akku',

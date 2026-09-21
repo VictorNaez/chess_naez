@@ -59,6 +59,7 @@ export const en: Dictionary = {
     sectionBoard: 'BOARD',
     sectionEngine: 'ENGINE (STOCKFISH)',
     sectionLanguage: 'LANGUAGE',
+    sectionPuzzles: 'PUZZLES',
 
     soundEffects: 'Sound effects',
     volume: 'Volume',
@@ -72,6 +73,9 @@ export const en: Dictionary = {
     legalMovesHint: 'Highlights the legal moves of the selected piece',
     coordinates: 'Board coordinates',
     coordinatesHint: 'Shows the letters (a - h) and numbers (1 - 8) on the edges',
+
+    allowRepeats: 'No-ELO mode',
+    allowRepeatsHint: 'When a filter runs out of puzzles, repeat solved ones. They don’t add or subtract ELO',
 
     depth: 'Analysis depth',
     depthHint: 'Higher depth means better moves, but slower and more battery',

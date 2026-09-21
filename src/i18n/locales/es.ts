@@ -67,6 +67,7 @@ export const es = {
     sectionBoard: 'TABLERO',
     sectionEngine: 'MOTOR (STOCKFISH)',
     sectionLanguage: 'IDIOMA',
+    sectionPuzzles: 'PUZLES',
 
     soundEffects: 'Efectos de sonido',
     volume: 'Volumen',
@@ -80,6 +81,9 @@ export const es = {
     legalMovesHint: 'Muestra los movimientos legales de la pieza seleccionada',
     coordinates: 'Muestra las coordenadas del tablero',
     coordinatesHint: 'Muestra las letras (a - h) y números (1 - 8) en los bordes',
+
+    allowRepeats: 'Modo sin ELO',
+    allowRepeatsHint: 'Al acabar los puzles de un filtro, repite los ya resueltos. No suman ni restan ELO',
 
     depth: 'Profundidad de análisis',
     depthHint: 'A mayor profundidad, mejores jugadas pero más lento y más batería',

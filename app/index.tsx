@@ -291,10 +291,10 @@ function App() {
   // (ver el efecto de entrada del tablero).
   const [boardNotice, setBoardNotice] = useState<'exhausted' | 'empty' | null>(null);
 
-  // "Permitir puzles repetidos" (botón del aviso 'exhausted'). Dura hasta que
-  // se aplican filtros nuevos: con otro filtro vuelve a avisar antes de repetir.
-  // Ref y no estado: loadSinglePuzzle llega a slidePuzzle desde closures viejas.
-  const allowRepeatsRef = useRef(false);
+  // Modo "SIN ELO" (ajuste allowRepeats). Espejo en ref porque loadSinglePuzzle
+  // llega a slidePuzzle desde closures viejas y leería el ajuste de entonces.
+  const allowRepeatsRef = useRef(settings.allowRepeats);
+  useEffect(() => { allowRepeatsRef.current = settings.allowRepeats; }, [settings.allowRepeats]);
 
   // Id del puzle cargado como repetición. Un puzle repetido no da ni quita ELO,
   // no escribe en elo_history (estadísticas y racha intactas) ni va a Repaso;
@@ -307,6 +307,16 @@ function App() {
   const isReplay =
     !!currentPuzzle && currentPuzzle.id === replayPuzzleId &&
     !isRunMode && !isRepasoMode && !isHistoryMode;
+
+  // Modo "SIN ELO" recién activado con el aviso de "todos resueltos" en el
+  // tablero (botón del aviso o interruptor de Ajustes): se carga ya un
+  // repetido. Va después del efecto que sincroniza allowRepeatsRef, así que
+  // cuando corre la ref ya vale true. Solo depende del ajuste: boardNotice y
+  // la función se leen en el momento, no deben re-dispararlo.
+  useEffect(() => {
+    if (settings.allowRepeats && boardNotice === 'exhausted' && db) loadSinglePuzzle(db);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.allowRepeats]);
 
   // --- ARRANQUE: true una sola vez, cuando ya hay datos reales que pintar ---
   const [hasBooted, setHasBooted] = useState(false);
@@ -2632,12 +2642,10 @@ return (
                 {boardNotice === 'exhausted' && !isRunMode && !isRepasoMode && (
                   <TouchableOpacity
                     style={[styles.openFiltersBtn, sc.pillBtn]}
-                    onPress={() => {
-                      allowRepeatsRef.current = true;
-                      // El tablero ya está fuera y currentPuzzle es null: el
-                      // puzle que llegue entra por la derecha sin slidePuzzle.
-                      loadSinglePuzzle(db);
-                    }}
+                    // Solo activa el ajuste (queda guardado, se apaga desde
+                    // Ajustes). La carga la hace el efecto de allowRepeats, que
+                    // también cubre activarlo desde Ajustes con el aviso visible.
+                    onPress={() => settings.setSetting('allowRepeats', true)}
                     accessibilityRole="button"
                   >
                     <View style={styles.filterLeftGroup}>
@@ -2761,7 +2769,6 @@ return (
         setSelectedThemes(newThemes);
         setIsRecommendedMode(newRecommendedMode);
         setIsFilterModalVisible(false);
-        allowRepeatsRef.current = false;
         loadSinglePuzzle(db, newRange, newThemes, { recommended: newRecommendedMode });
       }}
     />

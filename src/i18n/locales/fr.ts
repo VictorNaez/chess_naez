@@ -68,6 +68,7 @@ export const fr: Dictionary = {
     sectionBoard: 'ÉCHIQUIER',
     sectionEngine: 'MOTEUR (STOCKFISH)',
     sectionLanguage: 'LANGUE',
+    sectionPuzzles: 'PUZZLES',
 
     soundEffects: 'Effets sonores',
     volume: 'Volume',
@@ -81,6 +82,9 @@ export const fr: Dictionary = {
     legalMovesHint: 'Affiche les coups légaux de la pièce sélectionnée',
     coordinates: 'Coordonnées de l’échiquier',
     coordinatesHint: 'Affiche les lettres (a - h) et les nombres (1 - 8) sur les bords',
+
+    allowRepeats: 'Mode sans ELO',
+    allowRepeatsHint: 'Quand un filtre n’a plus de puzzles, rejoue ceux déjà résolus. Ils ne font ni gagner ni perdre d’ELO',
 
     depth: 'Profondeur d’analyse',
     depthHint: 'Plus de profondeur, de meilleurs coups, mais plus lent et plus gourmand en batterie',

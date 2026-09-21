@@ -136,7 +136,7 @@ const LocaleSelectRow = React.memo(({ label, valueLabel, options, value, open, o
 export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: SettingsModalProps) => {
   const {
     soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves, showCoordinates,
-    engineDepth, engineMultiPV, setSetting, resetSettings,
+    engineDepth, engineMultiPV, allowRepeats, setSetting, resetSettings,
   } = useSettings();
   const { t, locale, preference, setPreference } = useI18n();
   // Mismas proporciones de ventana que antes en móvil (card al 95%), con el tope del card en tablet.
@@ -171,7 +171,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
     if (visible) {
       snapshotRef.current = {
         soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves, showCoordinates,
-        engineDepth, engineMultiPV,
+        engineDepth, engineMultiPV, allowRepeats,
       };
       setTempVolume(Math.round(volume * 100));
       setTempDepth(engineDepth);
@@ -199,6 +199,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
       setSetting('showCoordinates', snap.showCoordinates);
       setSetting('engineDepth', snap.engineDepth);
       setSetting('engineMultiPV', snap.engineMultiPV);
+      setSetting('allowRepeats', snap.allowRepeats);
     }
     onClose();
   };
@@ -310,6 +311,18 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
                   onChange={(v) => setSetting('showCoordinates', v)}
                 />
               </View>
+
+            {/* --- PUZLES --- */}
+            <Text style={styles.sectionTitle}>{t.settings.sectionPuzzles}</Text>
+            <View style={styles.card}>
+              <ToggleRow
+                icon="repeat"
+                label={t.settings.allowRepeats}
+                hint={t.settings.allowRepeatsHint}
+                value={allowRepeats}
+                onChange={(v) => setSetting('allowRepeats', v)}
+              />
+            </View>
             {/* --- MOTOR --- */}
             <Text style={styles.sectionTitle}>{t.settings.sectionEngine}</Text>
             <View style={styles.card}>

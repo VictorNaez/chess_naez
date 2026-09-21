@@ -12,6 +12,10 @@ export interface AppSettings {
   engineDepth: number;     // profundidad del 'go depth N'
   engineHash: number;      // MB de tabla hash
   engineMultiPV: number;   // nº de líneas de análisis (1..3)
+  // Modo "SIN ELO": con un filtro agotado se sirven puzles ya resueltos, que
+  // no dan ni quitan ELO. Apagado, el tablero avisa y el FilterModal no deja
+  // aplicar filtros sin puzles nuevos.
+  allowRepeats: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -24,6 +28,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   engineDepth: 15,
   engineHash: 64,
   engineMultiPV: 3,
+  allowRepeats: false,
 };
 
 const STORAGE_KEY = '@app_settings';
