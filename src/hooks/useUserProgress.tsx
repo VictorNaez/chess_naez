@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { clearPuzzleStats, recordPuzzleResult } from '../data/puzzleStats';
 import { computeEloVariation, DEFAULT_ELO, MIN_ELO } from '../lib/elo';
 
 // =========================================================
@@ -301,6 +302,10 @@ export const useUserProgress = (db: SQLite.SQLiteDatabase | null) => {
             isRecommendedMode ? 1 : 0,
           ]
         );
+
+        // Contador por puzle. Dentro de la transacción para que nunca quede un
+        // intento en elo_history sin su contador, ni al revés.
+        await recordPuzzleResult(db, puzzleId, isSuccess);
       });
 
       // El estado solo se toca cuando la escritura ya ha cuajado.
@@ -331,6 +336,7 @@ export const useUserProgress = (db: SQLite.SQLiteDatabase | null) => {
       await db.withTransactionAsync(async () => {
         await db.runAsync('DELETE FROM user_progress');
         await db.runAsync('DELETE FROM elo_history');
+        await clearPuzzleStats(db);
         await db.runAsync(
           `INSERT INTO user_progress (theme_id, elo) VALUES ('global', ?)`,
           [DEFAULT_ELO]

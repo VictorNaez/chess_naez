@@ -171,6 +171,11 @@ export const es = {
     currentRatingLabel: 'ELO actual:',
     noActivityPeriod: 'Sin actividad en este periodo',
     noPuzzlesYet: 'Todavía no has resuelto ningún puzle',
+    allSolvedTitle: 'Todos resueltos',
+    allSolvedBody: 'Ya has resuelto todos los puzles que cumplen estos filtros. ¿Quieres cambiarlos?',
+    changeFilters: 'Cambiar filtros',
+    noMatchTitle: 'Ningún puzle encontrado',
+    noMatchBody: 'Ningún puzle cumple estos filtros. Prueba a cambiarlos.',
   },
 
   // Pestañas de rango temporal de la gráfica del historial.
@@ -186,6 +191,9 @@ export const es = {
     title: 'FILTROS',
     themesTitle: 'TEMAS TÁCTICOS',
     dynamicLevel: 'Nivel dinámico basado en tu progreso actual',
+    noneAvailable: 'Sin puzles disponibles',
+    available: (n: number, s: number) =>
+      `${n} ${n === 1 ? 'puzle disponible' : 'puzles disponibles'} (${s} ${s === 1 ? 'ya resuelto' : 'ya resueltos'})`,
   },
 
   run: {

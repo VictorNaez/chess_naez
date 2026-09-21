@@ -55,6 +55,7 @@ import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { getLegalDestinations } from '../src/lib/legalMoves';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { getRecommendedRange, hasPuzzleBeenScored, readGlobalElo, themeFilter } from '../src/lib/puzzleQueries';
+import { UNSOLVED_FILTER } from '../src/data/puzzleStats';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
@@ -277,6 +278,18 @@ function App() {
   const nextPuzzleRef = useRef<PrefetchedPuzzle | null>(null);
   const clockPrefetchRef = useRef<{ range: number[]; puzzle: Puzzle } | null>(null);
   const prefetchingRef = useRef(false);
+  // Id del puzle que hay en el tablero, legible desde closures viejas:
+  // loadSinglePuzzle llega a slidePuzzle capturada en un render anterior, así
+  // que `currentPuzzle` ahí dentro puede ir por detrás.
+  const currentPuzzleIdRef = useRef<string | null>(null);
+  useEffect(() => { currentPuzzleIdRef.current = currentPuzzle?.id ?? null; }, [currentPuzzle?.id]);
+
+  // Aviso que ocupa el hueco del tablero cuando no hay puzle que poner:
+  //   'exhausted' -> hay puzles con estos filtros, pero ya los has resuelto todos
+  //   'empty'     -> ningún puzle del catálogo cumple estos filtros
+  // Se apaga solo en cuanto entra cualquier puzle, venga del modo que venga
+  // (ver el efecto de entrada del tablero).
+  const [boardNotice, setBoardNotice] = useState<'exhausted' | 'empty' | null>(null);
 
   // --- ARRANQUE: true una sola vez, cuando ya hay datos reales que pintar ---
   const [hasBooted, setHasBooted] = useState(false);
@@ -408,9 +421,18 @@ const mapRow = (r: any): Puzzle => ({
   themes: themeKeysFromRow(r),
 });
 
+// `fresh` = el jugador no lo ha resuelto nunca. Con fresh: false la banda +
+// temas está agotada y el puzle es una repetición: quien llama decide si lo
+// acepta (partidas rápidas) o avisa al jugador (modo normal).
+type PuzzlePick = { puzzle: Puzzle; fresh: boolean };
+
 const queryPuzzle = useCallback(async (
-  database: SQLite.SQLiteDatabase, range: number[], themes: string[]
-): Promise<Puzzle | null> => {
+  database: SQLite.SQLiteDatabase, range: number[], themes: string[],
+  // El puzle del tablero. Sin excluirlo, con un filtro de pocos puzles la
+  // precarga elegía el MISMO que estás resolviendo (aún no está resuelto, así
+  // que pasa el filtro de no resueltos) y "Siguiente" lo volvía a poner.
+  excludeId: string | null = null,
+): Promise<PuzzlePick | null> => {
   const filtro = themeFilter(themes);
   const maxRowid = await getMaxRowid(database);
 
@@ -428,23 +450,43 @@ const queryPuzzle = useCallback(async (
   //
   // El coste depende de la selectividad del filtro, no del tamaño de la tabla:
   // medido igual (0,01-0,02 ms) con 100k, 500k, 1M y 3M filas.
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const startRowid = Math.floor(Math.random() * maxRowid) + 1;
-    const r = await database.getFirstAsync<any>(
-      `SELECT * FROM puzzles WHERE rowid >= ? AND +rating BETWEEN ? AND ? ${filtro.sql} ORDER BY rowid LIMIT 1`,
-      [startRowid, range[0], range[1], ...filtro.params]
-    );
-    if (r) return mapRow(r);
-  }
+  //
+  // Dos pasadas: primero solo puzles que el jugador no ha resuelto nunca
+  // (ver UNSOLVED_FILTER en puzzleStats.ts). Si la banda + temas está agotada,
+  // la segunda repite sin exclusión: mejor un puzle repetido que "No puzzles".
+  // La primera pasada vacía cuesta un escaneo de la banda (~20 ms con 500k),
+  // pero solo le pasa a quien ya se ha resuelto la banda entera.
+  //
+  // Tercera pasada solo si hay excludeId: un filtro que casa con UN puzle, y es
+  // el que está en pantalla. Mejor repetirlo que decir que no hay ninguno.
+  const notCurrent = excludeId ? 'AND id <> ?' : '';
+  const notCurrentParams = excludeId ? [excludeId] : [];
+  const passes = [
+    { sql: `${UNSOLVED_FILTER} ${notCurrent}`, params: notCurrentParams, fresh: true },
+    { sql: notCurrent, params: notCurrentParams, fresh: false },
+    ...(excludeId ? [{ sql: '', params: [] as string[], fresh: false }] : []),
+  ];
 
-  // Red de seguridad: si 4 intentos no encontraron nada hacia adelante
-  // (filtro muy raro, mala suerte con el punto de arranque), buscamos sin
-  // restricción de rowid. Esto sí puede tardar más, pero solo en el peor caso.
-  const r = await database.getFirstAsync<any>(
-    `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${filtro.sql} LIMIT 1`,
-    [range[0], range[1], ...filtro.params]
-  );
-  return r ? mapRow(r) : null;
+  for (const pass of passes) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const startRowid = Math.floor(Math.random() * maxRowid) + 1;
+      const r = await database.getFirstAsync<any>(
+        `SELECT * FROM puzzles WHERE rowid >= ? AND +rating BETWEEN ? AND ? ${filtro.sql} ${pass.sql} ORDER BY rowid LIMIT 1`,
+        [startRowid, range[0], range[1], ...filtro.params, ...pass.params]
+      );
+      if (r) return { puzzle: mapRow(r), fresh: pass.fresh };
+    }
+
+    // Red de seguridad: si 4 intentos no encontraron nada hacia adelante
+    // (filtro muy raro, mala suerte con el punto de arranque), buscamos sin
+    // restricción de rowid. Esto sí puede tardar más, pero solo en el peor caso.
+    const r = await database.getFirstAsync<any>(
+      `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${filtro.sql} ${pass.sql} LIMIT 1`,
+      [range[0], range[1], ...filtro.params, ...pass.params]
+    );
+    if (r) return { puzzle: mapRow(r), fresh: pass.fresh };
+  }
+  return null;
 }, []);
 
 const prefetchNext = useCallback(async (
@@ -454,6 +496,7 @@ const prefetchNext = useCallback(async (
   // pero `db` todavía es null, porque setDb aún no ha provocado el re-render.
   // Sin este parámetro, el `db!` de abajo era null y getMaxRowid petaba.
   databaseToUse?: SQLite.SQLiteDatabase,
+  excludeId: string | null = null,
 ) => {
   const database = databaseToUse ?? db;
   if (!database) return;
@@ -462,8 +505,10 @@ const prefetchNext = useCallback(async (
   if (pickPrefetched(nextPuzzleRef.current, range, themes)) return;   // ya hay uno válido para este rango
   prefetchingRef.current = true;
   try {
-    const p = await queryPuzzle(database, range, themes);
-    if (p) nextPuzzleRef.current = { themesKey: themesKeyOf(themes), puzzle: p };
+    // Solo se guardan puzles nuevos. Una repetición precargada se colaría por
+    // pickPrefetched y el aviso de "todos resueltos" no saltaría nunca.
+    const pick = await queryPuzzle(database, range, themes, excludeId);
+    if (pick?.fresh) nextPuzzleRef.current = { themesKey: themesKeyOf(themes), puzzle: pick.puzzle };
   } finally {
     prefetchingRef.current = false;
   }
@@ -614,6 +659,7 @@ const loadSinglePuzzle = async (
   options?: { fast?: boolean; recommended?: boolean }
 ) => {
   const isFast = options?.fast === true;
+  const previousId = currentPuzzleIdRef.current;
   if (isNextDisabled && !isFast) return;
   setIsNextDisabled(true);
 
@@ -660,29 +706,45 @@ const loadSinglePuzzle = async (
 
   // Intenta usar el puzzle precargado; si no encaja en el rango/temas, va a la BD
   let p: Puzzle | null = null;
+  let exhausted = false;
   const cached = isFast ? null : pickPrefetched(nextPuzzleRef.current, currentRange, themesToUse);
 
   if (cached) {
     p = cached;
     nextPuzzleRef.current = null;
   } else {
-    p = await queryPuzzle(databaseToUse, currentRange, themesToUse);
+    let pick = await queryPuzzle(databaseToUse, currentRange, themesToUse, previousId);
     // En contrarreloj, si la ventana está vacía la ensanchamos
-    if (!p && isFast) {
+    if (!pick && isFast) {
       console.warn('[RUN] ventana vacía', currentRange, '→ ampliando');
-      p = await queryPuzzle(databaseToUse, [Math.max(0, currentRange[0] - 400), currentRange[1] + 400], themesToUse);
+      pick = await queryPuzzle(databaseToUse, [Math.max(0, currentRange[0] - 400), currentRange[1] + 400], themesToUse, previousId);
     }
+    // Las partidas rápidas repiten sin más; en modo normal no se repite nunca:
+    // el hueco del tablero pasa a ser el aviso (boardNotice).
+    exhausted = !!pick && !pick.fresh && !isFast;
+    p = exhausted ? null : pick?.puzzle ?? null;
   }
 
-  if (p) {
+  // Filtro de un solo puzle en contrarreloj/supervivencia: vuelve el MISMO id,
+  // el efecto de entrada (keyed por currentPuzzle?.id) no corre y el tablero
+  // se quedaría fuera de pantalla. Se trae de vuelta a mano.
+  if (p && p.id === previousId) restoreBoardPosition();
+
+  if (!p) {
+    // Sin puzle: el tablero se queda fuera (o se saca, si estaba a la vista,
+    // como en el arranque) y su hueco lo ocupa el aviso. currentPuzzle a null
+    // para que el siguiente puzle, sea cual sea, cambie de id y dispare la
+    // entrada normal por la derecha.
+    boardSlideX.value = -responsive.width;
+    setBoardNotice(exhausted ? 'exhausted' : 'empty');
+    setMessage("");
+    setLoading(false);
+    setCurrentPuzzle(null);
+  } else {
     setCurrentPuzzle(p);
     resetPuzzleState(p, false, false, false, isFast ? CLOCK_TIMING.firstMove : PUZZLE_TIMING.firstMove);
    // Precarga el siguiente mientras el usuario resuelve este
-    if (!isFast) prefetchNext(currentRange, themesToUse, databaseToUse);
-  } else {
-    setMessage("No puzzles, adjust filters");
-    setLoading(false);
-    setCurrentPuzzle(null);
+    if (!isFast) prefetchNext(currentRange, themesToUse, databaseToUse, p.id);
   }
 
   setTimeout(() => {
@@ -1618,6 +1680,9 @@ const sc = useMemo(() => ({
   menuIcon: s(34),
   pillBtn: { paddingVertical: s(10), paddingHorizontal: s(15), borderRadius: s(12) },
   pillIcon: s(16),
+  noticeIcon: s(48),
+  noticeTitle: { fontSize: s(18) },
+  noticeBody: { fontSize: s(14), lineHeight: s(20) },
   pillText: { fontSize: s(12) },
   badge: { minWidth: s(18), height: s(18), borderRadius: s(9) },
   badgeText: { fontSize: s(10) },
@@ -1652,6 +1717,9 @@ const entryFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 useEffect(() => {
   if (!currentPuzzle) return;
 
+  // Entra un puzle: el aviso de "sin puzles" deja de tener sentido.
+  setBoardNotice(null);
+
   // El primer puzle de la sesión no viene de ningún sitio: aparece sin deslizar
   if (!hasSlidOnceRef.current) {
     hasSlidOnceRef.current = true;
@@ -1681,6 +1749,13 @@ useEffect(() => {
 }, [currentPuzzle?.id]);
 
 useEffect(() => () => { if (entryFallbackRef.current) clearTimeout(entryFallbackRef.current); }, []);
+
+// Devuelve el tablero a su sitio cuando slidePuzzle lo sacó pero no va a
+// entrar un puzle nuevo (ver loadSinglePuzzle). Si ya estaba en 0 es un no-op.
+const restoreBoardPosition = useCallback(() => {
+  boardSlideX.value = withTiming(0, { duration: BOARD_SLIDE_IN, easing: Easing.out(Easing.cubic) });
+  setTimeout(() => setIsBoardSliding(false), BOARD_SLIDE_IN + 80);
+}, [boardSlideX]);
 
 // Evita que un doble toque encadene dos salidas: durante los BOARD_SLIDE_OUT ms
 // isNextDisabled todavía es false, porque loadSinglePuzzle aún no ha corrido.
@@ -2024,8 +2099,8 @@ useEffect(() => {
   const range = getLadderRange(0);
   clockPrefetchRef.current = null; // por si quedó algo de una sesión anterior
   (async () => {
-    const p = await queryPuzzle(db, range, []);
-    if (p) clockPrefetchRef.current = { range, puzzle: p };
+    const pick = await queryPuzzle(db, range, []);
+    if (pick) clockPrefetchRef.current = { range, puzzle: pick.puzzle };
   })();
 }, [clock.isStartVisible, survival.isStartVisible, db]);
 
@@ -2487,6 +2562,39 @@ return (
                 snapBackToken={snapBackToken}
               />
             </Animated.View>
+
+            {/* Aviso en el hueco del tablero. Fuera del Animated.View: el tablero
+                está desplazado fuera de pantalla y esto se queda en su sitio. */}
+            {boardNotice && (
+              <Animated.View
+                entering={FadeIn.duration(200)}
+                style={[styles.boardNotice, { width: boardFit.boardSize, height: boardFit.boardSize }]}
+              >
+                <Ionicons
+                  name={boardNotice === 'exhausted' ? 'checkmark-done-circle-outline' : 'funnel-outline'}
+                  size={sc.noticeIcon}
+                  color={PALETTE.primary}
+                />
+                <Text style={[styles.boardNoticeTitle, sc.noticeTitle]}>
+                  {boardNotice === 'exhausted' ? t.puzzle.allSolvedTitle : t.puzzle.noMatchTitle}
+                </Text>
+                <Text style={[styles.boardNoticeBody, sc.noticeBody]}>
+                  {boardNotice === 'exhausted' ? t.puzzle.allSolvedBody : t.puzzle.noMatchBody}
+                </Text>
+                {!isRunMode && !isRepasoMode && (
+                  <TouchableOpacity
+                    style={[styles.openFiltersBtn, sc.pillBtn, styles.boardNoticeBtn]}
+                    onPress={() => setIsFilterModalVisible(true)}
+                    accessibilityRole="button"
+                  >
+                    <View style={styles.filterLeftGroup}>
+                      <Ionicons name="options-outline" size={sc.pillIcon} color={PALETTE.primary} />
+                      <Text style={[styles.openFiltersText, sc.pillText]}>{t.puzzle.changeFilters}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              </Animated.View>
+            )}
           </View>
     
             {/* 3. ID PUZZLE · ELO (MINIMALISTA) */}
@@ -2502,7 +2610,7 @@ return (
                       PUZZLE ELO {currentPuzzle.rating}
                     </Text>
                   </>
-                ) : (
+                ) : boardNotice ? null : (
                   <>
                     <Skeleton width={70} height={12} />
                     <View style={{ width: 20 }} />
@@ -2772,6 +2880,10 @@ turnRowSide: { flex: 1, alignItems: 'flex-end', paddingRight: 8 },
 
 // --- SECCIÓN DEL TABLERO ---
 boardSection: { width: '100%', alignItems: 'center', overflow: 'hidden' },
+boardNotice: { position: 'absolute', top: 0, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 12 },
+boardNoticeTitle: { color: PALETTE.accent, fontWeight: '800', letterSpacing: 0.5, textAlign: 'center' },
+boardNoticeBody: { color: PALETTE.primary, textAlign: 'center' },
+boardNoticeBtn: { marginTop: 8 },
 boardWrapper: { borderWidth: 0, borderColor: PALETTE.surface, borderRadius: 4, elevation: 0, shadowColor: '#000000', alignItems: 'center' },
 
 // --- CONTROLES DE NAVEGACIÓN Y ACCIÓN ---

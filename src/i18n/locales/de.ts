@@ -169,6 +169,11 @@ export const de: Dictionary = {
     currentRatingLabel: 'Aktuelles ELO:',
     noActivityPeriod: 'Keine Aktivität in diesem Zeitraum',
     noPuzzlesYet: 'Du hast noch kein Puzzle gelöst',
+    allSolvedTitle: 'Alle gelöst',
+    allSolvedBody: 'Du hast bereits alle Puzzles gelöst, die zu diesen Filtern passen. Möchtest du sie ändern?',
+    changeFilters: 'Filter ändern',
+    noMatchTitle: 'Keine Puzzles gefunden',
+    noMatchBody: 'Kein Puzzle passt zu diesen Filtern. Versuche, sie zu ändern.',
   },
 
   historyRanges: {
@@ -183,6 +188,9 @@ export const de: Dictionary = {
     title: 'FILTER',
     themesTitle: 'TAKTISCHE THEMEN',
     dynamicLevel: 'Dynamisches Niveau nach deinem aktuellen Fortschritt',
+    noneAvailable: 'Keine Puzzles verfügbar',
+    available: (n: number, s: number) =>
+      `${n} ${n === 1 ? 'Puzzle' : 'Puzzles'} verfügbar (${s} bereits gelöst)`,
   },
 
   run: {

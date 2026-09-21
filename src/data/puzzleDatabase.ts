@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
 import { themeKeysFromRow } from '../components/chess_themes';
 import type { Puzzle } from '../types/puzzle';
+import { setupPuzzleStatsTable } from './puzzleStats';
 
 // =========================================================
 // DOS FICHEROS, UNA CONEXIÓN
@@ -122,6 +123,12 @@ const openPuzzleDatabaseOnce = async (): Promise<SQLite.SQLiteDatabase> => {
       value TEXT
     );
   `);
+
+  // puzzle_stats también aquí y no en ensureSchema: queryPuzzle la consulta en
+  // cada selección, y el primer puzle del arranque se pide desde un efecto que
+  // puede adelantarse al de userProgress. Creada en ensureSchema, la instalación
+  // limpia fallaría con "no such table: puzzle_stats".
+  await setupPuzzleStatsTable(database);
 
   // 3 y 4. Versión instalada contra versión del bundle.
   const catalogUri = `${SQLITE_DIR}/${CATALOG_DB}`;

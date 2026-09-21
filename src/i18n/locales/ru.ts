@@ -180,6 +180,11 @@ export const ru: Dictionary = {
     currentRatingLabel: 'Текущий ELO:',
     noActivityPeriod: 'Нет активности за этот период',
     noPuzzlesYet: 'Вы ещё не решили ни одной задачи',
+    allSolvedTitle: 'Всё решено',
+    allSolvedBody: 'Вы уже решили все задачи, подходящие под эти фильтры. Хотите их изменить?',
+    changeFilters: 'Изменить фильтры',
+    noMatchTitle: 'Задачи не найдены',
+    noMatchBody: 'Нет задач, подходящих под эти фильтры. Попробуйте их изменить.',
   },
 
   historyRanges: {
@@ -194,6 +199,9 @@ export const ru: Dictionary = {
     title: 'ФИЛЬТРЫ',
     themesTitle: 'ТАКТИЧЕСКИЕ ТЕМЫ',
     dynamicLevel: 'Динамический уровень по вашему текущему прогрессу',
+    noneAvailable: 'Нет доступных задач',
+    available: (n: number, s: number) =>
+      `${n} ${plural(n, 'задача доступна', 'задачи доступны', 'задач доступно')} (${s} уже ${plural(s, 'решена', 'решены', 'решено')})`,
   },
 
   run: {

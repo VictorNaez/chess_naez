@@ -3,6 +3,7 @@ import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import * as SQLite from 'expo-sqlite';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { countSolvedPuzzles } from '../../data/puzzleStats';
 import { useT } from '../../i18n/I18nProvider';
 import { arraysEqualUnordered, countPuzzles, getRecommendedRange, readCatalogRatingRange } from '../../lib/puzzleQueries';
 import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
@@ -53,7 +54,12 @@ export const FilterModal = React.memo(({
   const [tempSelectedThemes, setTempSelectedThemes] = useState<string[]>(currentSelectedThemes);
   const [tempIsRecommendedMode, setTempIsRecommendedMode] = useState(currentIsRecommendedMode);
   const [isSliding, setIsSliding] = useState(false);
+  // Disponibles = cumplen el filtro Y no los has resuelto: son los que te
+  // puede servir el tablero. Si llega a 0 con resueltos > 0, aplicar solo
+  // llevaría al aviso de "todos resueltos", así que APLICAR se desactiva igual
+  // que con un filtro vacío.
   const [tempAvailableCount, setTempAvailableCount] = useState(0);
+  const [tempSolvedCount, setTempSolvedCount] = useState(0);
   const [contando, setContando] = useState(false);
 
   // Extremos REALES del catálogo, no constantes a fuego. El slider llevaba
@@ -98,13 +104,20 @@ export const FilterModal = React.memo(({
 
     const lanzar = () => {
       setContando(true);
-      countPuzzles(db, tempEloRange as [number, number], tempSelectedThemes)
-        .then(n => { if (!cancelled) setTempAvailableCount(n); })
+      Promise.all([
+        countPuzzles(db, tempEloRange as [number, number], tempSelectedThemes),
+        countSolvedPuzzles(db, tempEloRange, tempSelectedThemes),
+      ])
+        .then(([total, solved]) => {
+          if (cancelled) return;
+          setTempAvailableCount(Math.max(0, total - solved));
+          setTempSolvedCount(solved);
+        })
         .catch(err => {
           // No se silencia: un 0 se pinta igual que un filtro legítimamente
           // vacío, y eso ya nos costó una tarde de depuración.
           console.warn('[FILTROS] countPuzzles falló', { rango: tempEloRange, err: String(err) });
-          if (!cancelled) setTempAvailableCount(0);
+          if (!cancelled) { setTempAvailableCount(0); setTempSolvedCount(0); }
         })
         .finally(() => { if (!cancelled) setContando(false); });
     };
@@ -156,9 +169,9 @@ export const FilterModal = React.memo(({
             ]}>
               {contando
                 ? " "//"CONTANDO…"
-                : tempAvailableCount === 0
-                  ? "SIN PUZZLES DISPONIBLES"
-                  : `${tempAvailableCount} PUZZLES ENCONTRADOS`}
+                : tempAvailableCount === 0 && tempSolvedCount === 0
+                  ? t.filters.noneAvailable
+                  : t.filters.available(tempAvailableCount, tempSolvedCount)}
             </Text>
           </View>
 

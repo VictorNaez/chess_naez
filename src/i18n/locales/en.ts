@@ -160,6 +160,11 @@ export const en: Dictionary = {
     currentRatingLabel: 'Current rating:',
     noActivityPeriod: 'No activity in this period',
     noPuzzlesYet: 'No puzzles solved yet',
+    allSolvedTitle: 'All solved',
+    allSolvedBody: 'You’ve already solved every puzzle that matches these filters. Want to change them?',
+    changeFilters: 'Change filters',
+    noMatchTitle: 'No puzzles found',
+    noMatchBody: 'No puzzle matches these filters. Try changing them.',
   },
 
     // Pestañas de rango temporal de la gráfica del historial.
@@ -175,6 +180,9 @@ export const en: Dictionary = {
     title: 'FILTERS',
     themesTitle: 'TACTICAL THEMES',
     dynamicLevel: 'Dynamic level based on your current progress',
+    noneAvailable: 'No puzzles available',
+    available: (n: number, s: number) =>
+      `${n} ${n === 1 ? 'puzzle' : 'puzzles'} available (${s} already solved)`,
   },
 
   run: {

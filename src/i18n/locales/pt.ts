@@ -165,6 +165,11 @@ export const pt: Dictionary = {
     currentRatingLabel: 'ELO atual:',
     noActivityPeriod: 'Sem atividade neste período',
     noPuzzlesYet: 'Você ainda não resolveu nenhum puzzle',
+    allSolvedTitle: 'Todos resolvidos',
+    allSolvedBody: 'Você já resolveu todos os puzzles que atendem a estes filtros. Quer alterá-los?',
+    changeFilters: 'Mudar filtros',
+    noMatchTitle: 'Nenhum puzzle encontrado',
+    noMatchBody: 'Nenhum puzzle atende a estes filtros. Tente alterá-los.',
   },
 
   historyRanges: {
@@ -179,6 +184,9 @@ export const pt: Dictionary = {
     title: 'FILTROS',
     themesTitle: 'TEMAS TÁTICOS',
     dynamicLevel: 'Nível dinâmico baseado no seu progresso atual',
+    noneAvailable: 'Nenhum puzzle disponível',
+    available: (n: number, s: number) =>
+      `${n} ${n === 1 ? 'puzzle disponível' : 'puzzles disponíveis'} (${s} já ${s === 1 ? 'resolvido' : 'resolvidos'})`,
   },
 
   run: {
