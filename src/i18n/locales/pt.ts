@@ -113,6 +113,14 @@ export const pt: Dictionary = {
     deleteRemote: 'Eliminar a cópia',
     deleteTitle: 'Eliminar a cópia do Drive?',
     deleteBody: 'A cópia guardada no seu Drive será apagada. O progresso deste dispositivo não é alterado.',
+    promptSignInTitle: 'Não perca o seu progresso',
+    promptSignInBody: (puzzles: number) =>
+      `Já resolveu ${puzzles} puzzles. Guarde o seu ELO e as estatísticas no seu Google Drive e recupera-os em qualquer dispositivo, mesmo que mude de telemóvel ou reinstale.`,
+    promptSignInBodyFresh: 'Ative a cópia automática e o seu ELO, o histórico e as estatísticas ficam guardados no seu Google Drive. Se já jogava noutro dispositivo, recupera o seu progresso agora mesmo.',
+    promptRestoreTitle: 'Existe uma cópia mais avançada',
+    promptRestoreBody: (remote: string) =>
+      `Na sua conta há uma cópia à frente deste dispositivo:\n${remote}\n\nQuer trazê-la? O progresso daqui será substituído.`,
+    promptLater: 'Agora não',
     errors: {
       auth: 'A sua sessão Google expirou. Inicie sessão novamente.',
       network: 'Sem ligação ao Google Drive.',

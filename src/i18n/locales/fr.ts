@@ -117,6 +117,14 @@ export const fr: Dictionary = {
     deleteRemote: 'Supprimer la sauvegarde',
     deleteTitle: 'Supprimer la sauvegarde Drive ?',
     deleteBody: 'La sauvegarde stockée dans votre Drive sera effacée. La progression de cet appareil n’est pas touchée.',
+    promptSignInTitle: 'Ne perdez pas votre progression',
+    promptSignInBody: (puzzles: number) =>
+      `Vous avez résolu ${puzzles} puzzles. Gardez votre ELO et vos statistiques dans votre Google Drive et vous les retrouverez sur tout appareil, même après un changement de téléphone ou une réinstallation.`,
+    promptSignInBodyFresh: 'Activez la sauvegarde automatique et votre ELO, votre historique et vos statistiques seront conservés dans votre Google Drive. Si vous jouiez déjà sur un autre appareil, votre progression revient tout de suite.',
+    promptRestoreTitle: 'Une sauvegarde plus récente existe',
+    promptRestoreBody: (remote: string) =>
+      `Votre compte contient une sauvegarde en avance sur cet appareil :\n${remote}\n\nLa récupérer ? La progression d’ici sera remplacée.`,
+    promptLater: 'Pas maintenant',
     errors: {
       auth: 'Votre session Google a expiré. Reconnectez-vous.',
       network: 'Pas de connexion à Google Drive.',

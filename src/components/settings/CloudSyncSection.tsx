@@ -17,7 +17,10 @@ import { PALETTE } from '../colors';
 interface CloudSyncSectionProps {
   /** El modal de ajustes está en pantalla: momento de mirar qué hay en Drive. */
   visible: boolean;
-  /** Rearranque de la base tras restaurar. Lo provee index.tsx. */
+  /**
+   * Restauración terminada: solo cierra el modal. Reabrir la base es cosa de
+   * app/index.tsx, que escucha el token del provider.
+   */
   onRestored: () => void;
 }
 

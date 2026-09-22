@@ -25,6 +25,7 @@ import { EloBadge } from '../src/components/header/EloBadge';
 import { PuzzleTimer } from '../src/components/header/PuzzleTimer';
 import { SessionEloSparkline } from '../src/components/header/SessionEloSparkline';
 import { FeedbackModal } from '../src/components/modals/FeedbackModal';
+import { CloudPromptModal } from '../src/components/modals/CloudPromptModal';
 import { FilterModal } from '../src/components/modals/FilterModal';
 import { HistoryModal } from '../src/components/modals/HistoryModal';
 import { MainMenuModal } from '../src/components/modals/MainMenuModal';
@@ -45,7 +46,7 @@ import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
 import { useEloHistory } from '../src/hooks/useEloHistory';
 import { useRepasoMode } from '../src/hooks/useRepasoMode';
-import { CloudSyncProvider } from '../src/hooks/useCloudSync';
+import { CloudSyncProvider, useCloudSync } from '../src/hooks/useCloudSync';
 import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
 import { useSounds } from '../src/hooks/useSounds';
 import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
@@ -208,6 +209,7 @@ function App() {
   const [isFeedbackModalVisible, setIsFeedbackModalVisible] = useState(false);
   const [appMode, setAppMode] = useState<AppMode>('puzzles');
   const [isMenuVisible, setIsMenuVisible] = useState(false);
+  const cloud = useCloudSync();
   const donations = useDonations();
   const clock = useClockMode(db);
 
@@ -217,6 +219,25 @@ function App() {
   const survivalTimeoutRef = useRef<(o: { nextRange: [number, number]; gameOver: boolean }) => void>(() => {});
   const survival = useSurvivalMode(db, survivalTimeoutRef);
   const repaso = useRepasoMode(db);
+
+  // --- COPIA EN LA NUBE ---
+  // Restaurar sustituye progress.db entero y deja la conexión cerrada, venga del
+  // botón de Ajustes o de la restauración automática del arranque. El token sube
+  // una vez por restauración: mismo camino que el reset de la pantalla de error.
+  const restoreToken = cloud.restoreToken;
+  useEffect(() => {
+    if (restoreToken === 0) return;
+    setDb(null);
+    setBootError(null);
+    setBootAttempt(n => n + 1);
+  }, [restoreToken]);
+
+  // Cambiar de modo es un corte natural: la partida que acaba de terminar ya
+  // está escrita, así que es buen momento para subir sin molestar a nadie.
+  useEffect(() => {
+    cloud.requestFlush();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appMode]);
 
   const isClockMode = appMode === 'clock';
   const isSurvivalMode = appMode === 'survival';
@@ -341,6 +362,13 @@ function App() {
       setHasBooted(true);
     }
   }, [userRatings, currentPuzzle, firstMoveDone, loading]);
+
+  // La nube espera a esto para decidir si toca restaurar: con la pantalla ya
+  // pintada, sustituir progress.db no pilla a nadie leyendo.
+  useEffect(() => {
+    if (hasBooted) cloud.markAppReady();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasBooted]);
 
   const splashHiddenRef = useRef(false);
   const onRootLayout = useCallback(() => {
@@ -2340,6 +2368,9 @@ useEffect(() => {
   // rechazada sin dueño: setDb no se llama nunca, hasBooted no se activa y el
   // usuario se queda mirando el splash para siempre.
   setup().catch((err: unknown) => {
+    // Un arranque cancelado (restauración desde la nube, reset) cierra la base a
+    // propósito: las excepciones de esa tanda ya no son un fallo que enseñar.
+    if (cancelled) return;
     console.error('[BOOT] fallo en el arranque', err);
     // El splash lo esconde onRootLayout, que ya no se va a ejecutar: hay que
     // quitarlo a mano o la pantalla de error queda tapada.
@@ -2818,14 +2849,11 @@ return (
       visible={isSettingsModalVisible}
       onClose={() => setIsSettingsModalVisible(false)}
       onPreviewSound={() => playSound('move')}
-      // Tras restaurar, progress.db es otro fichero y la conexión está cerrada:
-      // mismo camino que el botón de reset de la pantalla de error fatal.
-      onProgressRestored={() => {
-        setDb(null);
-        setBootError(null);
-        setBootAttempt(n => n + 1);
-      }}
     />
+
+    {/* Propone iniciar sesión o traerse una copia más avanzada. Decide el
+        provider: si no hay nada que proponer, no se pinta. */}
+    <CloudPromptModal />
         
     <HistoryModal
       visible={isHistoryModalVisible}

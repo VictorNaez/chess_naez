@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clearPuzzleStats, recordPuzzleResult } from '../data/puzzleStats';
+import { markProgressDirty } from '../data/syncSignal';
 import { computeEloVariation, DEFAULT_ELO, MIN_ELO } from '../lib/elo';
 
 // =========================================================
@@ -311,6 +312,11 @@ export const useUserProgress = (db: SQLite.SQLiteDatabase | null) => {
       // El estado solo se toca cuando la escritura ya ha cuajado.
       setUserRatings(prev => ({ ...prev, ...nextRatings }));
       setCurrentStreak(prev => (isSuccess ? prev + 1 : 0));
+
+      // La copia en la nube decide sola cuándo subir; aquí solo se avisa de que
+      // hay algo nuevo. Va después de la transacción: nunca se anuncia progreso
+      // que no esté todavía en disco.
+      markProgressDirty();
 
       return eloVariation;
     } catch (error) {

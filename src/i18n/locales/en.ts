@@ -108,6 +108,14 @@ export const en: Dictionary = {
     deleteRemote: 'Delete backup',
     deleteTitle: 'Delete the Drive backup?',
     deleteBody: 'The backup stored in your Drive will be deleted. Progress on this device is not touched.',
+    promptSignInTitle: 'Don\u2019t lose your progress',
+    promptSignInBody: (puzzles: number) =>
+      `You have solved ${puzzles} puzzles. Keep your ELO and stats in your Google Drive and you will get them back on any device, even if you change phone or reinstall.`,
+    promptSignInBodyFresh: 'Turn on automatic backup and your ELO, history and stats will be kept in your Google Drive. If you played before on another device, your progress comes back right now.',
+    promptRestoreTitle: 'There is a newer backup',
+    promptRestoreBody: (remote: string) =>
+      `Your account holds a backup ahead of this device:\n${remote}\n\nBring it over? The progress here will be replaced.`,
+    promptLater: 'Not now',
     errors: {
       auth: 'Your Google session expired. Please sign in again.',
       network: 'No connection to Google Drive.',

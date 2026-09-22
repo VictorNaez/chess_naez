@@ -13,9 +13,6 @@ interface SettingsModalProps {
   visible: boolean;
   onClose: () => void;
   onPreviewSound?: () => void;   // para oír el volumen al soltar el slider
-  // Restaurar la copia de la nube sustituye progress.db entero: quien monta la
-  // pantalla tiene que volver a abrir la base. Aquí solo se avisa.
-  onProgressRestored?: () => void;
 }
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -137,7 +134,7 @@ const LocaleSelectRow = React.memo(({ label, valueLabel, options, value, open, o
   </View>
 ));
 
-export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound, onProgressRestored }: SettingsModalProps) => {
+export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: SettingsModalProps) => {
   const {
     soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves, showCoordinates,
     engineDepth, engineMultiPV, allowRepeats, setSetting, resetSettings,
@@ -244,7 +241,7 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound, onP
             {/* Se pinta sola solo si la build trae client ID de Google. */}
             <CloudSyncSection
               visible={visible}
-              onRestored={() => { onProgressRestored?.(); onClose(); }}
+              onRestored={onClose}
             />
 
             {/* --- SONIDO --- */}

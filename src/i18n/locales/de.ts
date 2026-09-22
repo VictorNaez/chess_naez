@@ -117,6 +117,14 @@ export const de: Dictionary = {
     deleteRemote: 'Sicherung löschen',
     deleteTitle: 'Drive-Sicherung löschen?',
     deleteBody: 'Die in deinem Drive gespeicherte Sicherung wird gelöscht. Der Fortschritt auf diesem Gerät bleibt unberührt.',
+    promptSignInTitle: 'Verliere deinen Fortschritt nicht',
+    promptSignInBody: (puzzles: number) =>
+      `Du hast ${puzzles} Puzzles gelöst. Sichere ELO und Statistiken in deinem Google Drive und du bekommst sie auf jedem Gerät zurück, auch nach Handywechsel oder Neuinstallation.`,
+    promptSignInBodyFresh: 'Aktiviere die automatische Sicherung und ELO, Verlauf und Statistiken liegen in deinem Google Drive. Wenn du vorher auf einem anderen Gerät gespielt hast, ist dein Fortschritt sofort zurück.',
+    promptRestoreTitle: 'Es gibt eine neuere Sicherung',
+    promptRestoreBody: (remote: string) =>
+      `In deinem Konto liegt eine Sicherung, die diesem Gerät voraus ist:\n${remote}\n\nHolen? Der Fortschritt hier wird ersetzt.`,
+    promptLater: 'Jetzt nicht',
     errors: {
       auth: 'Deine Google-Sitzung ist abgelaufen. Bitte melde dich erneut an.',
       network: 'Keine Verbindung zu Google Drive.',

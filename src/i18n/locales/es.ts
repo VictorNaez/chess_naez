@@ -116,6 +116,14 @@ export const es = {
     deleteRemote: 'Eliminar la copia',
     deleteTitle: '¿Eliminar la copia de Drive?',
     deleteBody: 'Se borrará la copia guardada en tu Drive. El progreso de este dispositivo no se toca.',
+    promptSignInTitle: 'No pierdas tu progreso',
+    promptSignInBody: (puzzles: number) =>
+      `Llevas ${puzzles} puzles resueltos. Guarda tu ELO y tus estadísticas en tu Google Drive y los recuperarás en cualquier dispositivo, aunque cambies de móvil o reinstales.`,
+    promptSignInBodyFresh: 'Activa la copia automática y tu ELO, tu historial y tus estadísticas quedarán guardados en tu Google Drive. Si ya jugabas antes en otro dispositivo, recuperarás tu progreso ahora mismo.',
+    promptRestoreTitle: 'Hay una copia más avanzada',
+    promptRestoreBody: (remote: string) =>
+      `En tu cuenta hay una copia por delante de este dispositivo:\n${remote}\n\n¿Quieres traerla? El progreso de aquí se sustituirá.`,
+    promptLater: 'Ahora no',
     errors: {
       auth: 'Tu sesión de Google ha caducado. Vuelve a iniciar sesión.',
       network: 'Sin conexión con Google Drive.',

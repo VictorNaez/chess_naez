@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { markProgressDirty } from '../data/syncSignal';
 import type { RunKind, RunRanking, RunRecords, RunSummary } from './run';
 
 // Una tabla por modo, mismo esquema. Separarlas (en vez de una tabla con
@@ -65,6 +66,8 @@ export const saveRun = async (
       s.avgSolvedRating, s.maxSolvedRating, s.avgSolveMs, s.startedAt, s.endedAt,
     ],
   );
+  // Una partida terminada también es progreso que merece copia.
+  markProgressDirty();
   return res.lastInsertRowId as number;
 };
 
