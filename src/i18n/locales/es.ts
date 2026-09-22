@@ -82,7 +82,7 @@ export const es = {
     coordinates: 'Muestra las coordenadas del tablero',
     coordinatesHint: 'Muestra las letras (a - h) y números (1 - 8) en los bordes',
 
-    allowRepeats: 'Modo sin ELO',
+    allowRepeats: 'Puzle repetido',
     allowRepeatsHint: 'Al acabar los puzles de un filtro, repite los ya resueltos. No suman ni restan ELO',
 
     depth: 'Profundidad de análisis',
@@ -179,8 +179,8 @@ export const es = {
     allSolvedBody: 'Ya has resuelto todos los puzles que cumplen estos filtros. ¿Quieres cambiarlos?',
     changeFilters: 'Cambiar filtros',
     allowRepeats: 'Permitir puzles repetidos',
-    replayTag: 'Sin ELO',
-    replayA11y: 'Puzle repetido: ya lo resolviste, no suma ni resta ELO',
+    replayTag: 'Puzle repetido',
+    replayA11y: 'Puzle repetido: no suma ni resta ELO',
     noMatchTitle: 'Ningún puzle encontrado',
     noMatchBody: 'Ningún puzle cumple estos filtros. Prueba a cambiarlos.',
   },

@@ -69,6 +69,12 @@ export const clearPuzzleStats = async (db: SQLite.SQLiteDatabase) => {
 export const UNSOLVED_FILTER =
   `AND NOT EXISTS (SELECT 1 FROM ${TABLE} s WHERE s.puzzle_id = puzzles.id AND s.solved > 0)`;
 
+// Columna para el SELECT de una consulta sobre `puzzles`: 1 si el jugador ya lo
+// ha resuelto alguna vez. Solo se evalúa en las filas devueltas (LIMIT 1), así
+// que cuesta una búsqueda por clave primaria por puzle servido.
+export const ALREADY_SOLVED_COLUMN =
+  `EXISTS (SELECT 1 FROM ${TABLE} s WHERE s.puzzle_id = puzzles.id AND s.solved > 0) AS already_solved`;
+
 // Cuántos puzles del filtro ha resuelto ya el jugador (contador del FilterModal).
 //
 // El CROSS JOIN NO es decorativo: fija el orden del join. Así SQLite recorre

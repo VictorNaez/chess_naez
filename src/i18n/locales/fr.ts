@@ -83,7 +83,7 @@ export const fr: Dictionary = {
     coordinates: 'Coordonnées de l’échiquier',
     coordinatesHint: 'Affiche les lettres (a - h) et les nombres (1 - 8) sur les bords',
 
-    allowRepeats: 'Mode sans ELO',
+    allowRepeats: 'Puzzle répété',
     allowRepeatsHint: 'Quand un filtre n’a plus de puzzles, rejoue ceux déjà résolus. Ils ne font ni gagner ni perdre d’ELO',
 
     depth: 'Profondeur d’analyse',
@@ -177,8 +177,8 @@ export const fr: Dictionary = {
     allSolvedBody: 'Vous avez déjà résolu tous les puzzles correspondant à ces filtres. Voulez-vous les modifier ?',
     changeFilters: 'Changer les filtres',
     allowRepeats: 'Autoriser les puzzles répétés',
-    replayTag: 'Sans ELO',
-    replayA11y: 'Puzzle répété : déjà résolu, aucun ELO gagné ni perdu',
+    replayTag: 'Puzzle répété',
+    replayA11y: 'Puzzle répété : aucun ELO gagné ni perdu',
     noMatchTitle: 'Aucun puzzle trouvé',
     noMatchBody: 'Aucun puzzle ne correspond à ces filtres. Essayez de les modifier.',
   },

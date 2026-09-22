@@ -55,7 +55,7 @@ import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { getLegalDestinations } from '../src/lib/legalMoves';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { getRecommendedRange, hasPuzzleBeenScored, readGlobalElo, themeFilter } from '../src/lib/puzzleQueries';
-import { recordPuzzleResult, UNSOLVED_FILTER } from '../src/data/puzzleStats';
+import { ALREADY_SOLVED_COLUMN, recordPuzzleResult, UNSOLVED_FILTER } from '../src/data/puzzleStats';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
@@ -100,7 +100,9 @@ const HEADER_MARGIN_TOP = Platform.OS === 'ios' ? 10 : 20;
 const FOOTER_MARGIN_BOTTOM = 20;
 
 // --- PUZLE PRECARGADO ---
-type PrefetchedPuzzle = { themesKey: string; puzzle: Puzzle };
+// fresh: false = ya resuelto antes (solo se precarga así con "Permitir puzles
+// repetidos" activo, y se descarta si el ajuste se apaga antes de usarlo).
+type PrefetchedPuzzle = { themesKey: string; puzzle: Puzzle; fresh: boolean };
 
 const themesKeyOf = (themes: string[]) => themes.join(',');
 
@@ -110,10 +112,10 @@ const themesKeyOf = (themes: string[]) => themes.join(',');
 // se volvía a pedir (o se tiraba) aunque siguiera cumpliendo el filtro.
 const pickPrefetched = (
   cached: PrefetchedPuzzle | null, range: number[], themes: string[],
-): Puzzle | null => {
+): PrefetchedPuzzle | null => {
   if (!cached || cached.themesKey !== themesKeyOf(themes)) return null;
   const { rating } = cached.puzzle;
-  return rating >= range[0] && rating <= range[1] ? cached.puzzle : null;
+  return rating >= range[0] && rating <= range[1] ? cached : null;
 };
 
 // El provider tiene que envolver a App desde fuera: los hooks que consumen los
@@ -291,7 +293,7 @@ function App() {
   // (ver el efecto de entrada del tablero).
   const [boardNotice, setBoardNotice] = useState<'exhausted' | 'empty' | null>(null);
 
-  // Modo "SIN ELO" (ajuste allowRepeats). Espejo en ref porque loadSinglePuzzle
+  // Modo "PUZLE REPETIDO" (ajuste allowRepeats). Espejo en ref porque loadSinglePuzzle
   // llega a slidePuzzle desde closures viejas y leería el ajuste de entonces.
   const allowRepeatsRef = useRef(settings.allowRepeats);
   useEffect(() => { allowRepeatsRef.current = settings.allowRepeats; }, [settings.allowRepeats]);
@@ -308,7 +310,12 @@ function App() {
     !!currentPuzzle && currentPuzzle.id === replayPuzzleId &&
     !isRunMode && !isRepasoMode && !isHistoryMode;
 
-  // Modo "SIN ELO" recién activado con el aviso de "todos resueltos" en el
+  // La pastilla "Puzle repetido" también sale en los puzles abiertos desde el
+  // historial: por definición ya los jugaste y ahí tampoco se puntúa. Es solo
+  // visual; la lógica de puntuación del historial no cambia (ya no daba ELO).
+  const showReplayTag = isReplay || (isHistoryMode && !!currentPuzzle && !isRunMode);
+
+  // Modo "PUZLE REPETIDO" recién activado con el aviso de "todos resueltos" en el
   // tablero (botón del aviso o interruptor de Ajustes): se carga ya un
   // repetido. Va después del efecto que sincroniza allowRepeatsRef, así que
   // cuando corre la ref ya vale true. Solo depende del ajuste: boardNotice y
@@ -448,9 +455,9 @@ const mapRow = (r: any): Puzzle => ({
   themes: themeKeysFromRow(r),
 });
 
-// `fresh` = el jugador no lo ha resuelto nunca. Con fresh: false la banda +
-// temas está agotada y el puzle es una repetición: quien llama decide si lo
-// acepta (partidas rápidas) o avisa al jugador (modo normal).
+// `fresh` = el jugador no lo ha resuelto nunca. Se lee de la propia fila
+// (ALREADY_SOLVED_COLUMN), no de la pasada que la encontró: así es exacto
+// también en la pasada de "el único que queda es el de pantalla".
 type PuzzlePick = { puzzle: Puzzle; fresh: boolean };
 
 const queryPuzzle = useCallback(async (
@@ -459,6 +466,11 @@ const queryPuzzle = useCallback(async (
   // precarga elegía el MISMO que estás resolviendo (aún no está resuelto, así
   // que pasa el filtro de no resueltos) y "Siguiente" lo volvía a poner.
   excludeId: string | null = null,
+  // "Permitir puzles repetidos": sorteo sobre TODO el filtro, resueltos
+  // incluidos, en vez de agotar primero los nuevos. Cada puzle tiene la misma
+  // probabilidad de salir, así que con el 80% del filtro resuelto, 4 de cada 5
+  // serán repetidos.
+  mixRepeats = false,
 ): Promise<PuzzlePick | null> => {
   const filtro = themeFilter(themes);
   const maxRowid = await getMaxRowid(database);
@@ -488,30 +500,33 @@ const queryPuzzle = useCallback(async (
   // el que está en pantalla. Mejor repetirlo que decir que no hay ninguno.
   const notCurrent = excludeId ? 'AND id <> ?' : '';
   const notCurrentParams = excludeId ? [excludeId] : [];
+  //
+  // Con mixRepeats no hay primera pasada: se sortea entre todos.
   const passes = [
-    { sql: `${UNSOLVED_FILTER} ${notCurrent}`, params: notCurrentParams, fresh: true },
-    { sql: notCurrent, params: notCurrentParams, fresh: false },
-    ...(excludeId ? [{ sql: '', params: [] as string[], fresh: false }] : []),
+    ...(mixRepeats ? [] : [{ sql: `${UNSOLVED_FILTER} ${notCurrent}`, params: notCurrentParams }]),
+    { sql: notCurrent, params: notCurrentParams },
+    ...(excludeId ? [{ sql: '', params: [] as string[] }] : []),
   ];
+  const toPick = (r: any): PuzzlePick => ({ puzzle: mapRow(r), fresh: !r.already_solved });
 
   for (const pass of passes) {
     for (let attempt = 0; attempt < 4; attempt++) {
       const startRowid = Math.floor(Math.random() * maxRowid) + 1;
       const r = await database.getFirstAsync<any>(
-        `SELECT * FROM puzzles WHERE rowid >= ? AND +rating BETWEEN ? AND ? ${filtro.sql} ${pass.sql} ORDER BY rowid LIMIT 1`,
+        `SELECT *, ${ALREADY_SOLVED_COLUMN} FROM puzzles WHERE rowid >= ? AND +rating BETWEEN ? AND ? ${filtro.sql} ${pass.sql} ORDER BY rowid LIMIT 1`,
         [startRowid, range[0], range[1], ...filtro.params, ...pass.params]
       );
-      if (r) return { puzzle: mapRow(r), fresh: pass.fresh };
+      if (r) return toPick(r);
     }
 
     // Red de seguridad: si 4 intentos no encontraron nada hacia adelante
     // (filtro muy raro, mala suerte con el punto de arranque), buscamos sin
     // restricción de rowid. Esto sí puede tardar más, pero solo en el peor caso.
     const r = await database.getFirstAsync<any>(
-      `SELECT * FROM puzzles WHERE rating BETWEEN ? AND ? ${filtro.sql} ${pass.sql} LIMIT 1`,
+      `SELECT *, ${ALREADY_SOLVED_COLUMN} FROM puzzles WHERE rating BETWEEN ? AND ? ${filtro.sql} ${pass.sql} LIMIT 1`,
       [range[0], range[1], ...filtro.params, ...pass.params]
     );
-    if (r) return { puzzle: mapRow(r), fresh: pass.fresh };
+    if (r) return toPick(r);
   }
   return null;
 }, []);
@@ -529,13 +544,18 @@ const prefetchNext = useCallback(async (
   if (!database) return;
 
   if (prefetchingRef.current) return;
-  if (pickPrefetched(nextPuzzleRef.current, range, themes)) return;   // ya hay uno válido para este rango
+  const existing = pickPrefetched(nextPuzzleRef.current, range, themes);
+  if (existing && (existing.fresh || allowRepeatsRef.current)) return;   // ya hay uno válido para este rango
   prefetchingRef.current = true;
   try {
-    // Solo se guardan puzles nuevos. Una repetición precargada se colaría por
-    // pickPrefetched y el aviso de "todos resueltos" no saltaría nunca.
-    const pick = await queryPuzzle(database, range, themes, excludeId);
-    if (pick?.fresh) nextPuzzleRef.current = { themesKey: themesKeyOf(themes), puzzle: pick.puzzle };
+    // Sin repetidos permitidos solo se guardan puzles nuevos: una repetición
+    // precargada se colaría por pickPrefetched y el aviso de "todos resueltos"
+    // no saltaría nunca. Con ellos permitidos se guarda lo que salga, marcado.
+    const mix = allowRepeatsRef.current;
+    const pick = await queryPuzzle(database, range, themes, excludeId, mix);
+    if (pick && (pick.fresh || mix)) {
+      nextPuzzleRef.current = { themesKey: themesKeyOf(themes), puzzle: pick.puzzle, fresh: pick.fresh };
+    }
   } finally {
     prefetchingRef.current = false;
   }
@@ -734,14 +754,19 @@ const loadSinglePuzzle = async (
   // Intenta usar el puzzle precargado; si no encaja en el rango/temas, va a la BD
   let p: Puzzle | null = null;
   let exhausted = false;
-  let replayId: string | null = null;   // la precarga solo guarda puzles nuevos
-  const cached = isFast ? null : pickPrefetched(nextPuzzleRef.current, currentRange, themesToUse);
+  let replayId: string | null = null;
+  const allowRepeats = !isFast && allowRepeatsRef.current;
+  let cached = isFast ? null : pickPrefetched(nextPuzzleRef.current, currentRange, themesToUse);
+  // Repetido precargado con el ajuste ya apagado: no vale, y se tira para que
+  // prefetchNext no lo dé por bueno y pida uno nuevo.
+  if (cached && !cached.fresh && !allowRepeats) { cached = null; nextPuzzleRef.current = null; }
 
   if (cached) {
-    p = cached;
+    p = cached.puzzle;
+    if (!cached.fresh) replayId = p.id;
     nextPuzzleRef.current = null;
   } else {
-    let pick = await queryPuzzle(databaseToUse, currentRange, themesToUse, previousId);
+    let pick = await queryPuzzle(databaseToUse, currentRange, themesToUse, previousId, allowRepeats);
     // En contrarreloj, si la ventana está vacía la ensanchamos
     if (!pick && isFast) {
       console.warn('[RUN] ventana vacía', currentRange, '→ ampliando');
@@ -749,7 +774,7 @@ const loadSinglePuzzle = async (
     }
     // Las partidas rápidas repiten sin más; en modo normal no se repite nunca:
     // el hueco del tablero pasa a ser el aviso (boardNotice).
-    exhausted = !!pick && !pick.fresh && !isFast && !allowRepeatsRef.current;
+    exhausted = !!pick && !pick.fresh && !isFast && !allowRepeats;
     p = exhausted ? null : pick?.puzzle ?? null;
     // Repetición aceptada (el jugador lo permitió): se marca como tal.
     // En partidas rápidas no: ahí el ELO global no se toca de todas formas.
@@ -2670,7 +2695,7 @@ return (
                     <Text style={[styles.puzzleMetaText, sc.metaText]}>
                       PUZZLE ELO {currentPuzzle.rating}
                     </Text>
-                    {isReplay && (
+                    {showReplayTag && (
                       <View
                         style={[styles.replayTag, sc.replayTag]}
                         accessible

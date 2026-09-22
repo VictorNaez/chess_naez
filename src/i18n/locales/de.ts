@@ -83,7 +83,7 @@ export const de: Dictionary = {
     coordinates: 'Koordinaten',
     coordinatesHint: 'Zeigt die Buchstaben (a - h) und Zahlen (1 - 8) an den Rändern an',
 
-    allowRepeats: 'Modus ohne ELO',
+    allowRepeats: 'Wiederholtes Puzzle',
     allowRepeatsHint: 'Sind alle Puzzles eines Filters gelöst, werden gelöste wiederholt. Sie ändern dein ELO nicht',
 
     depth: 'Analysetiefe',
@@ -177,8 +177,8 @@ export const de: Dictionary = {
     allSolvedBody: 'Du hast bereits alle Puzzles gelöst, die zu diesen Filtern passen. Möchtest du sie ändern?',
     changeFilters: 'Filter ändern',
     allowRepeats: 'Wiederholte Puzzles erlauben',
-    replayTag: 'Ohne ELO',
-    replayA11y: 'Wiederholtes Puzzle: bereits gelöst, kein ELO-Gewinn oder -Verlust',
+    replayTag: 'Wiederholtes Puzzle',
+    replayA11y: 'Wiederholtes Puzzle: kein ELO-Gewinn oder -Verlust',
     noMatchTitle: 'Keine Puzzles gefunden',
     noMatchBody: 'Kein Puzzle passt zu diesen Filtern. Versuche, sie zu ändern.',
   },

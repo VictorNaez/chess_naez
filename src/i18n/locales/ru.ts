@@ -92,7 +92,7 @@ export const ru: Dictionary = {
     coordinates: 'Координаты доски',
     coordinatesHint: 'Показывать буквы (a - h) и числа (1 - 8) на краях',
 
-    allowRepeats: 'Режим без ELO',
+    allowRepeats: 'Повторная задача',
     allowRepeatsHint: 'Когда задачи фильтра закончились, повторяет решённые. ELO не меняется',
 
     depth: 'Глубина анализа',
@@ -188,8 +188,8 @@ export const ru: Dictionary = {
     allSolvedBody: 'Вы уже решили все задачи, подходящие под эти фильтры. Хотите их изменить?',
     changeFilters: 'Изменить фильтры',
     allowRepeats: 'Разрешить повторы',
-    replayTag: 'Без ELO',
-    replayA11y: 'Повторная задача: уже решена, ELO не меняется',
+    replayTag: 'Повторная задача',
+    replayA11y: 'Повторная задача: ELO не меняется',
     noMatchTitle: 'Задачи не найдены',
     noMatchBody: 'Нет задач, подходящих под эти фильтры. Попробуйте их изменить.',
   },

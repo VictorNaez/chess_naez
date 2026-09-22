@@ -74,7 +74,7 @@ export const en: Dictionary = {
     coordinates: 'Board coordinates',
     coordinatesHint: 'Shows the letters (a - h) and numbers (1 - 8) on the edges',
 
-    allowRepeats: 'No-ELO mode',
+    allowRepeats: 'Repeated puzzle',
     allowRepeatsHint: 'When a filter runs out of puzzles, repeat solved ones. They don’t add or subtract ELO',
 
     depth: 'Analysis depth',
@@ -168,8 +168,8 @@ export const en: Dictionary = {
     allSolvedBody: 'You’ve already solved every puzzle that matches these filters. Want to change them?',
     changeFilters: 'Change filters',
     allowRepeats: 'Allow repeated puzzles',
-    replayTag: 'No ELO',
-    replayA11y: 'Repeated puzzle: already solved, no ELO gained or lost',
+    replayTag: 'Repeated puzzle',
+    replayA11y: 'Repeated puzzle: no ELO gained or lost',
     noMatchTitle: 'No puzzles found',
     noMatchBody: 'No puzzle matches these filters. Try changing them.',
   },

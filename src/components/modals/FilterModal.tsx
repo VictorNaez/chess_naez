@@ -57,7 +57,7 @@ export const FilterModal = React.memo(({
   const [isSliding, setIsSliding] = useState(false);
   // Disponibles = cumplen el filtro Y no los has resuelto: son los que te
   // puede servir el tablero. Con 0 disponibles pero resueltos > 0 solo se
-  // puede aplicar con el modo "SIN ELO" activo (ajuste allowRepeats): entonces
+  // puede aplicar con el modo "PUZLE REPETIDO" activo (ajuste allowRepeats): entonces
   // el tablero sirve repetidos. Sin él, ese filtro no daría ningún puzle.
   const [tempAvailableCount, setTempAvailableCount] = useState(0);
   const [tempSolvedCount, setTempSolvedCount] = useState(0);
@@ -142,7 +142,7 @@ export const FilterModal = React.memo(({
     !arraysEqualUnordered(tempSelectedThemes, currentSelectedThemes);
 
   // APLICAR sin cambios normalmente no hace nada, pero hay un caso en que sí:
-  // el filtro actual está agotado y el modo "SIN ELO" está activo. Aplicarlo
+  // el filtro actual está agotado y el modo "PUZLE REPETIDO" está activo. Aplicarlo
   // otra vez recarga el tablero con un repetido (p. ej. si activaste el modo
   // con el aviso de "todos resueltos" en pantalla).
   const canReapplyExhausted = !hasFilterChanges && allowRepeats && tempAvailableCount === 0 && !isEmptyFilter;

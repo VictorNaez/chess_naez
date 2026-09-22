@@ -79,7 +79,7 @@ export const pt: Dictionary = {
     coordinates: 'Coordenadas do tabuleiro',
     coordinatesHint: 'Mostra as letras (a - h) e números (1 - 8) nos bordos',
 
-    allowRepeats: 'Modo sem ELO',
+    allowRepeats: 'Puzzle repetido',
     allowRepeatsHint: 'Ao acabar os puzzles de um filtro, repete os já resolvidos. Não somam nem tiram ELO',
 
     depth: 'Profundidade da análise',
@@ -173,8 +173,8 @@ export const pt: Dictionary = {
     allSolvedBody: 'Você já resolveu todos os puzzles que atendem a estes filtros. Quer alterá-los?',
     changeFilters: 'Mudar filtros',
     allowRepeats: 'Permitir puzzles repetidos',
-    replayTag: 'Sem ELO',
-    replayA11y: 'Puzzle repetido: já resolvido, não ganha nem perde ELO',
+    replayTag: 'Puzzle repetido',
+    replayA11y: 'Puzzle repetido: não ganha nem perde ELO',
     noMatchTitle: 'Nenhum puzzle encontrado',
     noMatchBody: 'Nenhum puzzle atende a estes filtros. Tente alterá-los.',
   },
