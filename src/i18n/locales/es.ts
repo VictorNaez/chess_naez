@@ -199,6 +199,7 @@ export const es = {
     themesTitle: 'TEMAS TÁCTICOS',
     dynamicLevel: 'Nivel dinámico basado en tu progreso actual',
     noneAvailable: 'Sin puzles disponibles',
+    reset: 'Restablecer filtros',
     availableCount: (n: number) => `${n} ${n === 1 ? 'puzle' : 'puzles'}`,
     solvedCount: (s: number) => `(${s} ${s === 1 ? 'resuelto' : 'resueltos'})`,
   },

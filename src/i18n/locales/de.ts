@@ -196,6 +196,7 @@ export const de: Dictionary = {
     themesTitle: 'TAKTISCHE THEMEN',
     dynamicLevel: 'Dynamisches Niveau nach deinem aktuellen Fortschritt',
     noneAvailable: 'Keine Puzzles verfügbar',
+    reset: 'Filter zurücksetzen',
     availableCount: (n: number) => `${n} ${n === 1 ? 'Puzzle' : 'Puzzles'}`,
     solvedCount: (s: number) => `(${s} gelöst)`,
   },

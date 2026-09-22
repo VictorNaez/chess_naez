@@ -207,6 +207,7 @@ export const ru: Dictionary = {
     themesTitle: 'ТАКТИЧЕСКИЕ ТЕМЫ',
     dynamicLevel: 'Динамический уровень по вашему текущему прогрессу',
     noneAvailable: 'Нет доступных задач',
+    reset: 'Сбросить фильтры',
     availableCount: (n: number) => `${n} ${plural(n, 'задача', 'задачи', 'задач')}`,
     solvedCount: (s: number) => `(${s} ${plural(s, 'решена', 'решены', 'решено')})`,
   },

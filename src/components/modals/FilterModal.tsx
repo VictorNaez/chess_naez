@@ -156,6 +156,16 @@ export const FilterModal = React.memo(({
     }
   };
 
+  // Restablecer = sin temas y ELO en AUTO. Solo toca el estado temporal, como
+  // el resto del modal: hay que pulsar APLICAR para que surta efecto (y
+  // CANCELAR lo deshace). El rango se recalcula igual que al activar AUTO a mano.
+  const isAlreadyReset = tempIsRecommendedMode && tempSelectedThemes.length === 0;
+  const handleReset = () => {
+    setTempSelectedThemes([]);
+    setTempIsRecommendedMode(true);
+    setTempEloRange(getRecommendedRange(globalElo, limites));
+  };
+
   const handleToggleTheme = (themeId: string) => {
     setTempSelectedThemes(prev =>
       prev.includes(themeId) ? prev.filter(id => id !== themeId) : [...prev, themeId]
@@ -166,7 +176,22 @@ export const FilterModal = React.memo(({
     <Modal visible={visible} animationType="slide" transparent={true}>
       <View style={styles.modalOverlay}>
         <View style={styles.filterModalContent}>
-          <Text style={styles.modalTitle}>{t.puzzle.filters}</Text>
+          {/* El botón va en absoluto para que el título siga centrado en el
+              card. Los títulos son cortos en todos los idiomas, así que no se
+              pisan. */}
+          <View style={styles.titleRow}>
+            <TouchableOpacity
+              style={[styles.btnReset, isAlreadyReset && { opacity: 0.35 }]}
+              onPress={handleReset}
+              disabled={isAlreadyReset}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t.filters.reset}
+            >
+              <Ionicons name="refresh" size={20} color={PALETTE.accent} />
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { marginBottom: 0 }]}>{t.puzzle.filters}</Text>
+          </View>
 
           <View style={[styles.availableContainer, {
             alignSelf: 'center', marginBottom: 20,
@@ -328,6 +353,8 @@ const styles = StyleSheet.create({
     themeChipTextActive: { color: PALETTE.secondary, fontWeight: '800' },
     themeChipText: { color: PALETTE.chipText, fontSize: 12, fontWeight: '600' },
     btnCancel: { backgroundColor: PALETTE.surfaceLight },
+    titleRow: { justifyContent: 'center', alignItems: 'center', marginBottom: 20, minHeight: 36 },
+    btnReset: { position: 'absolute', left: 0, width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', backgroundColor: PALETTE.surfaceLight },
     btnApply: { backgroundColor: PALETTE.secondary },
     recommendedToggle: {flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', },
     recommendedText: { color: PALETTE.primary, fontSize: 10, fontWeight: '800', marginLeft: 6,},
