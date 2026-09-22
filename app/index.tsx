@@ -45,6 +45,7 @@ import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
 import { useEloHistory } from '../src/hooks/useEloHistory';
 import { useRepasoMode } from '../src/hooks/useRepasoMode';
+import { CloudSyncProvider } from '../src/hooks/useCloudSync';
 import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
 import { useSounds } from '../src/hooks/useSounds';
 import { useSurvivalMode } from '../src/hooks/useSurvivalMode';
@@ -124,7 +125,9 @@ export default function AppRoot() {
   return (
     <I18nProvider>
       <SettingsProvider>
-        <App />
+        <CloudSyncProvider>
+          <App />
+        </CloudSyncProvider>
       </SettingsProvider>
     </I18nProvider>
   );
@@ -2815,6 +2818,13 @@ return (
       visible={isSettingsModalVisible}
       onClose={() => setIsSettingsModalVisible(false)}
       onPreviewSound={() => playSound('move')}
+      // Tras restaurar, progress.db es otro fichero y la conexión está cerrada:
+      // mismo camino que el botón de reset de la pantalla de error fatal.
+      onProgressRestored={() => {
+        setDb(null);
+        setBootError(null);
+        setBootAttempt(n => n + 1);
+      }}
     />
         
     <HistoryModal

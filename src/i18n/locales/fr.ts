@@ -99,6 +99,35 @@ export const fr: Dictionary = {
     languageSystem: 'Système',
   },
 
+  cloud: {
+    section: 'SAUVEGARDE CLOUD',
+    signedOut: 'Gardez votre progression dans votre Google Drive',
+    signedOutHint: 'Votre ELO, votre historique et vos statistiques vous suivent sur tout appareil connecté au même compte et survivent à une réinstallation. Ils sont stockés dans un dossier privé de VOTRE Drive : je n’y ai pas accès.',
+    signIn: 'SE CONNECTER AVEC GOOGLE',
+    signOut: 'Se déconnecter',
+    autoBackup: 'Sauvegarde automatique',
+    autoBackupHint: 'Envoie la progression à la fermeture de l’app, et seulement si elle a changé',
+    backupNow: 'SAUVEGARDER',
+    restore: 'RESTAURER',
+    noBackup: 'Aucune sauvegarde sur ce compte pour l’instant',
+    summary: (elo: number, puzzles: number) => `ELO ${elo} · ${puzzles} puzzles`,
+    restoreTitle: 'Restaurer la progression',
+    restoreBody: (remote: string, local: string) =>
+      `La progression de cet appareil (${local}) sera remplacée par celle de la sauvegarde :\n${remote}\n\nCette action est irréversible.`,
+    deleteRemote: 'Supprimer la sauvegarde',
+    deleteTitle: 'Supprimer la sauvegarde Drive ?',
+    deleteBody: 'La sauvegarde stockée dans votre Drive sera effacée. La progression de cet appareil n’est pas touchée.',
+    errors: {
+      auth: 'Votre session Google a expiré. Reconnectez-vous.',
+      network: 'Pas de connexion à Google Drive.',
+      config: 'Cette version de l’app n’est pas autorisée à utiliser Google Drive.',
+      playServices: 'Cet appareil n’a pas Google Play Services.',
+      noBackup: 'Aucune sauvegarde enregistrée sur ce compte.',
+      invalid: 'La sauvegarde téléchargée est endommagée : votre progression n’a pas été modifiée.',
+      unknown: 'La synchronisation n’a pas pu aboutir.',
+    },
+  },
+
   stats: {
     title: 'STATISTIQUES',
     accuracy: 'PRÉCISION',

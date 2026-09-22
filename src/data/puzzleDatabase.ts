@@ -32,8 +32,10 @@ const CATALOG_DB = 'puzzles_v3_500k.db';
 // El v2 se queda huérfano en el dispositivo tras actualizar: 12 MB que hay que
 // devolverle al usuario.
 const LEGACY_CATALOG_DB = 'puzzles_v2.db';
-const PROGRESS_DB = 'progress.db';
-const SQLITE_DIR = `${FileSystem.documentDirectory}SQLite`;
+// Exportados: la copia en la nube necesita saber dónde vive el fichero para
+// sustituirlo al restaurar. Nadie más los usa desde fuera.
+export const PROGRESS_DB = 'progress.db';
+export const SQLITE_DIR = `${FileSystem.documentDirectory}SQLite`;
 
 // Súbela cuando publiques un catálogo nuevo: al no arrastrar ya el progreso,
 // el asset se puede sobrescribir sin miedo.
@@ -227,6 +229,23 @@ export const resetProgressDatabase = async (
       .catch(() => {});
   }
 
+  cachedMaxRowid = null;
+};
+
+// Cierra la conexión y olvida la promesa compartida, SIN borrar nada. Lo usa la
+// restauración desde la nube: sustituir progress.db por debajo de una conexión
+// abierta es corrupción asegurada, igual que en el reset, pero aquí el fichero
+// nuevo lo pone quien llama. Tras esto, el siguiente openPuzzleDatabase() abre
+// una conexión limpia sobre lo que haya en disco.
+export const closeProgressDatabase = async (
+  db?: SQLite.SQLiteDatabase | null,
+): Promise<void> => {
+  const handles = new Set([db, rawConnection].filter((h): h is SQLite.SQLiteDatabase => !!h));
+  for (const handle of handles) {
+    try { await handle.closeAsync(); } catch { /* ya estaba cerrada */ }
+  }
+  rawConnection = null;
+  openPromise = null;
   cachedMaxRowid = null;
 };
 

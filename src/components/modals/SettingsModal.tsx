@@ -7,11 +7,15 @@ import { AVAILABLE_LOCALES, getDeviceLocale, nativeNameOf, type LocalePreference
 import { useI18n } from '../../i18n/I18nProvider';
 import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
 import { PALETTE } from '../colors';
+import { CloudSyncSection } from '../settings/CloudSyncSection';
 
 interface SettingsModalProps {
   visible: boolean;
   onClose: () => void;
   onPreviewSound?: () => void;   // para oír el volumen al soltar el slider
+  // Restaurar la copia de la nube sustituye progress.db entero: quien monta la
+  // pantalla tiene que volver a abrir la base. Aquí solo se avisa.
+  onProgressRestored?: () => void;
 }
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -133,7 +137,7 @@ const LocaleSelectRow = React.memo(({ label, valueLabel, options, value, open, o
   </View>
 ));
 
-export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: SettingsModalProps) => {
+export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound, onProgressRestored }: SettingsModalProps) => {
   const {
     soundEnabled, volume, hapticsEnabled, showTimer, showLegalMoves, showCoordinates,
     engineDepth, engineMultiPV, allowRepeats, setSetting, resetSettings,
@@ -235,6 +239,13 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
                 onToggle={() => setLocaleOpen(o => !o)}
               />
             </View>
+
+            {/* --- COPIA EN LA NUBE --- */}
+            {/* Se pinta sola solo si la build trae client ID de Google. */}
+            <CloudSyncSection
+              visible={visible}
+              onRestored={() => { onProgressRestored?.(); onClose(); }}
+            />
 
             {/* --- SONIDO --- */}
             <Text style={styles.sectionTitle}>{t.settings.sectionSound}</Text>

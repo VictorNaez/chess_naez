@@ -90,6 +90,35 @@ export const en: Dictionary = {
     languageSystem: 'System',
   },
 
+  cloud: {
+    section: 'CLOUD BACKUP',
+    signedOut: 'Keep your progress in your Google Drive',
+    signedOutHint: 'Your ELO, history and stats follow you to any device signed in with the same account, and survive a reinstall. They live in a private folder of YOUR Drive: I have no access to them.',
+    signIn: 'SIGN IN WITH GOOGLE',
+    signOut: 'Sign out',
+    autoBackup: 'Automatic backup',
+    autoBackupHint: 'Uploads your progress when you leave the app, and only if it changed',
+    backupNow: 'BACK UP NOW',
+    restore: 'RESTORE',
+    noBackup: 'No backup in this account yet',
+    summary: (elo: number, puzzles: number) => `ELO ${elo} · ${puzzles} puzzles`,
+    restoreTitle: 'Restore progress',
+    restoreBody: (remote: string, local: string) =>
+      `This device's progress (${local}) will be replaced by the backup:\n${remote}\n\nThis cannot be undone.`,
+    deleteRemote: 'Delete backup',
+    deleteTitle: 'Delete the Drive backup?',
+    deleteBody: 'The backup stored in your Drive will be deleted. Progress on this device is not touched.',
+    errors: {
+      auth: 'Your Google session expired. Please sign in again.',
+      network: 'No connection to Google Drive.',
+      config: 'This build of the app is not authorised to use Google Drive.',
+      playServices: 'This device has no Google Play Services.',
+      noBackup: 'There is no backup saved in this account.',
+      invalid: 'The downloaded backup is damaged: your progress was left untouched.',
+      unknown: 'The sync could not be completed.',
+    },
+  },
+
   stats: {
     title: 'STATISTICS',
     accuracy: 'ACCURACY',

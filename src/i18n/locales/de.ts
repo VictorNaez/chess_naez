@@ -99,6 +99,35 @@ export const de: Dictionary = {
     languageSystem: 'System',
   },
 
+  cloud: {
+    section: 'CLOUD-SICHERUNG',
+    signedOut: 'Fortschritt in deinem Google Drive sichern',
+    signedOutHint: 'ELO, Verlauf und Statistiken begleiten dich auf jedes Gerät mit demselben Konto und überstehen eine Neuinstallation. Sie liegen in einem privaten Ordner DEINES Drive: ich habe keinen Zugriff darauf.',
+    signIn: 'MIT GOOGLE ANMELDEN',
+    signOut: 'Abmelden',
+    autoBackup: 'Automatische Sicherung',
+    autoBackupHint: 'Lädt den Fortschritt beim Verlassen der App hoch, und nur wenn er sich geändert hat',
+    backupNow: 'JETZT SICHERN',
+    restore: 'WIEDERHERSTELLEN',
+    noBackup: 'Noch keine Sicherung in diesem Konto',
+    summary: (elo: number, puzzles: number) => `ELO ${elo} · ${puzzles} Puzzles`,
+    restoreTitle: 'Fortschritt wiederherstellen',
+    restoreBody: (remote: string, local: string) =>
+      `Der Fortschritt dieses Geräts (${local}) wird durch die Sicherung ersetzt:\n${remote}\n\nDas lässt sich nicht rückgängig machen.`,
+    deleteRemote: 'Sicherung löschen',
+    deleteTitle: 'Drive-Sicherung löschen?',
+    deleteBody: 'Die in deinem Drive gespeicherte Sicherung wird gelöscht. Der Fortschritt auf diesem Gerät bleibt unberührt.',
+    errors: {
+      auth: 'Deine Google-Sitzung ist abgelaufen. Bitte melde dich erneut an.',
+      network: 'Keine Verbindung zu Google Drive.',
+      config: 'Diese App-Version ist nicht für Google Drive freigeschaltet.',
+      playServices: 'Auf diesem Gerät fehlen die Google Play Services.',
+      noBackup: 'In diesem Konto ist keine Sicherung gespeichert.',
+      invalid: 'Die geladene Sicherung ist beschädigt: dein Fortschritt wurde nicht verändert.',
+      unknown: 'Die Synchronisierung konnte nicht abgeschlossen werden.',
+    },
+  },
+
   stats: {
     title: 'STATISTIKEN',
     accuracy: 'GENAUIGKEIT',

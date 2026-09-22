@@ -95,6 +95,35 @@ export const pt: Dictionary = {
     languageSystem: 'Sistema',
   },
 
+  cloud: {
+    section: 'CÓPIA NA NUVEM',
+    signedOut: 'Guarde o seu progresso no seu Google Drive',
+    signedOutHint: 'O seu ELO, o histórico e as estatísticas acompanham-no em qualquer dispositivo com a mesma conta e sobrevivem a uma reinstalação. Ficam numa pasta privada do SEU Drive: eu não tenho acesso a eles.',
+    signIn: 'ENTRAR COM O GOOGLE',
+    signOut: 'Terminar sessão',
+    autoBackup: 'Cópia automática',
+    autoBackupHint: 'Envia o progresso ao sair da app, e só se tiver mudado',
+    backupNow: 'GUARDAR AGORA',
+    restore: 'RESTAURAR',
+    noBackup: 'Ainda não há nenhuma cópia nesta conta',
+    summary: (elo: number, puzzles: number) => `ELO ${elo} · ${puzzles} puzzles`,
+    restoreTitle: 'Restaurar progresso',
+    restoreBody: (remote: string, local: string) =>
+      `O progresso deste dispositivo (${local}) será substituído pelo da cópia:\n${remote}\n\nNão é possível desfazer.`,
+    deleteRemote: 'Eliminar a cópia',
+    deleteTitle: 'Eliminar a cópia do Drive?',
+    deleteBody: 'A cópia guardada no seu Drive será apagada. O progresso deste dispositivo não é alterado.',
+    errors: {
+      auth: 'A sua sessão Google expirou. Inicie sessão novamente.',
+      network: 'Sem ligação ao Google Drive.',
+      config: 'Esta versão da app não está autorizada a usar o Google Drive.',
+      playServices: 'Este dispositivo não tem Google Play Services.',
+      noBackup: 'Não existe nenhuma cópia guardada nesta conta.',
+      invalid: 'A cópia descarregada está danificada: o seu progresso não foi alterado.',
+      unknown: 'Não foi possível concluir a sincronização.',
+    },
+  },
+
   stats: {
     title: 'ESTATÍSTICAS',
     accuracy: 'PRECISÃO',
