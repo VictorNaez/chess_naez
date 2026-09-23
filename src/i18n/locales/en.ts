@@ -123,6 +123,7 @@ export const en: Dictionary = {
       playServices: 'This device has no Google Play Services.',
       noBackup: 'There is no backup saved in this account.',
       invalid: 'The downloaded backup is damaged: your progress was left untouched.',
+      tooBig: 'Your progress outgrew the size Play Games allows for a backup.',
       unknown: 'The sync could not be completed.',
     },
   },

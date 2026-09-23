@@ -132,6 +132,7 @@ export const de: Dictionary = {
       playServices: 'Auf diesem Gerät fehlen die Google Play Services.',
       noBackup: 'In diesem Konto ist keine Sicherung gespeichert.',
       invalid: 'Die geladene Sicherung ist beschädigt: dein Fortschritt wurde nicht verändert.',
+      tooBig: 'Dein Fortschritt überschreitet die für Play Games erlaubte Größe.',
       unknown: 'Die Synchronisierung konnte nicht abgeschlossen werden.',
     },
   },

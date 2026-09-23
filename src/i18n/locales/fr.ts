@@ -132,6 +132,7 @@ export const fr: Dictionary = {
       playServices: 'Cet appareil n’a pas Google Play Services.',
       noBackup: 'Aucune sauvegarde enregistrée sur ce compte.',
       invalid: 'La sauvegarde téléchargée est endommagée : votre progression n’a pas été modifiée.',
+      tooBig: 'Votre progression dépasse la taille autorisée par Play Games.',
       unknown: 'La synchronisation n’a pas pu aboutir.',
     },
   },

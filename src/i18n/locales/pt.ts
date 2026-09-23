@@ -128,6 +128,7 @@ export const pt: Dictionary = {
       playServices: 'Este dispositivo não tem Google Play Services.',
       noBackup: 'Não existe nenhuma cópia guardada nesta conta.',
       invalid: 'A cópia descarregada está danificada: o seu progresso não foi alterado.',
+      tooBig: 'O progresso cresceu mais do que a cópia do Play Games admite.',
       unknown: 'Não foi possível concluir a sincronização.',
     },
   },

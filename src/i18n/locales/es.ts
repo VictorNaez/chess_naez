@@ -131,6 +131,7 @@ export const es = {
       playServices: 'Este dispositivo no tiene Google Play Services.',
       noBackup: 'No hay ninguna copia guardada en esta cuenta.',
       invalid: 'La copia descargada está dañada: no se ha tocado tu progreso.',
+      tooBig: 'El progreso ha crecido más de lo que admite la copia de Play Games.',
       unknown: 'No se ha podido completar la sincronización.',
     },
   },

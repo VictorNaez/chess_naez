@@ -43,9 +43,10 @@ export const CloudPromptModal = React.memo(() => {
   if (!kind) return null;
 
   const busy = cloud.status === 'working';
-  const props = cloud.remote?.appProperties ?? {};
-  const remoteLine = `${formatWhen(Number(props.savedAt ?? 0), locale)} · ${
-    t.cloud.summary(Number(props.elo ?? 0), Number(props.puzzles ?? 0))}`;
+  const remote = cloud.remote;
+  const remoteLine = remote
+    ? `${formatWhen(remote.savedAt, locale)} · ${t.cloud.summary(remote.elo, remote.puzzles)}`
+    : '';
 
   const isSignIn = kind === 'signIn';
 

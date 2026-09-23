@@ -1,23 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState } from 'react-native';
 import {
-  deleteBackup, DriveAuthError, downloadBackup, ensureBackupFile, findBackup,
-  uploadSnapshot, writeBackupMetadata, type RemoteBackup,
-} from '../data/driveBackup';
+  CloudAuthError, CloudNetworkError, CloudTooBigError,
+  type CloudTransport, type RemoteInfo,
+} from '../data/cloudTransport';
+import { driveTransport } from '../data/driveTransport';
+import { pgsTransport } from '../data/pgsTransport';
 import {
   applySnapshot, createSnapshot, discardTempFiles, EMPTY_SUMMARY, inspectSnapshot,
   InvalidSnapshotError, restoreUri, revisionOf, summarizeProgress, type ProgressSummary,
 } from '../data/progressSnapshot';
 import { openPuzzleDatabase } from '../data/puzzleDatabase';
 import { subscribeProgressDirty } from '../data/syncSignal';
-import {
-  classifyAuthError, getAccessToken, isCloudConfigured, refreshAccessToken,
-  restoreSession, signInInteractive, signOutFromGoogle,
-} from '../lib/googleAuth';
+import { classifyAuthError } from '../lib/googleAuth';
 
 // =========================================================
 // COPIA EN LA NUBE — ESTADO Y ACCIONES
@@ -31,7 +29,7 @@ import {
 
 export type CloudStatus = 'idle' | 'working';
 export type CloudErrorKind =
-  | 'auth' | 'network' | 'config' | 'playServices' | 'noBackup' | 'invalid' | 'unknown';
+  | 'auth' | 'network' | 'config' | 'playServices' | 'noBackup' | 'invalid' | 'tooBig' | 'unknown';
 /** Qué propone el aviso automático del arranque, si es que propone algo. */
 export type CloudPrompt = 'signIn' | 'restore';
 
@@ -74,14 +72,17 @@ const PROMPT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const PROMPT_MAX_TIMES = 3;
 
 interface CloudSyncValue {
-  available: boolean;               // la build trae client ID configurado
+  available: boolean;               // hay algún transporte utilizable
   isReady: boolean;                 // ya se ha comprobado si había sesión
-  email: string | null;
+  /** Cuál está en uso: 'pgs' entra solo, 'drive' pide un toque la primera vez. */
+  transport: 'pgs' | 'drive' | null;
+  /** Nombre de jugador o correo, según el transporte. */
+  account: string | null;
   status: CloudStatus;
   error: CloudErrorKind | null;
   autoBackup: boolean;
   lastBackupAt: number;
-  remote: RemoteBackup | null;
+  remote: RemoteInfo | null;
   localSummary: ProgressSummary;
   /** Aviso no bloqueante que se pinta al abrir la app. */
   prompt: CloudPrompt | null;
@@ -110,21 +111,20 @@ interface CloudSyncValue {
 
 const CloudSyncContext = createContext<CloudSyncValue | null>(null);
 
-// Los metadatos remotos guardan el mismo resumen que genera revisionOf(), así
-// que se puede comparar con lo local sin descargar la copia entera.
-const remoteAttempts = (backup: RemoteBackup | null): number =>
-  Number(backup?.appProperties.attempts ?? 0);
-const remoteSavedAt = (backup: RemoteBackup | null): number =>
-  Number(backup?.appProperties.savedAt ?? 0);
+// Preferencia de transporte: Play Games primero porque su sesión no le pide
+// nada al jugador. Drive queda de plan B para dispositivos sin perfil de Play
+// Games, para quien lo rechace, y para las builds anteriores al módulo nativo.
+const TRANSPORTS: CloudTransport[] = [pgsTransport, driveTransport];
 
 export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
-  const available = isCloudConfigured();
+  const [transport, setTransport] = useState<CloudTransport | null>(null);
+  const available = transport !== null;
 
-  const [isReady, setIsReady] = useState(!available);
-  const [email, setEmail] = useState<string | null>(null);
+  const [isReady, setIsReady] = useState(false);
+  const [account, setAccount] = useState<string | null>(null);
   const [status, setStatus] = useState<CloudStatus>('idle');
   const [error, setError] = useState<CloudErrorKind | null>(null);
-  const [remote, setRemote] = useState<RemoteBackup | null>(null);
+  const [remote, setRemote] = useState<RemoteInfo | null>(null);
   const [localSummary, setLocalSummary] = useState<ProgressSummary>(EMPTY_SUMMARY);
   const [persisted, setPersisted] = useState<PersistedState>(DEFAULT_STATE);
   const [prompt, setPrompt] = useState<CloudPrompt | null>(null);
@@ -137,8 +137,10 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   const busyRef = useRef(false);
   const persistedRef = useRef(persisted);
   persistedRef.current = persisted;
-  const emailRef = useRef<string | null>(null);
-  emailRef.current = email;
+  const accountRef = useRef<string | null>(null);
+  accountRef.current = account;
+  const transportRef = useRef<CloudTransport | null>(null);
+  transportRef.current = transport;
   const autoBackupRef = useRef(persisted.autoBackup);
   autoBackupRef.current = persisted.autoBackup;
 
@@ -159,7 +161,6 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   // Arranque: ajustes guardados + sesión silenciosa
   // ---------------------------------------------------------
   useEffect(() => {
-    if (!available) return;
     let cancelled = false;
 
     (async () => {
@@ -168,32 +169,30 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
         if (raw && !cancelled) setPersisted({ ...DEFAULT_STATE, ...JSON.parse(raw) });
       } catch { /* ajustes corruptos: valen los de fábrica */ }
 
-      // Silenciosa de verdad, pero solo funciona si el usuario ya dijo que sí
-      // alguna vez en este dispositivo: Google exige ese primer consentimiento.
-      const user = await restoreSession();
-      if (cancelled) return;
-      setEmail(user?.user.email ?? null);
-      setIsReady(true);
+      // El primero que diga que sí. Con Play Games esto ya incluye el inicio de
+      // sesión automático del SDK, así que la elección y la sesión salen de la
+      // misma pasada.
+      for (const candidate of TRANSPORTS) {
+        if (cancelled) return;
+        if (!(await candidate.isSupported().catch(() => false))) continue;
+        setTransport(candidate);
+        transportRef.current = candidate;
+        const identity = await candidate.restoreSession().catch(() => null);
+        if (cancelled) return;
+        setAccount(identity);
+        break;
+      }
+      if (!cancelled) setIsReady(true);
     })();
 
     return () => { cancelled = true; };
-  }, [available]);
-
-  // Un token por operación, con UN reintento si Google dice que caducó.
-  const withToken = useCallback(async <T,>(fn: (token: string) => Promise<T>): Promise<T> => {
-    const token = await getAccessToken();
-    try {
-      return await fn(token);
-    } catch (err) {
-      if (!(err instanceof DriveAuthError)) throw err;
-      const fresh = await refreshAccessToken(token);
-      return await fn(fresh);
-    }
   }, []);
 
   const classify = useCallback((err: unknown): CloudErrorKind => {
     if (err instanceof InvalidSnapshotError) return 'invalid';
-    if (err instanceof DriveAuthError) return 'auth';
+    if (err instanceof CloudTooBigError) return 'tooBig';
+    if (err instanceof CloudAuthError) return 'auth';
+    if (err instanceof CloudNetworkError) return 'network';
     if (err instanceof Error && err.message.startsWith('network')) return 'network';
     if (err instanceof Error && err.message === 'no-backup') return 'noBackup';
     const auth = classifyAuthError(err);
@@ -216,18 +215,15 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     const snapshot = await createSnapshot(db);
     setLocalSummary(snapshot.summary);
 
-    const updated = await withToken(async token => {
-      const fileId = await ensureBackupFile(token);
-      await uploadSnapshot(token, fileId, snapshot.uri);
-      return writeBackupMetadata(token, fileId, {
-        elo: String(snapshot.summary.globalElo),
-        attempts: String(snapshot.summary.attempts),
-        solved: String(snapshot.summary.solved),
-        puzzles: String(snapshot.summary.puzzles),
-        savedAt: String(Date.now()),
-        platform: Platform.OS,
-        appVersion: String(Constants.expoConfig?.version ?? ''),
-      });
+    const active = transportRef.current;
+    if (!active) return false;
+
+    const updated = await active.upload(snapshot.uri, {
+      savedAt: Date.now(),
+      attempts: snapshot.summary.attempts,
+      solved: snapshot.summary.solved,
+      puzzles: snapshot.summary.puzzles,
+      elo: snapshot.summary.globalElo,
     });
 
     setRemote(updated);
@@ -239,10 +235,10 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     pendingRef.current = 0;
     await discardTempFiles();
     return true;
-  }, [withToken, savePersisted]);
+  }, [savePersisted]);
 
   const backupNow = useCallback(async (): Promise<boolean> => {
-    if (!email || busyRef.current) return false;
+    if (!account || busyRef.current) return false;
     busyRef.current = true;
     setStatus('working');
     setError(null);
@@ -255,7 +251,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       busyRef.current = false;
       setStatus('idle');
     }
-  }, [email, runBackup, classify]);
+  }, [account, runBackup, classify]);
 
   // ---------------------------------------------------------
   // Restauración
@@ -263,12 +259,11 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   // Sustituye progress.db y avisa subiendo restoreToken. NO reabre la base: de
   // eso se encarga quien la montó.
   const runRestore = useCallback(async (): Promise<boolean> => {
+    const active = transportRef.current;
+    if (!active) return false;
+
     const dest = restoreUri();
-    await withToken(async token => {
-      const file = await findBackup(token);
-      if (!file) throw new Error('no-backup');
-      await downloadBackup(token, file.id, dest);
-    });
+    await active.download(dest);
 
     // Verificar ANTES de tocar nada: una descarga truncada no puede llegar a
     // sustituir un progreso bueno.
@@ -285,10 +280,10 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     await discardTempFiles();
     setRestoreToken(value => value + 1);
     return true;
-  }, [withToken, savePersisted]);
+  }, [savePersisted]);
 
   const restoreFromCloud = useCallback(async (): Promise<boolean> => {
-    if (!email || busyRef.current) return false;
+    if (!account || busyRef.current) return false;
     busyRef.current = true;
     setStatus('working');
     setError(null);
@@ -302,18 +297,19 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       busyRef.current = false;
       setStatus('idle');
     }
-  }, [email, runRestore, classify]);
+  }, [account, runRestore, classify]);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!available) return;
     await readLocalSummary().catch(() => {});
-    if (!email) { setRemote(null); return; }
+    const active = transportRef.current;
+    if (!account || !active) { setRemote(null); return; }
     try {
-      setRemote(await withToken(token => findBackup(token)));
+      setRemote(await active.find());
     } catch (err) {
       setError(classify(err));
     }
-  }, [available, email, readLocalSummary, withToken, classify]);
+  }, [available, account, readLocalSummary, classify]);
 
   // ---------------------------------------------------------
   // Qué hacer al abrir la app
@@ -335,7 +331,8 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     void (async () => {
       const local = await readLocalSummary().catch(() => EMPTY_SUMMARY);
 
-      if (!email) {
+      const active = transportRef.current;
+      if (!account || !active) {
         const { promptDismissedAt, promptDismissCount } = persistedRef.current;
         const eligible =
           promptDismissCount < PROMPT_MAX_TIMES &&
@@ -344,9 +341,9 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      let found: RemoteBackup | null = null;
+      let found: RemoteInfo | null = null;
       try {
-        found = await withToken(token => findBackup(token));
+        found = await active.find();
       } catch {
         // Sin red al arrancar no pasa nada: se juega igual y ya se subirá.
         return;
@@ -386,8 +383,8 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       // la de la última copia que subió ESTE dispositivo.
       const localPending = revisionOf(local) !== persistedRef.current.lastRevision;
       const remoteAhead =
-        remoteAttempts(found) > local.attempts &&
-        remoteSavedAt(found) > persistedRef.current.lastBackupAt;
+        found.attempts > local.attempts &&
+        found.savedAt > persistedRef.current.lastBackupAt;
 
       if (remoteAhead) {
         // Nada pendiente aquí: traerse lo del otro dispositivo no pisa nada.
@@ -399,7 +396,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       // Local por delante o empatado con cosas sin subir: copia y listo.
       if (localPending) await runGuarded(runBackup);
     })();
-  }, [available, isReady, appReady, email, readLocalSummary, withToken, runBackup, runRestore, classify]);
+  }, [available, isReady, appReady, account, readLocalSummary, runBackup, runRestore, classify]);
 
   const dismissPrompt = useCallback(() => {
     // El contador solo sube con la propuesta de iniciar sesión: la de restaurar
@@ -426,15 +423,16 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     setStatus('working');
     setError(null);
     try {
-      const user = await signInInteractive();
-      const nextEmail = user?.user.email ?? null;
-      if (nextEmail) {
+      const active = transportRef.current;
+      if (!active) return;
+      const identity = await active.signIn();
+      if (identity) {
         setPrompt(null);
         // Que el efecto de arranque vuelva a decidir con la sesión ya puesta:
         // subir lo que hay, o restaurar si este dispositivo está vacío.
         bootDecisionRef.current = false;
       }
-      setEmail(nextEmail);
+      setAccount(identity);
     } catch (err) {
       setError(classify(err));
     } finally {
@@ -444,8 +442,8 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   }, [classify]);
 
   const signOut = useCallback(async () => {
-    await signOutFromGoogle();
-    setEmail(null);
+    await transportRef.current?.signOut();
+    setAccount(null);
     setRemote(null);
     setError(null);
     pendingRef.current = 0;
@@ -453,15 +451,12 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteRemote = useCallback(async (): Promise<boolean> => {
-    if (!email || busyRef.current) return false;
+    if (!account || busyRef.current) return false;
     busyRef.current = true;
     setStatus('working');
     setError(null);
     try {
-      await withToken(async token => {
-        const file = await findBackup(token);
-        if (file) await deleteBackup(token, file.id);
-      });
+      await transportRef.current?.remove();
       setRemote(null);
       savePersisted({ ...persistedRef.current, lastBackupAt: 0, lastRevision: '' });
       return true;
@@ -472,7 +467,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       busyRef.current = false;
       setStatus('idle');
     }
-  }, [email, withToken, savePersisted, classify]);
+  }, [account, savePersisted, classify]);
 
   const setAutoBackup = useCallback((value: boolean) => {
     savePersisted({ ...persistedRef.current, autoBackup: value });
@@ -501,7 +496,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const flush = useCallback(async (): Promise<void> => {
-    if (!autoBackupRef.current || !emailRef.current) return;
+    if (!autoBackupRef.current || !accountRef.current) return;
     if (busyRef.current) return;
 
     const db = await openPuzzleDatabase().catch(() => null);
@@ -558,7 +553,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!available) return;
     const unsubscribe = subscribeProgressDirty(() => {
-      if (!autoBackupRef.current || !emailRef.current) return;
+      if (!autoBackupRef.current || !accountRef.current) return;
       pendingRef.current += 1;
 
       if (pendingRef.current >= FLUSH_EVERY_CHANGES) {
@@ -586,7 +581,8 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<CloudSyncValue>(() => ({
     available,
     isReady,
-    email,
+    transport: transport?.id ?? null,
+    account,
     status,
     error,
     autoBackup: persisted.autoBackup,
@@ -606,7 +602,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     requestFlush,
     markAppReady,
   }), [
-    available, isReady, email, status, error, persisted.autoBackup, persisted.lastBackupAt,
+    available, isReady, transport, account, status, error, persisted.autoBackup, persisted.lastBackupAt,
     remote, localSummary, prompt, dismissPrompt, restoreToken, signIn, signOut, setAutoBackup,
     backupNow, restoreFromCloud, deleteRemote, refresh, requestFlush, markAppReady,
   ]);

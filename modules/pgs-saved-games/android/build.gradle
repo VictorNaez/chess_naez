@@ -1,0 +1,42 @@
+apply plugin: 'com.android.library'
+
+group = 'expo.modules.pgssavedgames'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(
+  project(":expo-modules-core").projectDir.absolutePath,
+  "ExpoModulesCorePlugin.gradle"
+)
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+android {
+  namespace "expo.modules.pgssavedgames"
+  defaultConfig {
+    minSdkVersion 24
+    targetSdkVersion 35
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+  publishing {
+    singleVariant("release") {
+      withSourcesJar()
+    }
+  }
+}
+
+repositories {
+  mavenCentral()
+  google()
+}
+
+dependencies {
+  // SDK v2 de Play Games Services. El v1 dejó de admitir integraciones nuevas
+  // en Play y desaparece en 2026, así que aquí no hay elección que valorar.
+  implementation "com.google.android.gms:play-services-games-v2:20.1.2"
+}

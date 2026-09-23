@@ -43,18 +43,16 @@ export const CloudSyncSection = React.memo(({ visible, onRestored }: CloudSyncSe
   // el disparador es que SE ABRA, no el montaje: al abrirlo miramos qué hay al
   // otro lado, que el usuario pudo haber jugado en otro móvil desde entonces.
   useEffect(() => {
-    if (visible && cloud.email) void cloud.refresh();
+    if (visible && cloud.account) void cloud.refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, cloud.email]);
+  }, [visible, cloud.account]);
 
   if (!cloud.available) return null;
 
   const busy = cloud.status === 'working';
-  const remoteProps = cloud.remote?.appProperties ?? {};
-  const remoteSavedAt = Number(remoteProps.savedAt ?? 0);
   const remoteLine = cloud.remote
-    ? `${formatWhen(remoteSavedAt, locale)} · ${t.cloud.summary(
-        Number(remoteProps.elo ?? 0), Number(remoteProps.puzzles ?? 0))}`
+    ? `${formatWhen(cloud.remote.savedAt, locale)} · ${
+        t.cloud.summary(cloud.remote.elo, cloud.remote.puzzles)}`
     : t.cloud.noBackup;
 
   const localLine = t.cloud.summary(cloud.localSummary.globalElo, cloud.localSummary.puzzles);
@@ -91,7 +89,7 @@ export const CloudSyncSection = React.memo(({ visible, onRestored }: CloudSyncSe
     <>
       <Text style={styles.sectionTitle}>{t.cloud.section}</Text>
       <View style={styles.card}>
-        {!cloud.email ? (
+        {!cloud.account ? (
           <View style={styles.block}>
             <Text style={styles.rowLabel}>{t.cloud.signedOut}</Text>
             <Text style={styles.rowHint}>{t.cloud.signedOutHint}</Text>
@@ -116,7 +114,7 @@ export const CloudSyncSection = React.memo(({ visible, onRestored }: CloudSyncSe
               <View style={styles.rowLeft}>
                 <Ionicons name="cloud-done-outline" size={18} color={PALETTE.secondary} style={styles.rowIcon} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.rowLabel} numberOfLines={1}>{cloud.email}</Text>
+                  <Text style={styles.rowLabel} numberOfLines={1}>{cloud.account}</Text>
                   <Text style={styles.rowHint} numberOfLines={2}>{remoteLine}</Text>
                 </View>
               </View>
@@ -163,9 +161,14 @@ export const CloudSyncSection = React.memo(({ visible, onRestored }: CloudSyncSe
             </View>
 
             <View style={styles.footerLinks}>
-              <TouchableOpacity onPress={() => { void cloud.signOut(); }} disabled={busy}>
-                <Text style={styles.linkText}>{t.cloud.signOut}</Text>
-              </TouchableOpacity>
+              {/* Play Games no ofrece cierre de sesión por aplicación: se
+                  gestiona en los ajustes del sistema, así que ahí no se pinta un
+                  enlace que no haría nada. */}
+              {cloud.transport === 'drive' && (
+                <TouchableOpacity onPress={() => { void cloud.signOut(); }} disabled={busy}>
+                  <Text style={styles.linkText}>{t.cloud.signOut}</Text>
+                </TouchableOpacity>
+              )}
               {!!cloud.remote && (
                 <TouchableOpacity onPress={confirmDelete} disabled={busy}>
                   <Text style={[styles.linkText, styles.linkDanger]}>{t.cloud.deleteRemote}</Text>
