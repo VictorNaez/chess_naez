@@ -70,9 +70,21 @@ class PgsSavedGamesModule : Module() {
         }
     }
 
-    AsyncFunction("getPlayerName") { promise: Promise ->
+    // Nombre y avatar del jugador. La foto llega como Uri del proveedor de Play
+    // Services (normalmente content://), que el <Image> de Android sabe cargar
+    // tal cual. Puede venir vacía: no todo el mundo tiene foto, y la interfaz
+    // tiene que aguantarlo sin pestañear.
+    AsyncFunction("getPlayer") { promise: Promise ->
       PlayGames.getPlayersClient(activity).currentPlayer
-        .addOnSuccessListener { player -> promise.resolve(player.displayName) }
+        .addOnSuccessListener { player ->
+          promise.resolve(
+            mapOf(
+              "name" to player.displayName,
+              "iconUri" to player.iconImageUri?.toString(),
+              "hiResUri" to player.hiResImageUri?.toString(),
+            )
+          )
+        }
         .addOnFailureListener { promise.resolve(null) }
     }
 

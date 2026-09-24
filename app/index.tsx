@@ -25,6 +25,7 @@ import { EloBadge } from '../src/components/header/EloBadge';
 import { PuzzleTimer } from '../src/components/header/PuzzleTimer';
 import { SessionEloSparkline } from '../src/components/header/SessionEloSparkline';
 import { FeedbackModal } from '../src/components/modals/FeedbackModal';
+import { BootScreen } from '../src/components/BootScreen';
 import { CloudPromptModal } from '../src/components/modals/CloudPromptModal';
 import { FilterModal } from '../src/components/modals/FilterModal';
 import { HistoryModal } from '../src/components/modals/HistoryModal';
@@ -1702,6 +1703,17 @@ useEffect(() => {
 const moveListWrapperAnimatedStyle = useAnimatedStyle(() => ({ height: moveListHeight.value, }));
 
 // Sirve para el grafico de sesion actual (al lado del ELO)
+// El progreso que viene de la nube no es una jugada: la sesión no debe llevarse
+// un pico en el sparkline. Se vacía la serie y se deja el testigo de siembra en
+// falso, de forma que el primer valor que llegue con la base nueva sea el punto
+// de partida y no un cambio. Va antes del efecto de siembra a propósito: cuando
+// el token cambia, el ELO todavía es el viejo y ese efecto no se dispara.
+useEffect(() => {
+  if (restoreToken === 0) return;
+  hasSeededSessionElo.current = false;
+  setSessionEloHistory([]);
+}, [restoreToken]);
+
 useEffect(() => {
   const currentGlobalElo = userRatings['global'];
   if (currentGlobalElo === undefined) return; // Aún no cargó desde SQLite
@@ -2544,7 +2556,7 @@ return (
             <View style={styles.eloSessionRow}>
               {hasBooted ? (
                 <>
-                  <EloBadge target={userRatings['global']} feedback={eloFeedback} />
+                  <EloBadge target={userRatings['global']} feedback={eloFeedback} jumpToken={restoreToken} />
                   <SessionEloSparkline data={sessionEloHistory} globalElo={userRatings['global'] || DEFAULT_ELO} />
                 </>
               ) : (
@@ -2974,6 +2986,10 @@ return (
     <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}>
       {analysisEngine.StockfishWebView}
     </View>
+
+    {/* Lo último del árbol y a pantalla completa: tapa los esqueletos hasta que
+        hay datos reales que pintar. Se desmonta sola tras el fundido. */}
+    <BootScreen visible={!hasBooted} />
   </View>
 </GestureHandlerRootView>
 );

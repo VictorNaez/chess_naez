@@ -10,7 +10,7 @@ import { setupPuzzleStatsTable } from './puzzleStats';
 // =========================================================
 //   progress.db      -> main. Todo lo del jugador. Lo escribe la app, lo
 //                       respalda Android, no lo toca nunca un release.
-//   puzzles_v2.db    -> adjunta como `catalog`. Copia del asset, solo lectura.
+//   puzzles_v3_500k.db -> adjunta como `catalog`. Copia del asset, solo lectura.
 //                       Al no haber progreso dentro, se puede reemplazar por
 //                       una versión nueva en cualquier release.
 //

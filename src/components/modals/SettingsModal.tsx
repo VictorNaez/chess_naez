@@ -7,7 +7,7 @@ import { AVAILABLE_LOCALES, getDeviceLocale, nativeNameOf, type LocalePreference
 import { useI18n } from '../../i18n/I18nProvider';
 import { MODAL_MAX_WIDTH, MODAL_WIDTH_RATIO, modalWidthFor } from '../../theme/responsive';
 import { PALETTE } from '../colors';
-import { CloudSyncSection } from '../settings/CloudSyncSection';
+import { CloudAccountRow } from '../settings/CloudAccountRow';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -223,6 +223,11 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
 
           <ScrollView showsVerticalScrollIndicator={false} style={{ width: '100%' }}>
 
+            {/* --- CUENTA --- */}
+            {/* Arriba del todo, sin título de sección ni tarjeta: es la fila de
+                cuenta, no un ajuste más. Se pinta sola solo si hay transporte. */}
+            <CloudAccountRow visible={visible} />
+
             {/* --- IDIOMA --- */}
             <Text style={styles.sectionTitle}>{t.settings.sectionLanguage}</Text>
             <View style={styles.card}>
@@ -236,13 +241,6 @@ export const SettingsModal = React.memo(({ visible, onClose, onPreviewSound }: S
                 onToggle={() => setLocaleOpen(o => !o)}
               />
             </View>
-
-            {/* --- COPIA EN LA NUBE --- */}
-            {/* Se pinta sola solo si la build trae client ID de Google. */}
-            <CloudSyncSection
-              visible={visible}
-              onRestored={onClose}
-            />
 
             {/* --- SONIDO --- */}
             <Text style={styles.sectionTitle}>{t.settings.sectionSound}</Text>

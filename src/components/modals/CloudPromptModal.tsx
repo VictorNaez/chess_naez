@@ -90,9 +90,11 @@ export const CloudPromptModal = React.memo(() => {
               ? <ActivityIndicator color={PALETTE.accent} size="small" />
               : (
                 <>
-                  {isSignIn && <Ionicons name="logo-google" size={15} color={PALETTE.accent} />}
+                  {isSignIn && (
+                    <Ionicons name="logo-google-playstore" size={15} color={PALETTE.accent} />
+                  )}
                   <Text style={styles.primaryBtnText}>
-                    {isSignIn ? t.cloud.signIn : t.cloud.restore}
+                    {isSignIn ? t.cloud.connectPlayGames : t.cloud.restore}
                   </Text>
                 </>
               )}

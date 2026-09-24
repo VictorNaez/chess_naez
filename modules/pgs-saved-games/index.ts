@@ -17,10 +17,18 @@ export interface PgsSnapshotMeta {
   description: string;
 }
 
+export interface PgsPlayer {
+  name: string | null;
+  /** Avatar pequeño. Puede ser null: no todos los jugadores tienen foto. */
+  iconUri: string | null;
+  /** Avatar grande, cuando existe. */
+  hiResUri: string | null;
+}
+
 interface PgsSavedGamesNativeModule {
   isAuthenticated(): Promise<boolean>;
   signIn(): Promise<boolean>;
-  getPlayerName(): Promise<string | null>;
+  getPlayer(): Promise<PgsPlayer | null>;
   describe(name: string): Promise<PgsSnapshotMeta | null>;
   save(name: string, path: string, description: string, progress: number): Promise<PgsSnapshotMeta>;
   load(name: string, path: string): Promise<PgsSnapshotMeta | null>;

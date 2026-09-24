@@ -3,10 +3,19 @@
 // =========================================================
 // Toda la lógica de cuándo copiar, cuándo restaurar y qué lado va por delante es
 // independiente de por dónde viaje el fichero. Esta interfaz es la frontera:
-// arriba, el provider decide; abajo, Drive o Play Games mueven bytes.
+// arriba, el provider decide; abajo, Play Games mueve bytes.
+//
+// Hoy solo hay una implementación. La frontera se queda porque es lo que permitió
+// cambiar de Drive a Play Games tocando un fichero, y lo que permitiría volver.
 //
 // La regla de reparto es simple: aquí abajo no hay ni una decisión de producto,
 // solo "sube esto", "bájame aquello" y "dime qué hay".
+
+/** Quién está conectado. El avatar puede faltar, el nombre no. */
+export interface CloudIdentity {
+  name: string;
+  avatarUri: string | null;
+}
 
 /** Resumen de lo que hay al otro lado, sin descargar la copia entera. */
 export interface RemoteInfo {
@@ -29,14 +38,13 @@ export class CloudNetworkError extends Error {}
 export class CloudTooBigError extends Error {}
 
 export interface CloudTransport {
-  readonly id: 'pgs' | 'drive';
+  readonly id: 'pgs';
   /** ¿Puede usarse en ESTE dispositivo y esta build? */
   isSupported(): Promise<boolean>;
   /** Sesión ya concedida, sin interfaz. Devuelve la identidad o null. */
-  restoreSession(): Promise<string | null>;
+  restoreSession(): Promise<CloudIdentity | null>;
   /** Login con interfaz. null si el usuario cancela. */
-  signIn(): Promise<string | null>;
-  signOut(): Promise<void>;
+  signIn(): Promise<CloudIdentity | null>;
   find(): Promise<RemoteInfo | null>;
   upload(fileUri: string, info: RemoteInfo): Promise<RemoteInfo>;
   download(destUri: string): Promise<void>;

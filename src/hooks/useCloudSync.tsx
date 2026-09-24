@@ -5,9 +5,8 @@ import React, {
 import { AppState } from 'react-native';
 import {
   CloudAuthError, CloudNetworkError, CloudTooBigError,
-  type CloudTransport, type RemoteInfo,
+  type CloudIdentity, type CloudTransport, type RemoteInfo,
 } from '../data/cloudTransport';
-import { driveTransport } from '../data/driveTransport';
 import { pgsTransport } from '../data/pgsTransport';
 import {
   applySnapshot, createSnapshot, discardTempFiles, EMPTY_SUMMARY, inspectSnapshot,
@@ -15,7 +14,6 @@ import {
 } from '../data/progressSnapshot';
 import { openPuzzleDatabase } from '../data/puzzleDatabase';
 import { subscribeProgressDirty } from '../data/syncSignal';
-import { classifyAuthError } from '../lib/googleAuth';
 
 // =========================================================
 // COPIA EN LA NUBE — ESTADO Y ACCIONES
@@ -29,7 +27,7 @@ import { classifyAuthError } from '../lib/googleAuth';
 
 export type CloudStatus = 'idle' | 'working';
 export type CloudErrorKind =
-  | 'auth' | 'network' | 'config' | 'playServices' | 'noBackup' | 'invalid' | 'tooBig' | 'unknown';
+  | 'auth' | 'network' | 'noBackup' | 'invalid' | 'tooBig' | 'unknown';
 /** Qué propone el aviso automático del arranque, si es que propone algo. */
 export type CloudPrompt = 'signIn' | 'restore';
 
@@ -72,12 +70,10 @@ const PROMPT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const PROMPT_MAX_TIMES = 3;
 
 interface CloudSyncValue {
-  available: boolean;               // hay algún transporte utilizable
+  available: boolean;               // hay transporte utilizable en este dispositivo
   isReady: boolean;                 // ya se ha comprobado si había sesión
-  /** Cuál está en uso: 'pgs' entra solo, 'drive' pide un toque la primera vez. */
-  transport: 'pgs' | 'drive' | null;
-  /** Nombre de jugador o correo, según el transporte. */
-  account: string | null;
+  /** Jugador conectado: nombre y, si la tiene, foto de Play Games. */
+  identity: CloudIdentity | null;
   status: CloudStatus;
   error: CloudErrorKind | null;
   autoBackup: boolean;
@@ -93,7 +89,6 @@ interface CloudSyncValue {
    */
   restoreToken: number;
   signIn: () => Promise<void>;
-  signOut: () => Promise<void>;
   setAutoBackup: (value: boolean) => void;
   backupNow: () => Promise<boolean>;
   restoreFromCloud: () => Promise<boolean>;
@@ -111,17 +106,17 @@ interface CloudSyncValue {
 
 const CloudSyncContext = createContext<CloudSyncValue | null>(null);
 
-// Preferencia de transporte: Play Games primero porque su sesión no le pide
-// nada al jugador. Drive queda de plan B para dispositivos sin perfil de Play
-// Games, para quien lo rechace, y para las builds anteriores al módulo nativo.
-const TRANSPORTS: CloudTransport[] = [pgsTransport, driveTransport];
+// Un único transporte. La lista se queda porque el arranque ya sabe recorrerla
+// y probar el siguiente, que es lo que hizo indoloro el cambio desde Drive.
+const TRANSPORTS: CloudTransport[] = [pgsTransport];
 
 export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   const [transport, setTransport] = useState<CloudTransport | null>(null);
   const available = transport !== null;
 
   const [isReady, setIsReady] = useState(false);
-  const [account, setAccount] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<CloudIdentity | null>(null);
+  const account = identity?.name ?? null;
   const [status, setStatus] = useState<CloudStatus>('idle');
   const [error, setError] = useState<CloudErrorKind | null>(null);
   const [remote, setRemote] = useState<RemoteInfo | null>(null);
@@ -177,9 +172,9 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
         if (!(await candidate.isSupported().catch(() => false))) continue;
         setTransport(candidate);
         transportRef.current = candidate;
-        const identity = await candidate.restoreSession().catch(() => null);
+        const session = await candidate.restoreSession().catch(() => null);
         if (cancelled) return;
-        setAccount(identity);
+        setIdentity(session);
         break;
       }
       if (!cancelled) setIsReady(true);
@@ -195,8 +190,6 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     if (err instanceof CloudNetworkError) return 'network';
     if (err instanceof Error && err.message.startsWith('network')) return 'network';
     if (err instanceof Error && err.message === 'no-backup') return 'noBackup';
-    const auth = classifyAuthError(err);
-    if (auth !== 'unknown') return auth;
     return 'unknown';
   }, []);
 
@@ -425,14 +418,14 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     try {
       const active = transportRef.current;
       if (!active) return;
-      const identity = await active.signIn();
-      if (identity) {
+      const session = await active.signIn();
+      if (session) {
         setPrompt(null);
         // Que el efecto de arranque vuelva a decidir con la sesión ya puesta:
         // subir lo que hay, o restaurar si este dispositivo está vacío.
         bootDecisionRef.current = false;
       }
-      setAccount(identity);
+      setIdentity(session);
     } catch (err) {
       setError(classify(err));
     } finally {
@@ -440,15 +433,6 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       setStatus('idle');
     }
   }, [classify]);
-
-  const signOut = useCallback(async () => {
-    await transportRef.current?.signOut();
-    setAccount(null);
-    setRemote(null);
-    setError(null);
-    pendingRef.current = 0;
-    await discardTempFiles();
-  }, []);
 
   const deleteRemote = useCallback(async (): Promise<boolean> => {
     if (!account || busyRef.current) return false;
@@ -581,8 +565,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<CloudSyncValue>(() => ({
     available,
     isReady,
-    transport: transport?.id ?? null,
-    account,
+    identity,
     status,
     error,
     autoBackup: persisted.autoBackup,
@@ -593,7 +576,6 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     dismissPrompt,
     restoreToken,
     signIn,
-    signOut,
     setAutoBackup,
     backupNow,
     restoreFromCloud,
@@ -602,8 +584,8 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     requestFlush,
     markAppReady,
   }), [
-    available, isReady, transport, account, status, error, persisted.autoBackup, persisted.lastBackupAt,
-    remote, localSummary, prompt, dismissPrompt, restoreToken, signIn, signOut, setAutoBackup,
+    available, isReady, identity, status, error, persisted.autoBackup, persisted.lastBackupAt,
+    remote, localSummary, prompt, dismissPrompt, restoreToken, signIn, setAutoBackup,
     backupNow, restoreFromCloud, deleteRemote, refresh, requestFlush, markAppReady,
   ]);
 

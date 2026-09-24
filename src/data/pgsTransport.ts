@@ -3,16 +3,17 @@ import * as FileSystem from 'expo-file-system/legacy';
 import PgsSavedGames, { isPgsModuleAvailable, type PgsSnapshotMeta } from '../../modules/pgs-saved-games';
 import {
   BACKUP_SLOT, CloudAuthError, CloudTooBigError, EMPTY_REMOTE,
-  type CloudTransport, type RemoteInfo,
+  type CloudIdentity, type CloudTransport, type RemoteInfo,
 } from './cloudTransport';
 
 // =========================================================
 // TRANSPORTE: PLAY GAMES SERVICES (Saved Games)
 // =========================================================
-// La ventaja entera está en el login: el SDK v2 entra solo al arrancar, sin
-// pantalla de consentimiento ni toque del usuario, porque el scope de Drive que
-// necesitan las partidas guardadas ya va incluido en el permiso de Play Games.
-// El fichero acaba en el mismo sitio que antes, el Drive del jugador.
+// Único transporte de la copia. La ventaja entera está en el login: el SDK v2
+// entra solo al arrancar, sin pantalla de consentimiento ni toque del usuario,
+// porque el scope de Drive que necesitan las partidas guardadas ya va incluido
+// en el permiso de Play Games. El fichero acaba en el Drive del jugador, en un
+// espacio oculto, igual que con la integración anterior.
 //
 // Lo que no cabe en los metadatos de la API va en `description` como JSON: el
 // número de intentos tiene su propio hueco (progressValue) porque es el que
@@ -51,6 +52,16 @@ const isConfigured = (): boolean => {
   return !!extra?.pgsProjectId;
 };
 
+const readIdentity = async (): Promise<CloudIdentity> => {
+  const player = await requireModule().getPlayer().catch(() => null);
+  return {
+    name: player?.name || 'Play Games',
+    // El avatar grande cuando existe: el pequeño se ve borroso en pantallas
+    // densas y aquí se pinta a buen tamaño.
+    avatarUri: player?.hiResUri ?? player?.iconUri ?? null,
+  };
+};
+
 const requireModule = () => {
   if (!PgsSavedGames) throw new CloudAuthError('módulo nativo ausente');
   return PgsSavedGames;
@@ -73,20 +84,14 @@ export const pgsTransport: CloudTransport = {
   // El login automático lo dispara el SDK al arrancar la app; aquí solo se
   // recoge el resultado. Por eso esto no enseña nada al usuario.
   restoreSession: async () => {
-    const native = requireModule();
-    if (!(await native.isAuthenticated())) return null;
-    return (await native.getPlayerName()) ?? 'Play Games';
+    if (!(await requireModule().isAuthenticated())) return null;
+    return readIdentity();
   },
 
   signIn: async () => {
-    const native = requireModule();
-    if (!(await native.signIn())) return null;
-    return (await native.getPlayerName()) ?? 'Play Games';
+    if (!(await requireModule().signIn())) return null;
+    return readIdentity();
   },
-
-  // Play Games no tiene cierre de sesión por app: se gestiona en los ajustes del
-  // sistema. Dejarlo en nada es lo correcto, no un hueco por rellenar.
-  signOut: async () => {},
 
   find: async () => decode(await requireModule().describe(BACKUP_SLOT)),
 
