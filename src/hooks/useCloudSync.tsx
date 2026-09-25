@@ -164,9 +164,9 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
         if (raw && !cancelled) setPersisted({ ...DEFAULT_STATE, ...JSON.parse(raw) });
       } catch { /* ajustes corruptos: valen los de fábrica */ }
 
-      // El primero que diga que sí. Con Play Games esto ya incluye el inicio de
-      // sesión automático del SDK, así que la elección y la sesión salen de la
-      // misma pasada.
+      // El primero que diga que puede usarse en este dispositivo. Que además
+      // haya sesión es otra pregunta: la responde restoreSession(), y un null
+      // ahí deja la app conectable, no apagada.
       for (const candidate of TRANSPORTS) {
         if (cancelled) return;
         if (!(await candidate.isSupported().catch(() => false))) continue;

@@ -83,8 +83,14 @@ export const BootScreen = React.memo(({ visible }: BootScreenProps) => {
   }));
 
   const barWidth = Math.min(width * 0.42, 220);
+  const chunkWidth = barWidth * 0.45;
+  // El recorrido va de fuera a fuera: arranca con la pieza escondida por la
+  // izquierda y termina con ella escondida por la derecha, así que son el ancho
+  // del carril MÁS el de la pieza. Con un recorrido más corto, la barra parecía
+  // frenar antes de llegar al final y daba sensación de proceso atascado.
+  const travel = barWidth + chunkWidth;
   const trackStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -barWidth * 0.45 + slide.value * barWidth * 0.9 }],
+    transform: [{ translateX: -chunkWidth + slide.value * travel }],
   }));
 
   if (!mounted) return null;
@@ -100,7 +106,7 @@ export const BootScreen = React.memo(({ visible }: BootScreenProps) => {
       </Animated.View>
 
       <View style={[styles.track, { width: barWidth }]}>
-        <Animated.View style={[styles.bar, { width: barWidth * 0.45 }, trackStyle]} />
+        <Animated.View style={[styles.bar, { width: chunkWidth }, trackStyle]} />
       </View>
 
       {/* El hueco se reserva siempre para que la aparición del texto no

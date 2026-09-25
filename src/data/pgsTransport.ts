@@ -70,16 +70,13 @@ const requireModule = () => {
 export const pgsTransport: CloudTransport = {
   id: 'pgs',
 
-  // Sin módulo nativo (build antigua) o sin sesión de Play Games, este
-  // transporte no sirve y el provider se queda con Drive.
-  isSupported: async () => {
-    if (!isConfigured() || !isPgsModuleAvailable()) return false;
-    try {
-      return await requireModule().isAuthenticated();
-    } catch {
-      return false;
-    }
-  },
+  // "Se puede usar aquí" NO es "hay sesión". Esto responde solo lo primero:
+  // que la build lleve el módulo nativo y el proyecto esté configurado. Si
+  // consultara además la autenticación, un jugador sin sesión dejaría el
+  // transporte apagado, y con él la fila de cuenta entera... que es justo la que
+  // tiene que ofrecerle conectarse. Quien responde si hay sesión es
+  // restoreSession(), devolviendo null.
+  isSupported: async () => isConfigured() && isPgsModuleAvailable(),
 
   // El login automático lo dispara el SDK al arrancar la app; aquí solo se
   // recoge el resultado. Por eso esto no enseña nada al usuario.
