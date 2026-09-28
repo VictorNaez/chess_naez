@@ -47,7 +47,7 @@ export const fr: Dictionary = {
 
   feedback: {
     title: 'CONTACT',
-    subtitle: 'Écrivez-moi. Je lis tous les e-mails, même si je ne peux pas toujours répondre à tous.',
+    subtitle: 'Écrivez-moi. Je lis tous les e-mails et j’essaie de répondre à chacun.',
     pickCategory: 'DE QUOI S\'AGIT-IL ?',
     categories: {
       bug: 'Bug',
@@ -55,7 +55,7 @@ export const fr: Dictionary = {
       puzzle: 'Puzzle incorrect',
       translation: 'Traduction',
     },
-    diagnosticsNote: 'Ces données seront ajoutées à la fin de l\'e-mail afin de pouvoir reproduire le problème. Vous pouvez les supprimer avant l\'envoi.',
+    diagnosticsNote: 'Ces données seront ajoutées à la fin de l\'e-mail afin de pouvoir reproduire le problème.',
     diagnosticsTitle: 'Données techniques (supprimez-les si vous ne voulez pas les envoyer) :',
     bodyIntro: 'Écrivez votre message ici :',
     send: 'OUVRIR MA MESSAGERIE',
@@ -79,14 +79,14 @@ export const fr: Dictionary = {
     hapticsHint: 'Retour au déplacement, à la prise, à la réussite ou à l’erreur',
 
     timer: 'Chronomètre',
-    timerHint: 'Le temps continue d’être enregistré même si vous le masquez',
+    timerHint: 'Affiche le temps passé sur le puzzle en cours',
     legalMoves: 'Coups légaux',
     legalMovesHint: 'Affiche les coups légaux de la pièce sélectionnée',
     coordinates: 'Coordonnées de l’échiquier',
-    coordinatesHint: 'Affiche les lettres (a - h) et les nombres (1 - 8) sur les bords',
+    coordinatesHint: 'Affiche les lettres (A - H) et les nombres (1 - 8) sur les bords',
 
     allowRepeats: 'Puzzle répété',
-    allowRepeatsHint: 'Quand un filtre n’a plus de puzzles, rejoue ceux déjà résolus. Ils ne font ni gagner ni perdre d’ELO',
+    allowRepeatsHint: 'Permet de rejouer les puzzles déjà résolus. Ils ne font ni gagner ni perdre d’ELO.',
 
     depth: 'Profondeur d’analyse',
     depthHint: 'Plus de profondeur, de meilleurs coups, mais plus lent et plus gourmand en batterie',
@@ -104,7 +104,7 @@ export const fr: Dictionary = {
   cloud: {
     signedOutHint: 'Connectez-vous pour que votre ELO, votre historique et vos statistiques survivent à un nouveau téléphone ou à une réinstallation.',
     statusConnected: 'Connecté à Play Games',
-    connectedHint: 'Votre progression est sauvegardée et restaurée toute seule sur tout appareil.',
+    connectedHint: 'Synchronisé avec Play Games',
     statusDisconnected: 'Progression non sauvegardée dans le cloud',
     connectPlayGames: 'SE CONNECTER À PLAY GAMES',
     playGamesNote: 'La session et les données sauvegardées se gèrent depuis l’application Play Games.',
@@ -246,9 +246,9 @@ export const fr: Dictionary = {
     survived: 'VOUS AVEZ TENU',
     avgTime: 'TEMPS MOY.',
     clockTitle: 'CONTRE LA MONTRE',
-    clockSubtitle: 'Vous commencez facile. Chaque réussite fait monter le niveau. Une erreur ne le fait pas baisser, mais elle vous coûte du temps.',
+    clockSubtitle: 'Résolvez autant de puzzles que possible.',
     survivalTitle: 'MODE SURVIE',
-    survivalSubtitle: 'Trois vies. Chaque puzzle a le même temps et chaque réussite fait monter le niveau. Rater ou manquer de temps coûte une vie.',
+    survivalSubtitle: 'Résolvez autant de puzzles que possible. Chaque erreur vous coûte une vie.',
   },
 
   repaso: {
@@ -256,7 +256,7 @@ export const fr: Dictionary = {
     review: 'REVOIR LES PUZZLES',
     finished: 'RÉVISION TERMINÉE',
     keepGoing: 'CONTINUER',
-    emptyQueue: 'FILE VIDE',
+    emptyQueue: 'TOUS LES PUZZLES REVUS !',
     failed: 'RATÉS',
     reviewed: 'REVUS',
     skipped: 'PASSÉS',

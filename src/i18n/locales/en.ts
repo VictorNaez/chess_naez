@@ -38,7 +38,7 @@ export const en: Dictionary = {
 
   feedback: {
     title: 'CONTACT',
-    subtitle: 'Write to me. I read every email, even if I cannot always reply to all of them.',
+    subtitle: 'Write to me. I read every email and try to reply to all of them.',
     pickCategory: 'WHAT IS IT ABOUT?',
     categories: {
       bug: 'Bug',
@@ -46,7 +46,7 @@ export const en: Dictionary = {
       puzzle: 'Wrong puzzle',
       translation: 'Translation',
     },
-    diagnosticsNote: 'These details will be added at the end of the email so the problem can be reproduced. You can delete them before sending.',
+    diagnosticsNote: 'These details will be added at the end of the email so the problem can be reproduced.',
     diagnosticsTitle: 'Technical details (delete them if you would rather not send them):',
     bodyIntro: 'Write your message here:',
     send: 'OPEN MY EMAIL APP',
@@ -70,17 +70,17 @@ export const en: Dictionary = {
     hapticsHint: 'Feedback on moves, captures, hits and misses',
 
     timer: 'Timer',
-    timerHint: 'Time is still tracked even when hidden',
+    timerHint: 'Shows how long you’ve been on the current puzzle',
     legalMoves: 'Legal moves',
     legalMovesHint: 'Highlights the legal moves of the selected piece',
     coordinates: 'Board coordinates',
-    coordinatesHint: 'Shows the letters (a - h) and numbers (1 - 8) on the edges',
+    coordinatesHint: 'Shows the letters (A - H) and numbers (1 - 8) on the edges',
 
     allowRepeats: 'Repeated puzzle',
-    allowRepeatsHint: 'When a filter runs out of puzzles, repeat solved ones. They don’t add or subtract ELO',
+    allowRepeatsHint: 'Lets you repeat puzzles you’ve already solved. They don’t add or subtract ELO.',
 
     depth: 'Analysis depth',
-    depthHint: 'Higher depth means better moves, but slower and more battery',
+    depthHint: 'Higher depth means better moves, but it’s slower and uses more battery',
     depthFast: 'FAST',
     depthNormal: 'NORMAL',
     depthDeep: 'DEEP',
@@ -95,7 +95,7 @@ export const en: Dictionary = {
   cloud: {
     signedOutHint: 'Connect so your ELO, history and stats survive a new phone or a reinstall.',
     statusConnected: 'Connected to Play Games',
-    connectedHint: 'Your progress is saved and restored automatically on any device.',
+    connectedHint: 'Synced with Play Games',
     statusDisconnected: 'Progress not saved to the cloud',
     connectPlayGames: 'CONNECT WITH PLAY GAMES',
     playGamesNote: 'Your session and saved data are managed from the Play Games app.',
@@ -238,9 +238,9 @@ export const en: Dictionary = {
     survived: 'YOU SURVIVED',
     avgTime: 'AVG TIME',
     clockTitle: 'RUSH MODE',
-    clockSubtitle: 'You start easy. Every solve raises the level. A miss will not lower it, but it costs you time.',
+    clockSubtitle: 'Solve as many puzzles as you can.',
     survivalTitle: 'SURVIVAL',
-    survivalSubtitle: 'Three lives. Every puzzle gets the same time and every solve raises the level. Missing or running out of time costs a life.',
+    survivalSubtitle: 'Solve as many puzzles as you can. Every miss costs you a life.',
   },
 
   repaso: {
@@ -248,7 +248,7 @@ export const en: Dictionary = {
     review: 'REVIEW PUZZLES',
     finished: 'REVIEW COMPLETE',
     keepGoing: 'KEEP REVIEWING',
-    emptyQueue: 'QUEUE EMPTY',
+    emptyQueue: 'ALL PUZZLES REVIEWED!',
     failed: 'MISSED',
     reviewed: 'REVIEWED',
     skipped: 'SKIPPED',

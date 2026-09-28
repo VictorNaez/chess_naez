@@ -47,7 +47,7 @@ export const de: Dictionary = {
 
   feedback: {
     title: 'KONTAKT',
-    subtitle: 'Schreib mir. Ich lese jede E-Mail, auch wenn ich nicht immer auf alle antworten kann.',
+    subtitle: 'Schreib mir. Ich lese jede E-Mail und versuche, auf alle zu antworten.',
     pickCategory: 'WORUM GEHT ES?',
     categories: {
       bug: 'Fehler',
@@ -55,7 +55,7 @@ export const de: Dictionary = {
       puzzle: 'Falsches Puzzle',
       translation: 'Übersetzung',
     },
-    diagnosticsNote: 'Diese Daten werden am Ende der E-Mail eingefügt, damit das Problem nachvollziehbar ist. Du kannst sie vor dem Senden löschen.',
+    diagnosticsNote: 'Diese Daten werden am Ende der E-Mail eingefügt, damit das Problem nachvollziehbar ist.',
     diagnosticsTitle: 'Technische Daten (lösche sie, wenn du sie nicht senden möchtest):',
     bodyIntro: 'Schreibe hier deine Nachricht:',
     send: 'E-MAIL-APP ÖFFNEN',
@@ -79,14 +79,14 @@ export const de: Dictionary = {
     hapticsHint: 'Rückmeldung beim Ziehen, Schlagen, Lösen und bei Fehlern',
 
     timer: 'Stoppuhr',
-    timerHint: 'Die Zeit wird weiter erfasst, auch wenn du sie ausblendest',
+    timerHint: 'Zeigt, wie lange du schon am aktuellen Puzzle sitzt',
     legalMoves: 'Legale Züge',
     legalMovesHint: 'Zeigt die legalen Züge der ausgewählten Figur',
     coordinates: 'Koordinaten',
-    coordinatesHint: 'Zeigt die Buchstaben (a - h) und Zahlen (1 - 8) an den Rändern an',
+    coordinatesHint: 'Zeigt die Buchstaben (A - H) und Zahlen (1 - 8) an den Rändern an',
 
     allowRepeats: 'Wiederholtes Puzzle',
-    allowRepeatsHint: 'Sind alle Puzzles eines Filters gelöst, werden gelöste wiederholt. Sie ändern dein ELO nicht',
+    allowRepeatsHint: 'Erlaubt, bereits gelöste Puzzles zu wiederholen. Sie ändern dein ELO nicht.',
 
     depth: 'Analysetiefe',
     depthHint: 'Mehr Tiefe bringt bessere Züge, ist aber langsamer und braucht mehr Akku',
@@ -104,7 +104,7 @@ export const de: Dictionary = {
   cloud: {
     signedOutHint: 'Verbinde dich, damit ELO, Verlauf und Statistiken einen Handywechsel oder eine Neuinstallation überstehen.',
     statusConnected: 'Mit Play Games verbunden',
-    connectedHint: 'Dein Fortschritt wird automatisch gesichert und auf jedem Gerät wiederhergestellt.',
+    connectedHint: 'Mit Play Games synchronisiert',
     statusDisconnected: 'Fortschritt nicht in der Cloud gesichert',
     connectPlayGames: 'MIT PLAY GAMES VERBINDEN',
     playGamesNote: 'Sitzung und gesicherte Daten verwaltest du in der Play-Games-App.',
@@ -246,9 +246,9 @@ export const de: Dictionary = {
     survived: 'DU HAST DURCHGEHALTEN',
     avgTime: 'DURCHSCHN. ZEIT',
     clockTitle: 'GEGEN DIE UHR',
-    clockSubtitle: 'Du startest leicht. Jede Lösung hebt das Niveau. Ein Fehler senkt es nicht, kostet dich aber Zeit.',
+    clockSubtitle: 'Löse so viele Puzzles wie möglich.',
     survivalTitle: 'ÜBERLEBENSMODUS',
-    survivalSubtitle: 'Drei Leben. Jedes Puzzle hat dieselbe Zeit und jede Lösung hebt das Niveau. Ein Fehler oder abgelaufene Zeit kostet ein Leben.',
+    survivalSubtitle: 'Löse so viele Puzzles wie möglich. Jeder Fehler kostet dich ein Leben.',
   },
 
   repaso: {
@@ -256,7 +256,7 @@ export const de: Dictionary = {
     review: 'PUZZLES WIEDERHOLEN',
     finished: 'WIEDERHOLUNG BEENDET',
     keepGoing: 'WEITER WIEDERHOLEN',
-    emptyQueue: 'WARTESCHLANGE LEER',
+    emptyQueue: 'ALLE PUZZLES WIEDERHOLT!',
     failed: 'FEHLER',
     reviewed: 'WIEDERHOLT',
     skipped: 'ÜBERSPRUNGEN',

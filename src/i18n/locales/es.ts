@@ -47,7 +47,7 @@ export const es = {
 
   feedback: {
     title: 'CONTACTO',
-    subtitle: 'Escríbeme. Leo todos los correos, y trato de reponderlos a todos.',
+    subtitle: 'Escríbeme. Leo todos los correos, y trato de responderlos a todos.',
     pickCategory: '¿DE QUÉ SE TRATA?',
     categories: {
       bug: 'Fallo',
@@ -86,10 +86,10 @@ export const es = {
     coordinatesHint: 'Muestra las letras (A - H) y números (1 - 8) en los bordes',
 
     allowRepeats: 'Puzle repetido',
-    allowRepeatsHint: 'Permite que repetir puzles ya resueltos. No suma ni resta ELO.',
+    allowRepeatsHint: 'Permite repetir puzles ya resueltos. No suman ni restan ELO.',
 
     depth: 'Profundidad de análisis',
-    depthHint: 'A mayor profundidad, mejores jugadas pero más es mas lento y gasta más batería',
+    depthHint: 'A mayor profundidad, mejores jugadas, pero es más lento y gasta más batería',
     depthFast: 'RÁPIDO',
     depthNormal: 'NORMAL',
     depthDeep: 'PROFUNDO',
@@ -262,7 +262,7 @@ export const es = {
     review: 'REVISAR PUZLES',
     finished: 'REPASO TERMINADO',
     keepGoing: 'SEGUIR REPASANDO',
-  emptyQueue: 'TODOS LOS PUZLES REPASADOS!',
+    emptyQueue: '¡TODOS LOS PUZLES REPASADOS!',
     failed: 'FALLADOS',
     reviewed: 'REPASADOS',
     skipped: 'SALTADOS',
