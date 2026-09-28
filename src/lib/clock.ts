@@ -17,6 +17,8 @@ export const CLOCK_TIMING = {
   afterSolve: 600,     // pausa antes del siguiente puzle tras acertar (normal: 400)
   afterFail: 800,      // tras fallar: algo más largo, hay que ver el ❌ (normal: 750)
   pieceMove: 180,      // duración de la animación de la pieza
+  runEndSound: 600,    // pausa antes del sonido de fin: deja terminar el del último puzle
+  runEndRankingWait: 1500, // espera máxima al ranking (SQL) para saber si hay récord
 };
 
 // --- ESCALERA DE DIFICULTAD ---

@@ -48,6 +48,7 @@ import { useClockMode } from '../src/hooks/useClockMode';
 import { useDonations } from '../src/hooks/useDonations';
 import { useEloHistory } from '../src/hooks/useEloHistory';
 import { useRepasoMode } from '../src/hooks/useRepasoMode';
+import { useRunEndSound } from '../src/hooks/useRunEndSound';
 import { CloudSyncProvider, useCloudSync } from '../src/hooks/useCloudSync';
 import { SettingsProvider, useSettings } from '../src/hooks/useSettings';
 import { useSounds } from '../src/hooks/useSounds';
@@ -57,6 +58,7 @@ import { I18nProvider, useI18n, useT } from '../src/i18n/I18nProvider';
 import { DEFAULT_ELO } from '../src/lib/elo';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { getLegalDestinations } from '../src/lib/legalMoves';
+import { isCaptureMove, moveSoundFor } from '../src/lib/moveSound';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { getRecommendedRange, hasPuzzleBeenScored, readGlobalElo, themeFilter } from '../src/lib/puzzleQueries';
 import { ALREADY_SOLVED_COLUMN, recordPuzzleResult, UNSOLVED_FILTER } from '../src/data/puzzleStats';
@@ -161,6 +163,8 @@ function App() {
   const settings = useSettings();
   const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
   const playSound = useSounds();
+  // Estable a propósito: CountdownTimer va con React.memo.
+  const playLowTime = useCallback(() => playSound('low_time'), [playSound]);
   // Inicializador perezoso: `useState(new Chess())` construía un Chess (parseo
   // de FEN) en CADA render de App y lo tiraba.
   const [game, setGame] = useState(() => new Chess());
@@ -229,6 +233,8 @@ function App() {
   const survivalTimeoutRef = useRef<(o: { nextRange: [number, number]; gameOver: boolean }) => void>(() => {});
   const survival = useSurvivalMode(db, survivalTimeoutRef);
   const repaso = useRepasoMode(db);
+  useRunEndSound(clock.phase, clock.summary, clock.ranking, playSound);
+  useRunEndSound(survival.phase, survival.summary, survival.ranking, playSound);
 
   // --- COPIA EN LA NUBE ---
   // Restaurar sustituye progress.db entero y deja la conexión cerrada, venga del
@@ -1242,20 +1248,18 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
     });
 
     if (move) {
-      // Identificamos si el movimiento es una captura (chess.js incluye 'captured' si lo es)
-      const isCapture = 'captured' in move;
+      // Captura -> vibración fuerte. El sonido lo elige moveSoundFor (jaque,
+      // enroque, promoción...). Ojo: `'captured' in move` era true SIEMPRE en
+      // chess.js 1.x, por eso se usa el descriptor.
+      const isCapture = isCaptureMove(move);
+      const moveSound = moveSoundFor(move);
 
       // --- A. LÓGICA PARA MODO ANÁLISIS ---
       if (analysisEngine.isAnalysisMode) {
         // Feedback táctil para modo análisis
         deferFeedback(() => {
-          if (isCapture) {
-            hapticImpact('heavy');
-            playSound('capture');
-          } else {
-            hapticImpact('medium');
-            playSound('move');
-          }
+          hapticImpact(isCapture ? 'heavy' : 'medium');
+          playSound(moveSound);
         });
 
         applyMoveIdentity(move);
@@ -1373,13 +1377,8 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         } else {
           // MOVIMIENTO CORRECTO (pero el puzzle sigue): Vibración de movimiento
           deferFeedback(() => {
-            if (isCapture) {
-              hapticImpact('heavy');
-              playSound('capture');
-            } else {
-              hapticImpact('medium');
-              playSound('move');
-            }
+            hapticImpact(isCapture ? 'heavy' : 'medium');
+            playSound(moveSound);
           });
 
           // TURNO DE LA MÁQUINA (Respuesta automática)
@@ -1396,7 +1395,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             
             if (mResp) {
               // Vibración ligera cuando la máquina te responde (opcional, pero da un gran feedback)
-              const machineCaptured = 'captured' in mResp;
+              const machineCaptured = isCaptureMove(mResp);
               deferFeedback(() => hapticImpact(machineCaptured ? 'medium' : 'light'));
 
               setMoveHistory(prev => [...prev, mResp.san]);
@@ -1612,13 +1611,18 @@ const handleHint = () => {
     
     // Si la casilla ya estaba iluminada, es el SEGUNDO click
     if (hintSquare === fromSquare) {
-      // Insistir con la flecha ya pintada no enseña nada nuevo: no cuenta.
-      if (!hintMove) hintClicksRef.current += 1;
+      // Insistir con la flecha ya pintada no enseña nada nuevo: no cuenta
+      // (ni suena).
+      if (!hintMove) {
+        hintClicksRef.current += 1;
+        playSound('hint');
+      }
       setHintMove(moveStr); // Guardamos el movimiento completo ('e2e4') para la flecha
     } 
     // Si no estaba iluminada, es el PRIMER click
     else {
       hintClicksRef.current += 1;
+      playSound('hint');
       setLegalMoves([]);
       setSelectedSquare(null);
       setHintSquare(fromSquare);
@@ -2186,16 +2190,9 @@ const handleEngineSequencePress = async (moves: string[]) => {
     if (!move) break;
     
     const nextFen = localGame.fen();
-    const isCapture = 'captured' in move;
-
     // 3. Feedback visual y sonoro (igual que en modo análisis)
-    if (isCapture) {
-      hapticImpact('heavy');
-      playSound('capture');
-    } else {
-      hapticImpact('medium');
-      playSound('move');
-    }
+    hapticImpact(isCaptureMove(move) ? 'heavy' : 'medium');
+    playSound(moveSoundFor(move));
 
     // 4. Movemos la identidad de la pieza para la animación (esto es síncrono)
     applyMoveIdentity(move);
@@ -2264,8 +2261,11 @@ const openFromMenu = useCallback((open: () => void) => {
 // hasta que se conteste. presentPuzzle es idempotente por token.
 useEffect(() => {
   if (!firstMoveDone || loading) return;
-  if (clock.phase === 'arming') {
+  // La ref, no el estado: si el efecto se repite antes del re-render, la fase
+  // ya es 'running' y el sonido no se duplica.
+  if (clock.phaseRef.current === 'arming') {
     clock.beginCountdown();
+    playSound('start');
   }
   if (isClockMode && currentPuzzle && clock.phaseRef.current === 'running') {
     clock.presentPuzzle(runPuzzleToken, currentPuzzle.id, currentPuzzle.rating);
@@ -2281,8 +2281,9 @@ useEffect(() => {
   if (!isSurvivalMode || !currentPuzzle) return;
   if (!firstMoveDone || loading) return;
 
-  if (survival.phase === 'arming') {
+  if (survival.phaseRef.current === 'arming') {
     survival.beginRun(runPuzzleToken, currentPuzzle.id, currentPuzzle.rating);
+    playSound('start');
   } else if (survival.phase === 'running') {
     survival.startPuzzleClock(runPuzzleToken, currentPuzzle.id, currentPuzzle.rating);
   }
@@ -2715,6 +2716,7 @@ return (
                 endsAt={clock.endsAt}
                 durationMs={clock.durationMs}
                 isFinished={clock.phase === 'finished'}
+                onDangerSecond={playLowTime}
               />
             ) : isSurvivalMode ? (
               // Mismo componente, pero el deadline se rearma en cada puzle y los
@@ -2725,6 +2727,7 @@ return (
                 isFinished={survival.phase === 'finished'}
                 warnMs={survivalWarnMs(survival.perPuzzleMs)}
                 dangerMs={survivalDangerMs(survival.perPuzzleMs)}
+                onDangerSecond={playLowTime}
               />
             ) : (
               settings.isSettingsLoaded && settings.showTimer && (

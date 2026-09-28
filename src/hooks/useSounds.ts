@@ -17,13 +17,24 @@ import { useSettings } from './useSettings';
 // ---------------------------------------------------------------------------
 
 const SOUND_ASSETS = {
-  move:    require('../../assets/sounds/move.mp3'),
-  capture: require('../../assets/sounds/capture.mp3'),
-  success: require('../../assets/sounds/success.mp3'),
-  error:   require('../../assets/sounds/error.mp3'),
+  // Jugadas (el que suena lo elige moveSoundFor en src/lib/moveSound.ts)
+  move:     require('../../assets/sounds/move.mp3'),
+  capture:  require('../../assets/sounds/capture.mp3'),
+  check:    require('../../assets/sounds/check.mp3'),
+  castle:   require('../../assets/sounds/castle.mp3'),
+  promote:  require('../../assets/sounds/promote.mp3'),
+  // Resultado del puzle
+  success:  require('../../assets/sounds/success.mp3'),
+  error:    require('../../assets/sounds/error.mp3'),
+  hint:     require('../../assets/sounds/hint.mp3'),
+  // Partidas (contrarreloj / supervivencia)
+  start:    require('../../assets/sounds/start.mp3'),
+  low_time: require('../../assets/sounds/low_time.mp3'),
+  run_end:  require('../../assets/sounds/run_end.mp3'),
+  record:   require('../../assets/sounds/record.mp3'),
 } as const;
 
-type SoundKey = keyof typeof SOUND_ASSETS;
+export type SoundKey = keyof typeof SOUND_ASSETS;
 
 export function useSounds() {
   const { soundEnabled, volume } = useSettings();
@@ -64,7 +75,7 @@ export function useSounds() {
       playersRef.current = {};
     };
     // Deliberadamente vacío: `volume` se aplica en el efecto de abajo. Meterlo
-    // aquí recrearía los cuatro players en cada tick del slider.
+    // aquí recrearía todos los players en cada tick del slider.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
