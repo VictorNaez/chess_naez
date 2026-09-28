@@ -21,6 +21,10 @@ export const CLOCK_TIMING = {
   runEndRankingWait: 1500, // espera máxima al ranking (SQL) para saber si hay récord
 };
 
+// Contrarreloj: el aviso de "se acaba el tiempo" suena una vez a falta de 10 s,
+// sea cual sea la duración de la partida.
+export const CLOCK_ALERT_MS = 10_000;
+
 // --- ESCALERA DE DIFICULTAD ---
 const START_MIN = 400;   // primer puzle: 400
 const WINDOW    = 100;   // ancho de la ventana de rating

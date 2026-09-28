@@ -14,9 +14,11 @@ interface CountdownTimerProps {
   // un umbral fijo de 30 s dejaría el reloj siempre en rojo.
   warnMs?: number;
   dangerMs?: number;
-  // Se llama una vez por cada segundo dentro de la zona de peligro (el tic).
-  // Debe ser estable (useCallback): el componente va con React.memo.
-  onDangerSecond?: () => void;
+  // Aviso sonoro: onAlert se llama UNA vez por cuenta atrás (por cada endsAt)
+  // cuando quedan alertMs o menos. Debe ser estable (useCallback): el
+  // componente va con React.memo.
+  alertMs?: number;
+  onAlert?: () => void;
 }
 
 const DEFAULT_WARN_MS = 30_000;
@@ -24,7 +26,7 @@ const DEFAULT_DANGER_MS = 10_000;
 
 export const CountdownTimer = React.memo(({
   endsAt, durationMs, isFinished,
-  warnMs = DEFAULT_WARN_MS, dangerMs = DEFAULT_DANGER_MS, onDangerSecond,
+  warnMs = DEFAULT_WARN_MS, dangerMs = DEFAULT_DANGER_MS, alertMs, onAlert,
 }: CountdownTimerProps) => {
   const [remaining, setRemaining] = useState(durationMs);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -45,17 +47,17 @@ export const CountdownTimer = React.memo(({
 
   const isDanger = remaining <= dangerMs && remaining > 0 && endsAt !== null;
 
-  // Tic sonoro: el intervalo va a 100 ms, así que se filtra por cambio de
-  // segundo mostrado. Fuera de peligro se olvida el último, para que el primer
-  // segundo en rojo suene también en el siguiente puzle (supervivencia).
-  const dangerSecond = isDanger ? Math.ceil(remaining / 1000) : null;
-  const lastDangerSecondRef = useRef<number | null>(null);
+  // Aviso sonoro: se recuerda para qué endsAt ya sonó. En supervivencia cada
+  // puzle trae un endsAt nuevo, así que vuelve a quedar armado; en contrarreloj
+  // hay uno solo por partida.
+  const shouldAlert = alertMs !== undefined && endsAt !== null
+    && remaining > 0 && remaining <= alertMs;
+  const alertedForRef = useRef<number | null>(null);
   useEffect(() => {
-    if (dangerSecond === null) { lastDangerSecondRef.current = null; return; }
-    if (dangerSecond === lastDangerSecondRef.current) return;
-    lastDangerSecondRef.current = dangerSecond;
-    onDangerSecond?.();
-  }, [dangerSecond, onDangerSecond]);
+    if (!shouldAlert || alertedForRef.current === endsAt) return;
+    alertedForRef.current = endsAt;
+    onAlert?.();
+  }, [shouldAlert, endsAt, onAlert]);
 
   useEffect(() => {
     if (isDanger) {

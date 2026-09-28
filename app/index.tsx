@@ -3,8 +3,8 @@ import { StreakBadge } from '@/src/components/header/StreakBadge';
 import { PromotionModal } from '@/src/components/modals/PromotionModal';
 import { StatsModal } from '@/src/components/modals/StatsModal';
 import { useStats } from '@/src/hooks/useStats';
-import { CLOCK_DURATIONS, CLOCK_TIMING, DEFAULT_CLOCK_DURATION_MS, getLadderRange } from '@/src/lib/clock';
-import { DEFAULT_SURVIVAL_MS, SURVIVAL_SPEEDS, survivalDangerMs, survivalWarnMs } from '@/src/lib/survival';
+import { CLOCK_ALERT_MS, CLOCK_DURATIONS, CLOCK_TIMING, DEFAULT_CLOCK_DURATION_MS, getLadderRange } from '@/src/lib/clock';
+import { DEFAULT_SURVIVAL_MS, SURVIVAL_SPEEDS, survivalAlertMs, survivalDangerMs, survivalWarnMs } from '@/src/lib/survival';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Chess, Move, Square } from "chess.js";
@@ -164,7 +164,7 @@ function App() {
   const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
   const playSound = useSounds();
   // Estable a propósito: CountdownTimer va con React.memo.
-  const playLowTime = useCallback(() => playSound('low_time'), [playSound]);
+  const playTimeAlert = useCallback(() => playSound('countdown'), [playSound]);
   // Inicializador perezoso: `useState(new Chess())` construía un Chess (parseo
   // de FEN) en CADA render de App y lo tiraba.
   const [game, setGame] = useState(() => new Chess());
@@ -2716,7 +2716,8 @@ return (
                 endsAt={clock.endsAt}
                 durationMs={clock.durationMs}
                 isFinished={clock.phase === 'finished'}
-                onDangerSecond={playLowTime}
+                alertMs={CLOCK_ALERT_MS}
+                onAlert={playTimeAlert}
               />
             ) : isSurvivalMode ? (
               // Mismo componente, pero el deadline se rearma en cada puzle y los
@@ -2727,7 +2728,8 @@ return (
                 isFinished={survival.phase === 'finished'}
                 warnMs={survivalWarnMs(survival.perPuzzleMs)}
                 dangerMs={survivalDangerMs(survival.perPuzzleMs)}
-                onDangerSecond={playLowTime}
+                alertMs={survivalAlertMs(survival.perPuzzleMs)}
+                onAlert={playTimeAlert}
               />
             ) : (
               settings.isSettingsLoaded && settings.showTimer && (

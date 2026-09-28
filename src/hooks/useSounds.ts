@@ -29,7 +29,7 @@ const SOUND_ASSETS = {
   hint:     require('../../assets/sounds/hint.mp3'),
   // Partidas (contrarreloj / supervivencia)
   start:    require('../../assets/sounds/start.mp3'),
-  low_time: require('../../assets/sounds/low_time.mp3'),
+  countdown: require('../../assets/sounds/countdown.mp3'), // aviso: se acaba el tiempo
   run_end:  require('../../assets/sounds/run_end.mp3'),
   record:   require('../../assets/sounds/record.mp3'),
 } as const;
