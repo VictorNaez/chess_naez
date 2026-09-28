@@ -13,6 +13,7 @@ import type { Dictionary } from '../index';
 
 export const fr: Dictionary = {
   common: {
+    decimal: (n: number, digits: number) => n.toFixed(digits).replace('.', ','),
     save: 'ENREGISTRER',
     cancel: 'ANNULER',
     apply: 'APPLIQUER',
@@ -227,6 +228,11 @@ export const fr: Dictionary = {
     reset: 'Réinitialiser les filtres',
     availableCount: (n: number) => `${n} ${n <= 1 ? 'puzzle' : 'puzzles'}`,
     solvedCount: (s: number) => `(${s} ${s <= 1 ? 'résolu' : 'résolus'})`,
+    weakFocus: 'POINTS FAIBLES',
+    weakFocusHint: 'Centré sur les thèmes qui vous posent le plus de difficultés : plus vous en ratez un, plus il revient souvent.',
+    weakFocusNoData: 'Pas encore assez de données. Résolvez plus de puzzles pour que nous puissions repérer vos points faibles.',
+    weakGainA11y: (theme: string, from: string, to: string) => `${theme} : votre précision passe de ${from} à ${to}`,
+    weakLossA11y: (theme: string, from: string, to: string) => `${theme} : votre précision baisse de ${from} à ${to}`,
   },
 
   run: {

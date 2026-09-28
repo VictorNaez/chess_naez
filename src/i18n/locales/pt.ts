@@ -9,6 +9,7 @@ import type { Dictionary } from '../index';
 
 export const pt: Dictionary = {
   common: {
+    decimal: (n: number, digits: number) => n.toFixed(digits).replace('.', ','),
     save: 'SALVAR',
     cancel: 'CANCELAR',
     apply: 'APLICAR',
@@ -223,6 +224,11 @@ export const pt: Dictionary = {
     reset: 'Redefinir filtros',
     availableCount: (n: number) => `${n} ${n === 1 ? 'puzzle' : 'puzzles'}`,
     solvedCount: (s: number) => `(${s} ${s === 1 ? 'resolvido' : 'resolvidos'})`,
+    weakFocus: 'PONTOS FRACOS',
+    weakFocusHint: 'Focado nos temas em que você tem mais dificuldade: quanto mais você erra um, mais vezes ele aparece.',
+    weakFocusNoData: 'Ainda não há dados suficientes. Resolva mais puzzles para podermos identificar seus pontos fracos.',
+    weakGainA11y: (theme: string, from: string, to: string) => `${theme}: sua precisão sobe de ${from} para ${to}`,
+    weakLossA11y: (theme: string, from: string, to: string) => `${theme}: sua precisão cai de ${from} para ${to}`,
   },
 
   run: {

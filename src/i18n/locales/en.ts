@@ -4,6 +4,7 @@ import type { Dictionary } from '../index';
 // `npx tsc --noEmit` lo canta aquí antes de llegar al dispositivo.
 export const en: Dictionary = {
   common: {
+    decimal: (n: number, digits: number) => n.toFixed(digits),
     save: 'SAVE',
     cancel: 'CANCEL',
     apply: 'APPLY',
@@ -219,6 +220,11 @@ export const en: Dictionary = {
     reset: 'Reset filters',
     availableCount: (n: number) => `${n} ${n === 1 ? 'puzzle' : 'puzzles'}`,
     solvedCount: (s: number) => `(${s} solved)`,
+    weakFocus: 'WEAK SPOTS',
+    weakFocusHint: 'Focused on the themes you struggle with most: the more you miss one, the more often it comes up.',
+    weakFocusNoData: 'Not enough data yet. Solve more puzzles so we can find your weak spots.',
+    weakGainA11y: (theme: string, from: string, to: string) => `${theme}: your accuracy goes up from ${from} to ${to}`,
+    weakLossA11y: (theme: string, from: string, to: string) => `${theme}: your accuracy goes down from ${from} to ${to}`,
   },
 
   run: {

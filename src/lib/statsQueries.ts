@@ -47,6 +47,11 @@ export const MAX_SANE_SOLVE_MS = 10 * 60 * 1000;
 const BUCKET_SIZE = 200;
 const MIN_BUCKET_ATTEMPTS = 3;
 
+// Por debajo de estos intentos la precisión de un tema es casi ruido (un 0% de
+// 0/2 no dice nada). Lo comparten el panel de estadísticas, que atenúa esos
+// temas, y el filtro de puntos débiles, que ni los considera.
+export const MIN_THEME_ATTEMPTS = 5;
+
 // Ventana del calendario de actividad. No depende del rango seleccionado:
 // "¿he entrenado esta semana?" es una pregunta distinta de "¿qué tal lo hice
 // en los últimos 30 días?".
@@ -225,6 +230,74 @@ const computeDayStreak = (rows: DayStat[]): number => {
 };
 
 // =========================================================
+// PRECISIÓN POR TEMA
+// =========================================================
+// Fuera de loadStats porque no es solo del panel: el filtro de puntos débiles
+// (lib/weakThemes.ts) sale de estos mismos números, y así lo que ves en
+// estadísticas y lo que te sirve el tablero no pueden contar cosas distintas.
+export const loadThemeStats = async (
+  db: SQLite.SQLiteDatabase,
+  since: number,
+): Promise<ThemeStat[]> => {
+  const cap = MAX_SANE_SOLVE_MS;
+
+  // Agrupamos por la cadena de temas (hay pocas combinaciones distintas) en vez
+  // de traer una fila por intento, y luego repartimos en JS. Sumas en vez de
+  // medias: hay que poder recombinar los grupos por tema.
+  const themeRows = await db.getAllAsync<{
+    th0: number; th1: number; th2: number;
+    attempts: number; solved: number; msSum: number; msCount: number;
+  }>(`
+    SELECT p.th0 AS th0, p.th1 AS th1, p.th2 AS th2,
+           COUNT(*)                                                              AS attempts,
+           COALESCE(SUM(h.is_success), 0)                                        AS solved,
+           COALESCE(SUM(CASE WHEN h.solve_ms BETWEEN 1 AND ? THEN h.solve_ms END), 0) AS msSum,
+           COUNT(CASE WHEN h.solve_ms BETWEEN 1 AND ? THEN 1 END)                AS msCount
+    FROM elo_history h
+    JOIN puzzles p ON p.id = h.puzzleID
+    WHERE h.puzzleID IS NOT NULL AND ${TS_MS('h')} >= ?
+    GROUP BY p.th0, p.th1, p.th2
+  `, [cap, cap, since]);
+
+  const progressRows = await db.getAllAsync<{ theme_id: string; elo: number }>(
+    `SELECT theme_id, elo FROM user_progress`
+  );
+  const eloByTheme = new Map<string, number>(
+    progressRows.map(r => [r.theme_id, r.elo] as [string, number])
+  );
+
+  const acc = new Map<string, { attempts: number; solved: number; msSum: number; msCount: number }>();
+  for (const row of themeRows) {
+    for (const id of themeKeysFromRow(row)) {
+      const prev = acc.get(id) ?? { attempts: 0, solved: 0, msSum: 0, msCount: 0 };
+      prev.attempts += row.attempts;
+      prev.solved += row.solved;
+      prev.msSum += row.msSum;
+      prev.msCount += row.msCount;
+      acc.set(id, prev);
+    }
+  }
+
+  const themes: ThemeStat[] = CHESS_THEMES
+    .map(t => {
+      const a = acc.get(t.key);
+      return {
+        id: t.key,
+        categoryId: t.categoryId,
+        attempts: a?.attempts ?? 0,
+        solved: a?.solved ?? 0,
+        accuracy: a && a.attempts > 0 ? a.solved / a.attempts : 0,
+        avgMs: a && a.msCount > 0 ? a.msSum / a.msCount : 0,
+        elo: eloByTheme.get(t.key) ?? null,
+      };
+    })
+    .filter(t => t.attempts > 0)
+    .sort((a, b) => b.accuracy - a.accuracy || b.attempts - a.attempts);
+
+  return themes;
+};
+
+// =========================================================
 // CONSULTA PRINCIPAL
 // =========================================================
 export const loadStats = async (
@@ -299,58 +372,7 @@ export const loadStats = async (
   }
 
   // --- 4. Precisión por tema táctico ------------------------------
-  // Agrupamos por la cadena de temas (hay pocas combinaciones distintas) en vez
-  // de traer una fila por intento, y luego repartimos en JS. Sumas en vez de
-  // medias: hay que poder recombinar los grupos por tema.
-  const themeRows = await db.getAllAsync<{
-    th0: number; th1: number; th2: number;
-    attempts: number; solved: number; msSum: number; msCount: number;
-  }>(`
-    SELECT p.th0 AS th0, p.th1 AS th1, p.th2 AS th2,
-           COUNT(*)                                                              AS attempts,
-           COALESCE(SUM(h.is_success), 0)                                        AS solved,
-           COALESCE(SUM(CASE WHEN h.solve_ms BETWEEN 1 AND ? THEN h.solve_ms END), 0) AS msSum,
-           COUNT(CASE WHEN h.solve_ms BETWEEN 1 AND ? THEN 1 END)                AS msCount
-    FROM elo_history h
-    JOIN puzzles p ON p.id = h.puzzleID
-    WHERE h.puzzleID IS NOT NULL AND ${TS_MS('h')} >= ?
-    GROUP BY p.th0, p.th1, p.th2
-  `, [cap, cap, since]);
-
-  const progressRows = await db.getAllAsync<{ theme_id: string; elo: number }>(
-    `SELECT theme_id, elo FROM user_progress`
-  );
-  const eloByTheme = new Map<string, number>(
-    progressRows.map(r => [r.theme_id, r.elo] as [string, number])
-  );
-
-  const acc = new Map<string, { attempts: number; solved: number; msSum: number; msCount: number }>();
-  for (const row of themeRows) {
-    for (const id of themeKeysFromRow(row)) {
-      const prev = acc.get(id) ?? { attempts: 0, solved: 0, msSum: 0, msCount: 0 };
-      prev.attempts += row.attempts;
-      prev.solved += row.solved;
-      prev.msSum += row.msSum;
-      prev.msCount += row.msCount;
-      acc.set(id, prev);
-    }
-  }
-
-  const themes: ThemeStat[] = CHESS_THEMES
-    .map(t => {
-      const a = acc.get(t.key);
-      return {
-        id: t.key,
-        categoryId: t.categoryId,
-        attempts: a?.attempts ?? 0,
-        solved: a?.solved ?? 0,
-        accuracy: a && a.attempts > 0 ? a.solved / a.attempts : 0,
-        avgMs: a && a.msCount > 0 ? a.msSum / a.msCount : 0,
-        elo: eloByTheme.get(t.key) ?? null,
-      };
-    })
-    .filter(t => t.attempts > 0)
-    .sort((a, b) => b.accuracy - a.accuracy || b.attempts - a.attempts);
+  const themes = await loadThemeStats(db, since);
 
   // --- 5. Tiempo y precisión por dificultad del puzle --------------
   const bucketRows = await db.getAllAsync<{

@@ -38,6 +38,7 @@ import { SettingsModal } from '../src/components/modals/SettingsModal';
 import { SupportModal } from '../src/components/modals/SupportModal';
 import { BoardControls } from '../src/components/puzzle/BoardControls';
 import { MoveList } from '../src/components/puzzle/MoveList';
+import { WeakChangeToast } from '../src/components/puzzle/WeakChangeToast';
 import { RepasoProgressPill } from '../src/components/repaso/RepasoProgressPill';
 import { Skeleton } from '../src/components/ui/Skeleton';
 import { checkpointProgress, getMaxRowid, getPuzzleById, openPuzzleDatabase, resetProgressDatabase, } from '../src/data/puzzleDatabase';
@@ -62,6 +63,7 @@ import { ALREADY_SOLVED_COLUMN, recordPuzzleResult, UNSOLVED_FILTER } from '../s
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
+import { drawWeakThemeOrder, loadWeakChanges, loadWeakThemes, pickFromWeakThemes, type WeakChange } from '../src/lib/weakThemes';
 import { useResponsive } from '../src/theme/responsive';
 import { useBoardFit } from '../src/theme/useBoardFit';
 import type { AppMode } from '../src/types/mode';
@@ -107,14 +109,21 @@ const FOOTER_MARGIN_BOTTOM = 20;
 // repetidos" activo, y se descarta si el ajuste se apaga antes de usarlo).
 type PrefetchedPuzzle = { themesKey: string; puzzle: Puzzle; fresh: boolean };
 
-const themesKeyOf = (themes: string[]) => themes.join(',');
+// Qué temas pide el filtro: una lista fija (el puzle debe tenerlos TODOS), o
+// WEAK_SPEC, "tus puntos débiles", que sortea un tema distinto en cada puzle
+// (ver queryPuzzleForSpec y lib/weakThemes.ts).
+const WEAK_SPEC = 'weak' as const;
+type ThemeSpec = string[] | typeof WEAK_SPEC;
+
+// '@weak' no puede chocar con una lista real: las claves de tema no llevan '@'.
+const themesKeyOf = (themes: ThemeSpec) => (themes === WEAK_SPEC ? '@weak' : themes.join(','));
 
 // El precargado sirve si se pidió con los mismos temas y su rating cae dentro
 // del rango que se va a usar ahora. Antes la clave era el rango exacto: en modo
 // recomendado cada puzle puntuado mueve la ventana unos puntos y el precargado
 // se volvía a pedir (o se tiraba) aunque siguiera cumpliendo el filtro.
 const pickPrefetched = (
-  cached: PrefetchedPuzzle | null, range: number[], themes: string[],
+  cached: PrefetchedPuzzle | null, range: number[], themes: ThemeSpec,
 ): PrefetchedPuzzle | null => {
   if (!cached || cached.themesKey !== themesKeyOf(themes)) return null;
   const { rating } = cached.puzzle;
@@ -290,6 +299,39 @@ function App() {
   // preferencia guardada en @is_recommended_mode la conserva, porque el arranque
   // la restaura después de este valor inicial.
   const [isRecommendedMode, setIsRecommendedMode] = useState(true);
+  // Filtro "puntos débiles": los puzles salen de los temas que peor se te dan
+  // en vez de los elegidos a mano. Los temas elegidos se conservan (por si lo
+  // apagas), pero mientras está activo no se usan. Espejo en ref por lo mismo
+  // que allowRepeatsRef: loadSinglePuzzle llega desde closures viejas.
+  const [isWeakFocusMode, setIsWeakFocusMode] = useState(false);
+  const weakFocusRef = useRef(false);
+  useEffect(() => { weakFocusRef.current = isWeakFocusMode; }, [isWeakFocusMode]);
+  // Temas débiles sin puzles nuevos en el rango actual (ver pickFromWeakThemes).
+  // Se olvida al cambiar de rango (en AUTO, cada vez que el ELO cambia de banda
+  // de 100) y al cambiar de conexión: un reset o una restauración desde la nube
+  // abren una nueva, y con el progreso cambiado lo agotado puede dejar de serlo.
+  const weakExhaustedRef = useRef<{ db: SQLite.SQLiteDatabase | null; rangeKey: string; themes: Set<string> }>(
+    { db: null, rangeKey: '', themes: new Set() },
+  );
+  // Aviso animado de cómo ha cambiado tu punto débil tras un acierto o un
+  // fallo. Lleva el id del puzle: solo se pinta mientras ese puzle sigue en el
+  // tablero, así que pasar al siguiente lo quita sin tener que limpiarlo en
+  // cada camino de carga.
+  const [weakChange, setWeakChange] = useState<{ puzzleId: string; changes: WeakChange[] } | null>(null);
+  const clearWeakChange = useCallback(() => setWeakChange(null), []);
+  // Se llama justo después de updateElo, en acierto y en fallo: el cambio se
+  // calcula con el intento ya guardado. Si para cuando responde ya hay otro
+  // puzle en el tablero, el aviso llegaría tarde y no se enseña.
+  const showWeakChange = (puzzleId: string, themes: string[], isSuccess: boolean) => {
+    if (!weakFocusRef.current || !db) return;
+    loadWeakChanges(db, puzzleId, themes, isSuccess)
+      .then(changes => {
+        if (changes.length > 0 && currentPuzzleIdRef.current === puzzleId) {
+          setWeakChange({ puzzleId, changes });
+        }
+      })
+      .catch(err => console.warn('[DÉBILES] no se pudo calcular el cambio', String(err)));
+  };
   const [isHistoryMode, setIsHistoryMode] = useState<boolean>(false);
   // Sólo alimentan la cola de repaso los intentos "de verdad": modo puzles, no
   // un puzle del historial ni un reintento (ya lo contaste la primera vez).
@@ -310,6 +352,11 @@ function App() {
   // que `currentPuzzle` ahí dentro puede ir por detrás.
   const currentPuzzleIdRef = useRef<string | null>(null);
   useEffect(() => { currentPuzzleIdRef.current = currentPuzzle?.id ?? null; }, [currentPuzzle?.id]);
+  // El aviso de puntos débiles de un puzle anterior se tira al cambiar de
+  // puzle: si ese mismo id volviera (repetido, historial) no debe reaparecer.
+  useEffect(() => {
+    setWeakChange(g => (g && g.puzzleId !== currentPuzzle?.id ? null : g));
+  }, [currentPuzzle?.id]);
 
   // Aviso que ocupa el hueco del tablero cuando no hay puzle que poner:
   //   'exhausted' -> hay puzles con estos filtros, pero ya los has resuelto todos
@@ -563,9 +610,48 @@ const queryPuzzle = useCallback(async (
   return null;
 }, []);
 
+// queryPuzzle para cualquier ThemeSpec. Con una lista fija es queryPuzzle tal
+// cual. Con puntos débiles:
+//   1. Se recalculan los temas débiles. Es la consulta del panel de
+//      estadísticas (una fila por combinación de temas, no por intento) y casi
+//      siempre corre en la precarga, con el jugador pensando el puzle actual.
+//   2. Se sortea el orden de esos temas según su peso y se prueba uno a uno
+//      con queryPuzzle, que con un solo tema sigue siendo el seek por rowid.
+//   3. Gana el primero que dé un puzle válido (nuevo, o cualquiera si se
+//      permiten repetidos). Un tema agotado en tu rango no bloquea el filtro:
+//      se pasa al siguiente, y se recuerda para no volver a pagar el escaneo.
+//      Solo si TODOS están agotados se devuelve un repetido, y loadSinglePuzzle
+//      lo trata como cualquier filtro agotado (aviso de "todos resueltos").
+// Sin historial suficiente (o si la consulta falla) no hay temas débiles, y se
+// sirve sin filtro de temas en vez de dejar el tablero vacío: el modal no deja
+// activarlo así, pero se puede llegar tras un reset o una restauración.
+const queryPuzzleForSpec = useCallback(async (
+  database: SQLite.SQLiteDatabase, range: number[], themes: ThemeSpec,
+  excludeId: string | null = null, mixRepeats = false,
+): Promise<PuzzlePick | null> => {
+  if (themes !== WEAK_SPEC) return queryPuzzle(database, range, themes, excludeId, mixRepeats);
+
+  const weak = await loadWeakThemes(database).catch(err => {
+    console.warn('[DÉBILES] no se pudieron calcular, se sirve sin temas', String(err));
+    return [];
+  });
+  const order = drawWeakThemeOrder(weak);
+  if (order.length === 0) return queryPuzzle(database, range, [], excludeId, mixRepeats);
+
+  const rangeKey = `${range[0]}-${range[1]}`;
+  const cache = weakExhaustedRef.current;
+  if (cache.db !== database || cache.rangeKey !== rangeKey) {
+    weakExhaustedRef.current = { db: database, rangeKey, themes: new Set() };
+  }
+  return pickFromWeakThemes(
+    order, weakExhaustedRef.current.themes, mixRepeats,
+    (theme, mix) => queryPuzzle(database, range, [theme], excludeId, mix),
+  );
+}, [queryPuzzle]);
+
 const prefetchNext = useCallback(async (
   range: number[],
-  themes: string[],
+  themes: ThemeSpec,
   // Igual que en loadSinglePuzzle: en el primer arranque la conexión existe
   // pero `db` todavía es null, porque setDb aún no ha provocado el re-render.
   // Sin este parámetro, el `db!` de abajo era null y getMaxRowid petaba.
@@ -584,14 +670,14 @@ const prefetchNext = useCallback(async (
     // precargada se colaría por pickPrefetched y el aviso de "todos resueltos"
     // no saltaría nunca. Con ellos permitidos se guarda lo que salga, marcado.
     const mix = allowRepeatsRef.current;
-    const pick = await queryPuzzle(database, range, themes, excludeId, mix);
+    const pick = await queryPuzzleForSpec(database, range, themes, excludeId, mix);
     if (pick && (pick.fresh || mix)) {
       nextPuzzleRef.current = { themesKey: themesKeyOf(themes), puzzle: pick.puzzle, fresh: pick.fresh };
     }
   } finally {
     prefetchingRef.current = false;
   }
-}, [db, queryPuzzle]);
+}, [db, queryPuzzleForSpec]);
 
 // Función para sincronizar las piezas con el tablero de chess.js
 const syncPiecesFromGame = (chessGame: Chess) => {
@@ -735,7 +821,9 @@ const loadSinglePuzzle = async (
   activeDb?: SQLite.SQLiteDatabase | null,
   overrideRange?: number[],
   overrideThemes?: string[],
-  options?: { fast?: boolean; recommended?: boolean }
+  // weakFocus: igual que recommended, para quien acaba de cambiar el modo y aún
+  // no lo tiene en el estado (onApply del FilterModal, el arranque).
+  options?: { fast?: boolean; recommended?: boolean; weakFocus?: boolean }
 ) => {
   const isFast = options?.fast === true;
   const previousId = currentPuzzleIdRef.current;
@@ -781,7 +869,8 @@ const loadSinglePuzzle = async (
     currentRange = getRecommendedRange(globalElo);
   }
 
-  const themesToUse = isFast ? [] : (overrideThemes || selectedThemes);
+  const useWeakFocus = !isFast && (options?.weakFocus ?? weakFocusRef.current);
+  const themesToUse: ThemeSpec = isFast ? [] : useWeakFocus ? WEAK_SPEC : (overrideThemes || selectedThemes);
 
   // Intenta usar el puzzle precargado; si no encaja en el rango/temas, va a la BD
   let p: Puzzle | null = null;
@@ -798,11 +887,11 @@ const loadSinglePuzzle = async (
     if (!cached.fresh) replayId = p.id;
     nextPuzzleRef.current = null;
   } else {
-    let pick = await queryPuzzle(databaseToUse, currentRange, themesToUse, previousId, allowRepeats);
+    let pick = await queryPuzzleForSpec(databaseToUse, currentRange, themesToUse, previousId, allowRepeats);
     // En contrarreloj, si la ventana está vacía la ensanchamos
     if (!pick && isFast) {
       console.warn('[RUN] ventana vacía', currentRange, '→ ampliando');
-      pick = await queryPuzzle(databaseToUse, [Math.max(0, currentRange[0] - 400), currentRange[1] + 400], themesToUse, previousId);
+      pick = await queryPuzzleForSpec(databaseToUse, [Math.max(0, currentRange[0] - 400), currentRange[1] + 400], themesToUse, previousId);
     }
     // Las partidas rápidas repiten sin más; en modo normal no se repite nunca:
     // el hueco del tablero pasa a ser el aviso (boardNotice).
@@ -1272,6 +1361,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
               if (puntosGanados !== 0) {
                 setEloFeedback({ value: puntosGanados });
               }
+              showWeakChange(currentPuzzle.id, temasArray, true);
             }
           }
 
@@ -1376,6 +1466,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
             if (puntosPerdidos !== 0) {
               setEloFeedback({ value: puntosPerdidos });
             }
+            showWeakChange(currentPuzzle.id, temasArray, false);
             // Lo que motiva todo esto: el puzle fallado se guarda solo.
             if (canFeedRepaso) repaso.capture('fail', currentPuzzle);
           }
@@ -1621,6 +1712,7 @@ useEffect(() => {
   const entries: [string, string][] = [
     ['@selected_themes', JSON.stringify(selectedThemes)],
     ['@is_recommended_mode', JSON.stringify(isRecommendedMode)],
+    ['@weak_focus_mode', JSON.stringify(isWeakFocusMode)],
   ];
   if (!isRecommendedMode) entries.push(['@elo_range', JSON.stringify(eloRange)]);
 
@@ -1629,7 +1721,7 @@ useEffect(() => {
   changed.forEach(([key, value]) => { persistedPrefsRef.current[key] = value; });
   AsyncStorage.multiSet(changed)
     .catch(error => console.error("Error al guardar los filtros en AsyncStorage:", error));
-}, [eloRange, selectedThemes, isRecommendedMode]);
+}, [eloRange, selectedThemes, isRecommendedMode, isWeakFocusMode]);
 
 // Puzle activo: se guarda SOLO mientras sigue pendiente de respuesta.
 // En cuanto da veredicto (acierto, fallo o solución vista) se borra, porque
@@ -1800,6 +1892,7 @@ const sc = useMemo(() => ({
   pillText: { fontSize: s(12) },
   badge: { minWidth: s(18), height: s(18), borderRadius: s(9) },
   badgeText: { fontSize: s(10) },
+  badgeIcon: s(12),
   turnFrame: { paddingVertical: s(6), paddingHorizontal: s(20), borderRadius: s(25) },
   turnDot: { width: s(14), height: s(14), borderRadius: s(7), marginRight: s(12) },
   turnText: { fontSize: s(13) },
@@ -2197,7 +2290,10 @@ useEffect(() => {
 
 useEffect(() => {
   if (firstMoveDone && db && !isRunMode) {
-    prefetchNext(eloRange, selectedThemes);
+    // Con puntos débiles hay que pedir con la misma clave que loadSinglePuzzle:
+    // si no, esta precarga sustituía a la buena por una de los temas manuales
+    // y el siguiente "Siguiente" tenía que ir a la BD.
+    prefetchNext(eloRange, weakFocusRef.current ? WEAK_SPEC : selectedThemes);
   }
 }, [firstMoveDone]);
 
@@ -2295,6 +2391,7 @@ useEffect(() => {
 
     let savedRange = eloRange;
     let savedThemes = selectedThemes;
+    let savedWeakFocus = false;
     let restoredPuzzle: Puzzle | null = null;
 
     try {
@@ -2306,17 +2403,20 @@ useEffect(() => {
         [, localThemes],
         [, localRecommended],
         [, localPuzzle],
+        [, localWeakFocus],
       ] = await AsyncStorage.multiGet([
         '@elo_range',
         '@selected_themes',
         '@is_recommended_mode',
         '@current_puzzle',
+        '@weak_focus_mode',
       ]);
 
       // Lo que ya está en el almacén no se vuelve a escribir.
       if (localRange !== null) persistedPrefsRef.current['@elo_range'] = localRange;
       if (localThemes !== null) persistedPrefsRef.current['@selected_themes'] = localThemes;
       if (localRecommended !== null) persistedPrefsRef.current['@is_recommended_mode'] = localRecommended;
+      if (localWeakFocus !== null) persistedPrefsRef.current['@weak_focus_mode'] = localWeakFocus;
 
       if (localRange) {
         const parsedRange = JSON.parse(localRange);
@@ -2330,6 +2430,13 @@ useEffect(() => {
       }
       if (localRecommended) {
         setIsRecommendedMode(JSON.parse(localRecommended));
+      }
+      if (localWeakFocus) {
+        savedWeakFocus = JSON.parse(localWeakFocus) === true;
+        setIsWeakFocusMode(savedWeakFocus);
+        // Ya, sin esperar al efecto espejo: la precarga del primer puzle lee la
+        // ref y puede adelantarse al render que lo sincroniza.
+        weakFocusRef.current = savedWeakFocus;
       }
       if (localPuzzle) {
         const parsed = JSON.parse(localPuzzle);
@@ -2372,7 +2479,7 @@ useEffect(() => {
       setSolutionRevealed(false);
     } else {
       // Si no tenía ningún puzle guardado de antes, traemos uno nuevo de forma normal
-      loadSinglePuzzle(database, savedRange, savedThemes);
+      loadSinglePuzzle(database, savedRange, savedThemes, { weakFocus: savedWeakFocus });
     }
   }
 
@@ -2490,7 +2597,9 @@ return (
             onPress={() => setIsFilterModalVisible(true)}
             accessibilityRole="button"
             accessibilityLabel={t.puzzle.filters}
-            accessibilityHint={ selectedThemes.length > 0 ? String(selectedThemes.length) : undefined
+            accessibilityHint={
+              isWeakFocusMode ? t.filters.weakFocus
+              : selectedThemes.length > 0 ? String(selectedThemes.length) : undefined
             }
             >
             <View style={styles.filterLeftGroup}>
@@ -2498,7 +2607,13 @@ return (
               <Text style={[styles.openFiltersText, sc.pillText]}>{t.puzzle.filters}</Text>
             </View>
 
-            {selectedThemes.length > 0 && (
+            {/* Con puntos débiles los temas elegidos a mano no se usan: contarlos
+                en el badge diría algo falso. Va la diana del panel del filtro. */}
+            {isWeakFocusMode ? (
+              <View style={[styles.filterBadgeCount, sc.badge]}>
+                <Ionicons name="locate" size={sc.badgeIcon} color={PALETTE.surface} />
+              </View>
+            ) : selectedThemes.length > 0 && (
               <View style={[styles.filterBadgeCount, sc.badge]}>
                 <Text style={[styles.filterBadgeText, sc.badgeText]}>{selectedThemes.length}</Text>
               </View>
@@ -2680,6 +2795,13 @@ return (
               />
             </Animated.View>
 
+            {/* Cambio de un punto débil tras acertar o fallar. Hijo directo de
+                boardSection (un View normal), no del tablero animado: así no se
+                desliza con él ni queda anidado en otra animación de salida. */}
+            {weakChange && weakChange.puzzleId === currentPuzzle?.id && (
+              <WeakChangeToast key={weakChange.puzzleId} changes={weakChange.changes} onDone={clearWeakChange} />
+            )}
+
             {/* Aviso en el hueco del tablero. Fuera del Animated.View: el tablero
                 está desplazado fuera de pantalla y esto se queda en su sitio. */}
             {boardNotice && (
@@ -2834,13 +2956,16 @@ return (
       currentEloRange={eloRange}
       currentSelectedThemes={selectedThemes}
       currentIsRecommendedMode={isRecommendedMode}
+      currentIsWeakFocus={isWeakFocusMode}
       globalElo={userRatings['global'] || DEFAULT_ELO}
-      onApply={(newRange, newThemes, newRecommendedMode) => {
+      onApply={(newRange, newThemes, newRecommendedMode, newWeakFocus) => {
         setEloRange(newRange);
         setSelectedThemes(newThemes);
         setIsRecommendedMode(newRecommendedMode);
+        setIsWeakFocusMode(newWeakFocus);
+        weakFocusRef.current = newWeakFocus;
         setIsFilterModalVisible(false);
-        loadSinglePuzzle(db, newRange, newThemes, { recommended: newRecommendedMode });
+        loadSinglePuzzle(db, newRange, newThemes, { recommended: newRecommendedMode, weakFocus: newWeakFocus });
       }}
     />
 

@@ -60,6 +60,98 @@ const getCutoff = (range: TimeRange): number => {
   }
 };
 
+// =========================================================
+// SERIE TEMPORAL DE LA GRÁFICA (eje X lineal en el tiempo)
+// =========================================================
+// El eje X es tiempo real en TODOS los rangos: un día sin jugar ocupa lo mismo
+// que un día jugando. Como el ELO solo cambia al resolver un puzle, entre dos
+// puntos separados por un hueco el valor real es constante; por eso se inserta
+// un punto de "meseta" justo antes del siguiente y la línea queda plana durante
+// el hueco en vez de subir o bajar en diagonal durante días.
+const GAP_MIN_FRACTION = 0.02;   // hueco > 2% del ancho del eje -> meseta
+const STEP_RISE_FRACTION = 0.004; // anchura del salto al final de la meseta
+const MIN_SPAN_MS = 10 * 60 * 1000;           // ancho mínimo del eje
+const TODAY_LEAD_FRACTION = 0.1;               // margen previo al 1er puzle de hoy
+const TODAY_MIN_LEAD_MS = 2 * 60 * 1000;
+
+interface ChartSeries {
+  data: EloPoint[];
+  xDomain: [number, number];
+}
+
+const buildChartSeries = (history: EloPoint[], range: TimeRange, now: number): ChartSeries | null => {
+  if (history.length === 0) return null;
+
+  const cutoff = range === 'all' ? history[0].timestamp : getCutoff(range);
+  const firstIdx = history.findIndex(d => d.timestamp >= cutoff);
+  if (firstIdx === -1) return null;
+
+  // El eje llega hasta "ahora": si llevas días sin jugar, la línea sigue plana
+  // hasta el borde derecho.
+  const end = Math.max(now, history[history.length - 1].timestamp);
+
+  let start: number;
+  if (firstIdx === 0) {
+    // El historial empieza dentro de la ventana (jugador nuevo): el eje arranca
+    // en su primer puzle; no tiene sentido pintar meses vacíos antes de existir.
+    start = history[0].timestamp;
+  } else if (range === 'today') {
+    // "Hoy" desde medianoche aplastaba una sesión de 10 min en 3-4 px contra el
+    // borde. El eje arranca poco antes del primer puzle de hoy, con un margen
+    // para que se vea el ELO de partida antes del primer salto.
+    const firstToday = history[firstIdx].timestamp;
+    const lead = Math.max((end - firstToday) * TODAY_LEAD_FRACTION, TODAY_MIN_LEAD_MS);
+    start = Math.max(cutoff, firstToday - lead);
+  } else {
+    start = cutoff;
+  }
+  if (end - start < MIN_SPAN_MS) start = end - MIN_SPAN_MS;
+
+  // Línea base: el ELO con el que arrancabas la ventana, fechado en su inicio.
+  const raw: EloPoint[] = firstIdx > 0
+    ? [{ value: history[firstIdx - 1].value, timestamp: start }, ...history.slice(firstIdx)]
+    : history.slice(firstIdx);
+
+  // Timestamps de SQLite con resolución de segundos: si dos filas comparten
+  // segundo, vale la última (dx = 0 no aporta nada y descuadra la curva).
+  const points: EloPoint[] = [];
+  for (const p of raw) {
+    const last = points[points.length - 1];
+    if (last && p.timestamp <= last.timestamp) {
+      points[points.length - 1] = { value: p.value, timestamp: last.timestamp };
+    } else {
+      points.push(p);
+    }
+  }
+
+  const lastPoint = points[points.length - 1];
+  if (lastPoint.timestamp < end) points.push({ value: lastPoint.value, timestamp: end });
+  // wagmi-charts necesita 2 puntos mínimo para trazar la línea
+  if (points.length === 1) points.unshift({ value: points[0].value, timestamp: start });
+
+  const span = end - start;
+  const minGap = span * GAP_MIN_FRACTION;
+  const rise = span * STEP_RISE_FRACTION;
+  const data: EloPoint[] = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const cur = points[i];
+    if (cur.value !== prev.value && cur.timestamp - prev.timestamp > minGap) {
+      data.push({ value: prev.value, timestamp: cur.timestamp - rise });
+    }
+    data.push(cur);
+  }
+
+  return { data, xDomain: [start, end] };
+};
+
+const formatXTick = (ts: number, span: number): string => {
+  const d = new Date(ts);
+  if (span <= DAY_MS) return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (span > 400 * DAY_MS) return `${d.getMonth() + 1}/${String(d.getFullYear()).slice(-2)}`;
+  return `${d.getDate()}/${d.getMonth() + 1}`;
+};
+
 const ChartSkeleton = React.memo(() => (
   <View style={styles.chartSkeleton}>
     <View style={styles.chartSkeletonYAxis}>
@@ -109,34 +201,13 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
 
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
 
-  // --- Datos de la gráfica ya recortados al rango seleccionado ---
-  const chartData = useMemo(() => {
-    if (timeRange === 'all') return eloHistoryData;
-
-    const cutoff = getCutoff(timeRange);
-    const firstIdx = eloHistoryData.findIndex(d => d.timestamp >= cutoff);
-    if (firstIdx === -1) return [];
-
-    const inRange = eloHistoryData.slice(firstIdx);
-
-    // Línea base: el ELO con el que arrancabas la ventana, pero con el timestamp
-    // del INICIO de la ventana (medianoche en "today"), no el suyo real.
-    // Si conserváramos el original (ayer, hace un mes...) el eje X se estiraría
-    // hacia atrás y todo lo del rango quedaría aplastado contra el borde derecho.
-    const baseline = firstIdx > 0
-      ? { value: eloHistoryData[firstIdx - 1].value, timestamp: cutoff }
-      : null;
-
-    const points = baseline ? [baseline, ...inRange] : inRange;
-
-    // wagmi-charts necesita 2 puntos mínimo para trazar la línea
-    if (points.length === 1) {
-      const only = points[0];
-      const startTs = only.timestamp > cutoff ? cutoff : only.timestamp - 60 * 60 * 1000;
-      return [{ value: only.value, timestamp: startTs }, only];
-    }
-    return points;
-  }, [eloHistoryData, timeRange]);
+  // --- Serie de la gráfica recortada al rango, con eje X temporal ---
+  // `visible` entra en las dependencias para recalcular "ahora" al reabrir.
+  const chartSeries = useMemo(
+    () => buildChartSeries(eloHistoryData, timeRange, Date.now()),
+    [eloHistoryData, timeRange, visible]
+  );
+  const chartData = chartSeries?.data ?? [];
 
   // --- Derivados de la gráfica: solo dependen de chartData ---
   const eloYAxisTicks = useMemo(() => {
@@ -157,33 +228,17 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
     ];
   }, [chartData]);
 
-  const eloChartXDomain = useMemo((): [number, number] | undefined => {
-    if (chartData.length < 2) return undefined;
-    const first = chartData[0].timestamp;
-    const last = chartData[chartData.length - 1].timestamp;
-    if (first === last) {
-      return [first - 12 * 60 * 60 * 1000, last + 12 * 60 * 60 * 1000];
-    }
-    return [first, last];
-  }, [chartData]);
-
-  // Al repartir por índice, cada etiqueta debe ser la de un punto REAL.
-  // (Antes se interpolaba el tiempo, que solo cuadra si el eje X es temporal.)
+  // Eje temporal: las etiquetas se reparten uniformemente en el TIEMPO, igual
+  // que los puntos, así cada fecha queda encima de lo que ocurrió ese día.
   const eloXAxisTicks = useMemo(() => {
-    if (chartData.length < 2) return [];
-    const first = chartData[0].timestamp;
-    const last = chartData[chartData.length - 1].timestamp;
+    if (!chartSeries) return [];
+    const [start, end] = chartSeries.xDomain;
+    const span = end - start;
     const tickCount = 4;
-    const spansOneDay = last - first <= DAY_MS;
-
-    return Array.from({ length: tickCount }).map((_, i) => {
-      const idx = Math.round((chartData.length - 1) * (i / (tickCount - 1)));
-      const d = new Date(chartData[idx].timestamp);
-      return spansOneDay
-        ? `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
-        : `${d.getDate()}/${d.getMonth() + 1}`;
-    });
-  }, [chartData]);
+    return Array.from({ length: tickCount }).map((_, i) =>
+      formatXTick(start + span * (i / (tickCount - 1)), span)
+    );
+  }, [chartSeries]);
 
   return (
     <Modal animationType="fade" transparent={true} visible={visible} onRequestClose={onClose}>
@@ -229,7 +284,7 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
                   <Text style={styles.historyEmptyText}>{t.puzzle.noActivityPeriod}</Text>
                 </View>
               ) : (
-                <LineChart.Provider data={chartData} xDomain={timeRange === 'all' ? eloChartXDomain : undefined}>
+                <LineChart.Provider data={chartData} xDomain={chartSeries?.xDomain}>
                   <View style={{ width: '100%', height: 180, position: 'relative' }}>
 
                     <View style={styles.fixedYAxisContainer}>
@@ -262,7 +317,7 @@ const [canShowEmpty, setCanShowEmpty] = useState(false);
                             <Stop offset="100%" stopColor={PALETTE.primary} stopOpacity={0} />
                           </LineChart.Gradient>
                         </LineChart.Path>
-                        <LineChart.Cursor type="crosshair">
+                        <LineChart.Cursor type="crosshair" snapToPoint>
                           <LineChart.Tooltip
                             position="top"
                             style={{ backgroundColor: "#1A1A1A", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}

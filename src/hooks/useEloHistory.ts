@@ -27,7 +27,11 @@ export function useEloHistory(
       // En vez de cortar a los últimos N (perdiendo el origen del historial),
       // muestreamos de forma uniforme a lo largo de TODO el historial,
       // conservando siempre el primer y el último punto.
+      // Las últimas RECENT_FULL filas van SIN muestrear: con miles de filas el
+      // paso era de 1 de cada 4+, y los rangos cortos ("Hoy", "7D") perdían la
+      // mayoría de los puzles recién resueltos.
       const MAX_POINTS = 300;
+      const RECENT_FULL = 300;
 
       const rows = await db.getAllAsync<{ elo: number; ts: number }>(
         `
@@ -40,14 +44,14 @@ export function useEloHistory(
         sampled AS (
           SELECT id, elo, timestamp FROM numbered
           WHERE rn = 1 
-             OR rn = total 
+             OR rn > total - ?
              OR rn % MAX(1, CAST(total / CAST(? AS REAL) AS INTEGER)) = 0
         )
         SELECT elo, strftime('%s', timestamp) * 1000 as ts 
         FROM sampled 
         ORDER BY id ASC
         `,
-        [MAX_POINTS]
+        [RECENT_FULL, MAX_POINTS]
       );
 
       if (rows.length > 0) {

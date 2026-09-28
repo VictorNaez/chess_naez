@@ -12,6 +12,8 @@
 
 export const es = {
   common: {
+    // Decimal con el separador del idioma (coma en todos salvo inglés).
+    decimal: (n: number, digits: number) => n.toFixed(digits).replace('.', ','),
     save: 'GUARDAR',
     cancel: 'CANCELAR',
     apply: 'APLICAR',
@@ -45,7 +47,7 @@ export const es = {
 
   feedback: {
     title: 'CONTACTO',
-    subtitle: 'Escríbeme. Leo todos los correos, aunque no siempre pueda responder a todos.',
+    subtitle: 'Escríbeme. Leo todos los correos, y trato de reponderlos a todos.',
     pickCategory: '¿DE QUÉ SE TRATA?',
     categories: {
       bug: 'Fallo',
@@ -53,7 +55,7 @@ export const es = {
       puzzle: 'Puzle incorrecto',
       translation: 'Traducción',
     },
-    diagnosticsNote: 'Estos datos se añadirán al final del correo para poder reproducir el problema. Puedes borrarlos antes de enviarlo.',
+    diagnosticsNote: 'Estos datos se añadirán al final del correo para poder reproducir el problema.',
     diagnosticsTitle: 'Datos técnicos (bórralos si no quieres enviarlos):',
     bodyIntro: 'Escribe aquí tu mensaje:',
     send: 'ABRIR MI CORREO',
@@ -77,17 +79,17 @@ export const es = {
     hapticsHint: 'Feedback al mover, capturar, acertar o fallar',
 
     timer: 'Cronómetro',
-    timerHint: 'El tiempo se sigue registrando aunque lo ocultes',
+    timerHint: 'Muestra el tiempo que llevas en el puzle actual',
     legalMoves: 'Movimientos legales',
     legalMovesHint: 'Muestra los movimientos legales de la pieza seleccionada',
     coordinates: 'Muestra las coordenadas del tablero',
-    coordinatesHint: 'Muestra las letras (a - h) y números (1 - 8) en los bordes',
+    coordinatesHint: 'Muestra las letras (A - H) y números (1 - 8) en los bordes',
 
     allowRepeats: 'Puzle repetido',
-    allowRepeatsHint: 'Al acabar los puzles de un filtro, repite los ya resueltos. No suman ni restan ELO',
+    allowRepeatsHint: 'Permite que repetir puzles ya resueltos. No suma ni resta ELO.',
 
     depth: 'Profundidad de análisis',
-    depthHint: 'A mayor profundidad, mejores jugadas pero más lento y más batería',
+    depthHint: 'A mayor profundidad, mejores jugadas pero más es mas lento y gasta más batería',
     depthFast: 'RÁPIDO',
     depthNormal: 'NORMAL',
     depthDeep: 'PROFUNDO',
@@ -102,7 +104,7 @@ export const es = {
   cloud: {
     signedOutHint: 'Conéctate para que tu ELO, tu historial y tus estadísticas sobrevivan a un cambio de móvil o a una reinstalación.',
     statusConnected: 'Conectado a Play Games',
-    connectedHint: 'Tu progreso se guarda y se recupera solo en cualquier dispositivo.',
+    connectedHint: 'Sincronizado con Play Games',
     statusDisconnected: 'Progreso sin guardar en la nube',
     connectPlayGames: 'CONECTAR CON PLAY GAMES',
     playGamesNote: 'La sesión y los datos guardados se gestionan desde la app de Play Games.',
@@ -230,6 +232,13 @@ export const es = {
     reset: 'Restablecer filtros',
     availableCount: (n: number) => `${n} ${n === 1 ? 'puzle' : 'puzles'}`,
     solvedCount: (s: number) => `(${s} ${s === 1 ? 'resuelto' : 'resueltos'})`,
+    // Filtro de puntos débiles. El interruptor comparte fila con el título de
+    // temas: corto en todos los idiomas.
+    weakFocus: 'PUNTOS DÉBILES',
+    weakFocusHint: 'Centrado en los temas que más te cuestan: cuanto más fallas uno, más a menudo sale.',
+    weakFocusNoData: 'Aún no hay datos suficientes. Resuelve más puzles para que podamos detectar tus puntos débiles.',
+    weakGainA11y: (theme: string, from: string, to: string) => `${theme}: tu precisión sube de ${from} a ${to}`,
+    weakLossA11y: (theme: string, from: string, to: string) => `${theme}: tu precisión baja de ${from} a ${to}`,
   },
 
   run: {
@@ -243,9 +252,9 @@ export const es = {
     survived: 'AGUANTASTE',
     avgTime: 'T. MEDIO',
     clockTitle: 'MODO CONTRARRELOJ',
-    clockSubtitle: 'Empiezas fácil. Cada acierto sube el nivel. Un fallo no te baja, pero te cuesta tiempo.',
+    clockSubtitle: 'Resuelve tantos puzles como puedas.',
     survivalTitle: 'MODO SUPERVIVENCIA',
-    survivalSubtitle: 'Tres vidas. Cada puzle tiene el mismo tiempo y cada acierto sube el nivel. Fallar o quedarte sin tiempo cuesta una vida.',
+    survivalSubtitle: 'Resuelve tantos puzles como puedas. Cada fallo te quita una vida.',
   },
 
   repaso: {
@@ -253,7 +262,7 @@ export const es = {
     review: 'REVISAR PUZLES',
     finished: 'REPASO TERMINADO',
     keepGoing: 'SEGUIR REPASANDO',
-    emptyQueue: 'COLA VACÍA',
+  emptyQueue: 'TODOS LOS PUZLES REPASADOS!',
     failed: 'FALLADOS',
     reviewed: 'REPASADOS',
     skipped: 'SALTADOS',

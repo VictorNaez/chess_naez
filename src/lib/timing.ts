@@ -74,4 +74,13 @@ export const PUZZLE_TIMING = {
   // Retraso para precargar el motor tras el resultado del puzle (✅/❌): deja
   // pasar la animación de resultado y el ELO antes de crear la WebView.
   enginePrewarm: 1200,
+
+  // Aviso de puntos débiles al acertar o fallar (WeakChangeToast). Los
+  // tiempos cuentan desde que el aviso se monta, que ya es tras guardar el
+  // intento y leer las estadísticas (unas décimas después del veredicto). La
+  // cuenta debería acabar antes de `enginePrewarm`, cuando se crea la WebView
+  // del motor y el hilo de JS va cargado: la cuenta se pinta desde JS.
+  weakChangeDelay: 150,
+  weakChangeCount: 700,   // de la precisión vieja a la nueva
+  weakChangeHold: 1800,   // quieto y legible antes de irse
 };

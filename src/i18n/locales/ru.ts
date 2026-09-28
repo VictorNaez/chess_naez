@@ -22,6 +22,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 
 export const ru: Dictionary = {
   common: {
+    decimal: (n: number, digits: number) => n.toFixed(digits).replace('.', ','),
     save: 'СОХРАНИТЬ',
     cancel: 'ОТМЕНА',
     apply: 'ПРИМЕНИТЬ',
@@ -238,6 +239,11 @@ export const ru: Dictionary = {
     reset: 'Сбросить фильтры',
     availableCount: (n: number) => `${n} ${plural(n, 'задача', 'задачи', 'задач')}`,
     solvedCount: (s: number) => `(${s} ${plural(s, 'решена', 'решены', 'решено')})`,
+    weakFocus: 'СЛАБЫЕ МЕСТА',
+    weakFocusHint: 'Упор на темы, которые даются вам труднее всего: чем чаще вы ошибаетесь в теме, тем чаще она попадается.',
+    weakFocusNoData: 'Пока недостаточно данных. Решите больше задач, чтобы мы могли определить ваши слабые места.',
+    weakGainA11y: (theme: string, from: string, to: string) => `${theme}: ваша точность выросла с ${from} до ${to}`,
+    weakLossA11y: (theme: string, from: string, to: string) => `${theme}: ваша точность снизилась с ${from} до ${to}`,
   },
 
   run: {

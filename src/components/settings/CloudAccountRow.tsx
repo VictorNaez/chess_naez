@@ -104,7 +104,7 @@ export const CloudAccountRow = React.memo(({ visible }: CloudAccountRowProps) =>
         {busy && <ActivityIndicator color={PALETTE.secondary} size="small" />}
       </View>
 
-      <Text style={styles.note}>{t.cloud.playGamesNote}</Text>
+      {/*<Text style={styles.note}>{t.cloud.playGamesNote}</Text>*/}
       {!!cloud.error && <Text style={styles.errorText}>{t.cloud.errors[cloud.error]}</Text>}
     </View>
   );

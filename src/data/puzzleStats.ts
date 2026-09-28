@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { themeFilter } from '../lib/puzzleQueries';
+import { themeFilter, type ThemeMatch } from '../lib/puzzleQueries';
 
 // =========================================================
 // CONTADORES POR PUZLE
@@ -89,9 +89,10 @@ export const countSolvedPuzzles = async (
   db: SQLite.SQLiteDatabase,
   range: readonly [number, number] | number[],
   themes: readonly string[],
+  match: ThemeMatch = 'all',
 ): Promise<number> => {
   if (range[1] < range[0]) return 0;
-  const f = themeFilter(themes);
+  const f = themeFilter(themes, match);
   const r = await db.getFirstAsync<{ n: number }>(
     `SELECT COUNT(*) AS n
        FROM ${TABLE} s CROSS JOIN puzzles p ON p.id = s.puzzle_id

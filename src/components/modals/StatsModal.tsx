@@ -5,6 +5,7 @@ import { useT } from '../../i18n/I18nProvider';
 import { CLOCK_DURATIONS } from '../../lib/clock';
 import {
   ACTIVITY_DAYS,
+  MIN_THEME_ATTEMPTS,
   STATS_RANGE_OPTIONS,
   type RunModeStat,
   type StatsRange,
@@ -37,9 +38,6 @@ interface StatsModalProps {
   onChangeRange: (range: StatsRange) => void;
   currentStreak: number;
 }
-
-// Por debajo de esto un porcentaje no dice nada: 1 de 1 no es "100% de acierto".
-const MIN_THEME_ATTEMPTS = 5;
 
 type ThemeSort = 'accuracy' | 'volume' | 'elo';
 

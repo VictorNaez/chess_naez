@@ -10,9 +10,28 @@ import { themeMask } from '../data/themeBits';
 // Las columnas th0/th1/th2 son máscaras de 31 bits. NO son de 63 aunque SQLite
 // aguante enteros de 64: los operadores de bits de JavaScript son de 32 bits y
 // `1 << 40` devuelve 256, así que el lado JS no sabría construir la máscara.
-export const themeFilter = (themes: readonly string[]): { sql: string; params: number[] } => {
+//
+// match 'any' = basta con UNO de los temas (OR). Solo lo usa el contador del
+// filtro de puntos débiles: el tablero sirve un tema cada vez, pero el contador
+// tiene que hablar de todos los que pueden salir.
+export type ThemeMatch = 'all' | 'any';
+
+export const themeFilter = (
+  themes: readonly string[],
+  match: ThemeMatch = 'all',
+): { sql: string; params: number[] } => {
   if (themes.length === 0) return { sql: '', params: [] };
   const cols = themeMask(themes);
+  if (match === 'any') {
+    const sql: string[] = [];
+    const params: number[] = [];
+    cols.forEach((m, i) => {
+      if (m === 0) return;
+      sql.push(`(th${i} & ?) <> 0`);
+      params.push(m);
+    });
+    return { sql: sql.length ? `AND (${sql.join(' OR ')})` : '', params };
+  }
   const sql: string[] = [];
   const params: number[] = [];
   cols.forEach((m, i) => {
@@ -71,12 +90,14 @@ export const readCatalogRatingRange = async (
  *
  * Con 2+ temas no hay atajo posible: la interseccion de dos temas no se deduce
  * de sus conteos por separado. Ahi se escanea con la mascara, y por eso quien
- * llama debe hacerlo con debounce.
+ * llama debe hacerlo con debounce. Lo mismo con la union (match 'any'): los
+ * solapes impiden sumar los conteos de cada tema.
  */
 export const countPuzzles = async (
   db: SQLite.SQLiteDatabase,
   range: readonly [number, number] | number[],
   themes: readonly string[],
+  match: ThemeMatch = 'all',
 ): Promise<number> => {
   const lo = range[0];
   const hi = range[1];
@@ -84,7 +105,7 @@ export const countPuzzles = async (
 
   const exacto = async (a: number, b: number): Promise<number> => {
     if (b < a) return 0;
-    const f = themeFilter(themes);
+    const f = themeFilter(themes, match);
     const r = await db.getFirstAsync<{ n: number }>(
       `SELECT COUNT(*) AS n FROM puzzles WHERE rating BETWEEN ? AND ? ${f.sql}`,
       [a, b, ...f.params],
