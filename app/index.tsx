@@ -1668,7 +1668,34 @@ const exitAnalysis = () => {
   const index = Math.min(base.index, base.fens.length - 1);
   const restored = new Chess(base.fens[index]);
 
-  seedIdentityMap(restored);
+  // Volvemos por el árbol de jugadas en vez de re-sembrar identidades.
+  // seedIdentityMap daba un ID nuevo a TODAS las piezas: el tablero lo tomaba
+  // por otra posición y hacía el fundido de capa completo (el "salto" al salir,
+  // incluso sin haber movido nada). Paso a paso entre FENs contiguas cada pieza
+  // conserva su ID y se desliza a su casilla, como al pulsar una jugada de la
+  // lista: atrás por la variante hasta el último punto común con la partida
+  // guardada y adelante por ésta hasta `index`.
+  const currentFen = fenHistory[viewIndex];
+  if (currentFen) {
+    let common = 0;
+    const limit = Math.min(viewIndex, index);
+    while (common < limit && fenHistory[common + 1] === base.fens[common + 1]) common++;
+
+    for (let i = viewIndex; i > common; i--) {
+      stepIdentityBetweenFens(fenHistory[i], fenHistory[i - 1]);
+    }
+    // Siempre coinciden (startAnalysis copia la partida entera); si no, el
+    // salto no es contiguo y stepIdentityBetweenFens cae al remapeo por tipo.
+    if (fenHistory[common] !== base.fens[common]) {
+      stepIdentityBetweenFens(fenHistory[common], base.fens[common]);
+    }
+    for (let i = common; i < index; i++) {
+      stepIdentityBetweenFens(base.fens[i], base.fens[i + 1]);
+    }
+  } else {
+    seedIdentityMap(restored);
+  }
+
   setGame(restored);
   syncPiecesFromGame(restored);
 
