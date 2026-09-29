@@ -427,7 +427,7 @@ export const FilterModal = React.memo(({
               disabled={isApplyDisabled}
             >
               <Text style={styles.btnText}>
-                {isBlocked ? "REVISAR FILTROS" : "APLICAR"}
+                {isBlocked ? t.filters.reviewFilters : t.common.apply}
               </Text>
             </TouchableOpacity>
           </View>

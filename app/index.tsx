@@ -3179,7 +3179,7 @@ return (
       subtitle={t.run.survivalSubtitle}
       options={SURVIVAL_SPEEDS}
       defaultMs={DEFAULT_SURVIVAL_MS}
-      optionsLabel="TIEMPO POR PUZLE"
+      optionsLabel={t.run.timePerPuzzle}
       onClose={() => { survival.closeStart(); if (survival.phase === 'idle') setAppMode('puzzles'); }}
       onStart={handleStartSurvivalRun}
     />

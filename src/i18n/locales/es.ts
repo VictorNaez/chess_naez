@@ -35,7 +35,7 @@ export const es = {
     other: 'OTROS',
     modePuzzles: 'Modo puzles',
     modeClock: 'Modo contrarreloj',
-    modeSurvival: 'Modo Supervivencia',
+    modeSurvival: 'Modo supervivencia',
     modeRepaso: 'Repaso',
     stats: 'Estadísticas',
     settings: 'Ajustes',
@@ -82,7 +82,7 @@ export const es = {
     timerHint: 'Muestra el tiempo que llevas en el puzle actual',
     legalMoves: 'Movimientos legales',
     legalMovesHint: 'Muestra los movimientos legales de la pieza seleccionada',
-    coordinates: 'Muestra las coordenadas del tablero',
+    coordinates: 'Coordenadas del tablero',
     coordinatesHint: 'Muestra las letras (A - H) y números (1 - 8) en los bordes',
 
     allowRepeats: 'Puzle repetido',
@@ -233,6 +233,7 @@ export const es = {
     dynamicLevel: 'Nivel dinámico basado en tu progreso actual',
     noneAvailable: 'Sin puzles disponibles',
     reset: 'Restablecer filtros',
+    reviewFilters: 'REVISAR FILTROS',
     availableCount: (n: number) => `${n} ${n === 1 ? 'puzle' : 'puzles'}`,
     solvedCount: (s: number) => `(${s} ${s === 1 ? 'resuelto' : 'resueltos'})`,
     // Filtro de puntos débiles. El interruptor comparte fila con el título de
@@ -258,6 +259,7 @@ export const es = {
     clockSubtitle: 'Resuelve tantos puzles como puedas.',
     survivalTitle: 'MODO SUPERVIVENCIA',
     survivalSubtitle: 'Resuelve tantos puzles como puedas. Cada fallo te quita una vida.',
+    timePerPuzzle: 'TIEMPO POR PUZLE',
     outOfLives: 'TE QUEDASTE SIN VIDAS',
     timeUp: 'SE ACABÓ EL TIEMPO',
   },
@@ -300,8 +302,8 @@ export const es = {
 
   support: {
     title: 'APOYA EL PROYECTO',
-    thanks: 'Muchisimas gracias! Tu apoyo ayuda a seguir mejorando la app.',
-    subtitle: 'Hola! Soy Víctor, un aficionado de ajedrez que ha hecho esta aplicación para dar a todo el mundo acceso a una plataforma de puzzles de ajedrez totalmente gratuita y sin anuncios de ningún tipo. \n \n Cualquier ayuda es totalmente opcional, pero ayudarás a que el proyecto siga adelante  \n \n ¡Te estaré infinitamente agradecido!',
+    thanks: '¡Muchísimas gracias! Tu apoyo ayuda a seguir mejorando la app.',
+    subtitle: '¡Hola! Soy Víctor, un aficionado al ajedrez que ha hecho esta aplicación para dar a todo el mundo acceso a una plataforma de puzles de ajedrez totalmente gratuita y sin anuncios de ningún tipo.\n\nCualquier ayuda es totalmente opcional, pero ayudarás a que el proyecto siga adelante.\n\n¡Te estaré infinitamente agradecido!',
     unavailable: 'Los pagos no están disponibles ahora mismo. Inténtalo más tarde.',
     close: 'CERRAR',
     notNow: 'AHORA NO',
