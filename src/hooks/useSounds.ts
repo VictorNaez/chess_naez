@@ -19,8 +19,8 @@ import { useSettings } from './useSettings';
 const SOUND_ASSETS = {
   // Jugadas (el que suena lo elige moveSoundFor en src/lib/moveSound.ts)
   move:     require('../../assets/sounds/move.mp3'),
-  capture:  require('../../assets/sounds/capture_secondSoundOnly.mp3'),
-  check:    require('../../assets/sounds/check.mp3'),
+  capture:  require('../../assets/sounds/capture_4_grave.mp3'),
+  check:    require('../../assets/sounds/check_5_tic_toc.mp3'),
   castle:   require('../../assets/sounds/castle.mp3'),
   promote:  require('../../assets/sounds/promote.mp3'),
   // Resultado del puzle
@@ -36,9 +36,24 @@ const SOUND_ASSETS = {
 
 export type SoundKey = keyof typeof SOUND_ASSETS;
 
+// ---------------------------------------------------------------------------
+// CANAL DEL TABLERO
+//
+// Los sonidos de jugada comparten un único "canal": el nuevo corta al que esté
+// sonando. Al navegar rápido con las flechas (o con respuestas rápidas en
+// contrarreloj) las colas de 0,3-0,6 s se amontonaban unas encima de otras.
+//
+// El resto (éxito, error, pista, avisos de partida) va por libre: un
+// movimiento no debe cortar el aviso de tiempo ni el sonido de récord.
+// ---------------------------------------------------------------------------
+const BOARD_SOUNDS: ReadonlySet<SoundKey> = new Set<SoundKey>(['move', 'capture', 'check', 'castle', 'promote']);
+
 export function useSounds() {
   const { soundEnabled, volume } = useSettings();
   const playersRef = useRef<Partial<Record<SoundKey, AudioPlayer>>>({});
+  // Último sonido del canal del tablero: es el único que puede estar sonando,
+  // así que basta con pausar ese (sin preguntar a nativo si sigue sonando).
+  const lastBoardRef = useRef<SoundKey | null>(null);
 
   // Ref paralelo: la función que devolvemos debe ser estable (deps vacías),
   // así que no puede leer soundEnabled del closure.
@@ -73,6 +88,7 @@ export function useSounds() {
         try { p?.remove(); } catch { /* ya liberado */ }
       });
       playersRef.current = {};
+      lastBoardRef.current = null;
     };
     // Deliberadamente vacío: `volume` se aplica en el efecto de abajo. Meterlo
     // aquí recrearía todos los players en cada tick del slider.
@@ -91,8 +107,17 @@ export function useSounds() {
     const player = playersRef.current[key];
     if (!player) return;
     try {
+      if (BOARD_SOUNDS.has(key)) {
+        const prev = lastBoardRef.current;
+        // El mismo sonido no hace falta pausarlo: el seekTo(0) de abajo ya lo
+        // reinicia aunque esté sonando.
+        if (prev && prev !== key) playersRef.current[prev]?.pause();
+        lastBoardRef.current = key;
+      }
       // seekTo(0) antes de play() es el equivalente a replayAsync: sin él, un
-      // sonido que ya llegó al final no vuelve a sonar.
+      // sonido que ya llegó al final no vuelve a sonar. En Android pause,
+      // seekTo y play se encolan en el hilo principal en este mismo orden, así
+      // que no hace falta esperar a la promesa del seekTo.
       player.seekTo(0);
       player.play();
     } catch { /* el player pudo liberarse entre medias */ }
