@@ -22,8 +22,7 @@ export const MIN_ELO_STEP = 5;
 // FACTOR K PROGRESIVO
 // ---------------------------------------------------------
 //
-// La desviación del rating una vez estabilizado es la misma en ambos (~19
-// puntos), porque a partir del intento 100 los dos usan K=16.
+// A partir del intento 50 el rating ya va a K de crucero (18).
 //
 // `until` es exclusivo y se compara contra el número de intentos YA puntuados.
 const K_SCHEDULE: readonly { until: number; k: number }[] = [
@@ -34,8 +33,9 @@ const K_SCHEDULE: readonly { until: number; k: number }[] = [
 ];
 
 // Intentos a partir de los cuales K ya es el de crucero. Sirve para pintar un
-// "rating provisional" en la UI si algún día interesa.
-export const CALIBRATION_ATTEMPTS = 100;
+// "rating provisional" en la UI si algún día interesa. Tiene que coincidir con
+// el último `until` finito de K_SCHEDULE (antes decía 100 con la tabla en 50).
+export const CALIBRATION_ATTEMPTS = 50;
 
 export const getKFactor = (attempts: number): number => {
   const safe = Math.max(0, attempts);
@@ -51,8 +51,8 @@ export const getKFactor = (attempts: number): number => {
 //
 //   objetivo   handicap   fallo/acierto a igual rating   aciertos reales*
 //   50%            0            1,00                         44,7%
-//   65%          108            1,86                         57,0%
-//   70%          147            2,33                         64,6%   <- elegido
+//   65%          108            1,86                         57,0%   <- elegido
+//   70%          147            2,33                         64,6%
 //   75%          191            3,00                         69,6%
 //
 //   (*) medido en simulación sobre la ventana recomendada, que sirve puzles

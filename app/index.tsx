@@ -62,9 +62,11 @@ import { isCaptureMove, moveSoundFor } from '../src/lib/moveSound';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { getRecommendedRange, hasPuzzleBeenScored, readGlobalElo, themeFilter } from '../src/lib/puzzleQueries';
 import { ALREADY_SOLVED_COLUMN, recordPuzzleResult, UNSOLVED_FILTER } from '../src/data/puzzleStats';
+import { markProgressDirty } from '../src/data/syncSignal';
 import { REPASO_FIRST_MOVE_MS, feedsRepaso } from '../src/lib/repaso';
 import { REVIEW_MIN_STREAK, maybeAskForReview } from '../src/lib/storeReview';
 import { PUZZLE_TIMING } from '../src/lib/timing';
+import { uciToMove } from '../src/lib/uci';
 import { drawWeakThemeOrder, loadWeakChanges, loadWeakThemes, pickFromWeakThemes, type WeakChange } from '../src/lib/weakThemes';
 import { useResponsive } from '../src/theme/responsive';
 import { useBoardFit } from '../src/theme/useBoardFit';
@@ -157,7 +159,7 @@ function App() {
   const [currentPuzzle, setCurrentPuzzle] = useState<Puzzle | null>(null);
   const [loading, setLoading] = useState(true);
   const [eloRange, setEloRange] = useState<[number, number]>([1400, 1800]);
-  const { userRatings, updateElo, resetLock, currentStreak } = useUserProgress(db);
+  const { userRatings, updateElo, currentStreak } = useUserProgress(db);
   const getUsageMs = useAppUsageTime();
   const [eloFeedback, setEloFeedback] = useState<{ value: number } | null>(null);
   const settings = useSettings();
@@ -212,6 +214,11 @@ function App() {
   const activeSequenceRef = useRef<number | null>(null);
   const sequenceCounterRef = useRef(0);
   const playbackRunRef = useRef(0);
+  // Sube cada vez que el tablero cambia de puzle (cancelPuzzlePlayback). Los
+  // setTimeout de un puzle (jugada inicial, respuesta de la máquina, ✅/❌) lo
+  // capturan al armarse y no hacen nada si ya no coincide: antes, pasar de
+  // puzle con uno pendiente pintaba la posición del anterior sobre el nuevo.
+  const puzzleEpochRef = useRef(0);
   const [isSequencePlaying, setIsSequencePlaying] = useState(false);
   const [viewIndex, setViewIndex] = useState(0); // Qué movimiento del historial estamos viendo
   const [isReviewMode, setIsReviewMode] = useState(false); // Si estamos viendo el pasado o el presente
@@ -339,9 +346,6 @@ function App() {
       .catch(err => console.warn('[DÉBILES] no se pudo calcular el cambio', String(err)));
   };
   const [isHistoryMode, setIsHistoryMode] = useState<boolean>(false);
-  // Sólo alimentan la cola de repaso los intentos "de verdad": modo puzles, no
-  // un puzle del historial ni un reintento (ya lo contaste la primera vez).
-  const canFeedRepaso = feedsRepaso(appMode) && !isHistoryMode && !isRetryMode;
   const [sessionEloHistory, setSessionEloHistory] = useState<number[]>([]);
   const hasSeededSessionElo = useRef(false);
   const MULTI_PV_HEIGHT = settings.engineMultiPV * 32 + (settings.engineMultiPV - 1) + 20;   // 32px por fila (styles.analysisLineRow) + 1px de gap + 20px de paddingVertical del multiPvWrapper. Antes era 118 fijo, válido solo para 3 líneas.
@@ -388,6 +392,12 @@ function App() {
     !!currentPuzzle && currentPuzzle.id === replayPuzzleId &&
     !isRunMode && !isRepasoMode && !isHistoryMode;
 
+  // Sólo alimentan la cola de repaso los intentos "de verdad": modo puzles, no
+  // un puzle del historial, un reintento (ya lo contaste la primera vez) ni un
+  // repetido (el comentario de arriba lo promete; la pista y la solución no lo
+  // cumplían porque esto no miraba isReplay).
+  const canFeedRepaso = feedsRepaso(appMode) && !isHistoryMode && !isRetryMode && !isReplay;
+
   // La pastilla "Puzle repetido" también sale en los puzles abiertos desde el
   // historial: por definición ya los jugaste y ahí tampoco se puntúa. Es solo
   // visual; la lógica de puntuación del historial no cambia (ya no daba ELO).
@@ -399,7 +409,7 @@ function App() {
   // cuando corre la ref ya vale true. Solo depende del ajuste: boardNotice y
   // la función se leen en el momento, no deben re-dispararlo.
   useEffect(() => {
-    if (settings.allowRepeats && boardNotice === 'exhausted' && db) loadSinglePuzzle(db);
+    if (settings.allowRepeats && boardNotice === 'exhausted' && db) loadSinglePuzzle(db, undefined, undefined, { force: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.allowRepeats]);
 
@@ -707,6 +717,7 @@ const cancelEngineSequence = () => {
 // el bucle viejo escribiendo sobre el puzle recién cargado.
 const cancelPuzzlePlayback = () => {
   playbackRunRef.current++;
+  puzzleEpochRef.current++;
   setIsShowingSolution(false);
 };
 
@@ -719,9 +730,14 @@ const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false
   // Antes de tocar nada: si venía corriendo la solución o el rebobinado del
   // puzle anterior, queda invalidado aquí mismo.
   cancelPuzzlePlayback();
+  const epoch = puzzleEpochRef.current;
 
   setIsRetryMode(isRetry);
   setIsHistoryMode(isHistory);
+  // Un puzle distinto nunca hereda la solución revelada del anterior: sin esto,
+  // tras ver la solución de uno, el historial abría otros sin botón "Solución".
+  // El reintento sí la conserva: es el mismo puzle.
+  if (!isRetry) setSolutionRevealed(false);
   // Un puzle recién puesto en el tablero vuelve a estar pendiente, salvo en un
   // reintento: ese ya puntuó la primera vez y no debe reanudarse al reabrir.
   setIsPuzzleConsumed(isRetry);
@@ -786,16 +802,20 @@ const resetPuzzleState = (puzzle: Puzzle, isInitialLoad = false, isRetry = false
 
   // Movimiento normal retrasado de la máquina para puzles nuevos o del historial
   setTimeout(() => {
+    // Ya hay otro puzle en el tablero: esta jugada inicial es del anterior.
+    if (puzzleEpochRef.current !== epoch) return;
     if (!localSolution || localSolution.length === 0) return;
     
-    const firstMove = localSolution[0];
-    const from = firstMove.slice(0, 2) as Square;
-    const to = firstMove.slice(2, 4) as Square;
+    const firstMove = uciToMove(localSolution[0]);
+    const { from, to } = firstMove;
 
     setLastMoveFrom(from);
     setLastMoveTo(to);
 
-    const m0 = newGame.move({ from, to, promotion: 'q' });
+    // chess.js 1.x LANZA con una jugada ilegal; aquí, dentro de un setTimeout,
+    // eso sería un error sin capturar.
+    let m0: Move | null = null;
+    try { m0 = newGame.move(firstMove); } catch { m0 = null; }
 
     if (m0) {
       applyMoveIdentity(m0);
@@ -829,20 +849,32 @@ const loadSinglePuzzle = async (
   overrideThemes?: string[],
   // weakFocus: igual que recommended, para quien acaba de cambiar el modo y aún
   // no lo tiene en el estado (onApply del FilterModal, el arranque).
-  options?: { fast?: boolean; recommended?: boolean; weakFocus?: boolean }
+  // force: cambios de modo, filtros aplicados y arranque. El cerrojo de
+  // isNextDisabled es contra el doble toque de Siguiente, no contra ellos.
+  options?: { fast?: boolean; recommended?: boolean; weakFocus?: boolean; force?: boolean }
 ) => {
   const isFast = options?.fast === true;
   const previousId = currentPuzzleIdRef.current;
-  if (isNextDisabled && !isFast) return;
+  if (isNextDisabled && !isFast && !options?.force) return;
   setIsNextDisabled(true);
+  const releaseNextLock = () => {
+    setTimeout(() => {
+      setIsNextDisabled(false);
+    }, isFast ? 150 : PUZZLE_TIMING.nextLock);
+  };
 
   // También aquí, y no solo en resetPuzzleState: si la consulta no devuelve
   // puzle, nunca se llega a resetPuzzleState y el bucle seguiría vivo.
   cancelPuzzlePlayback();
+  // Si mientras esperamos a SQLite otra carga (u otro puzle del historial, del
+  // repaso...) toma el tablero, esta llega tarde y no debe pisarlo.
+  const epoch = puzzleEpochRef.current;
 
   setSolutionRevealed(false);
   setIsRetryMode(false);
-  resetLock();
+  // Aquí había un resetLock(): soltaba el cerrojo de saveResolvedPuzzle con el
+  // guardado del puzle anterior todavía en vuelo. El propio guardado lo libera
+  // en su finally.
   setHintSquare(null);
   setIsBoardLocked(false);
   setIsReviewMode(false);
@@ -854,7 +886,7 @@ const loadSinglePuzzle = async (
   setMoveHistory([]);
 
   const databaseToUse = activeDb || db;
-  if (!databaseToUse) return;
+  if (!databaseToUse) { releaseNextLock(); return; }
 
   setLoading(true);
   setMessage("");
@@ -907,6 +939,7 @@ const loadSinglePuzzle = async (
     // En partidas rápidas no: ahí el ELO global no se toca de todas formas.
     if (p && pick && !pick.fresh && !isFast) replayId = p.id;
   }
+  if (puzzleEpochRef.current !== epoch) { releaseNextLock(); return; }
   setReplayPuzzleId(replayId);
 
   // Filtro de un solo puzle en contrarreloj/supervivencia: vuelve el MISMO id,
@@ -931,13 +964,19 @@ const loadSinglePuzzle = async (
     if (!isFast) prefetchNext(currentRange, themesToUse, databaseToUse, p.id);
   }
 
-  setTimeout(() => {
-    setIsNextDisabled(false);
-  }, isFast ? 150 : PUZZLE_TIMING.nextLock);
+  releaseNextLock();
 }
+
+// Siempre la versión del último render. Los useCallback que cargan puzle
+// (salir de partida o de repaso, cambiar de modo...) se memorizan con [db] y se
+// quedaban con el loadSinglePuzzle del arranque: temas, rango manual y modo
+// AUTO de entonces, no los que el jugador tiene ahora.
+const loadSinglePuzzleRef = useRef(loadSinglePuzzle);
+useLayoutEffect(() => { loadSinglePuzzleRef.current = loadSinglePuzzle; });
 
 // Aplica un puzzle del historial al tablero principal, sin otorgar/quitar ELO.
 const openHistoryPuzzleOnBoard = useCallback((puzzle: Puzzle) => {
+  setEloFeedback(null);
   resetPuzzleState(puzzle, false, false, true); // isHistory = true
   setCurrentPuzzle(puzzle);
 }, [resetPuzzleState]);
@@ -1119,13 +1158,14 @@ const showSolution = async () => {
   for (let i = solutionStep; i < currentPuzzle.solution.length; i++) {
     const moveStr = currentPuzzle.solution[i];
     
-    // Antes de mover, movemos la identidad para la animación
-    const solutionMove = playbackGame.move({
-      from: moveStr.slice(0, 2) as Square,
-      to: moveStr.slice(2, 4) as Square,
-      promotion: 'q'
-    });
-    if (solutionMove) applyMoveIdentity(solutionMove);
+    // La pieza de coronación sale de la jugada (antes 'q' fijo: las
+    // subcoronaciones salían como dama y la línea se volvía ilegal). chess.js
+    // lanza con una ilegal: sin el catch, la promesa moría con
+    // isShowingSolution en true y Reintentar/Solución dejaban de responder.
+    let solutionMove: Move | null = null;
+    try { solutionMove = playbackGame.move(uciToMove(moveStr)); } catch { solutionMove = null; }
+    if (!solutionMove) break;
+    applyMoveIdentity(solutionMove);
 
     // Actualizamos el estado visual
     setGame(new Chess(playbackGame.fen()));
@@ -1238,6 +1278,9 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
 
   const moveStr = `${from}${to}`;
   const playerMoveWithPromotion = moveStr + promotion;
+  // Puzle al que pertenece esta jugada. Los setTimeout de abajo (✅, ❌ y la
+  // respuesta de la máquina) no hacen nada si para cuando saltan ya hay otro.
+  const epoch = puzzleEpochRef.current;
   
   try {
     const gameCopy = new Chess(game.fen());
@@ -1357,7 +1400,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
               // Repetido: ya lo resolviste antes, no hay premio. Solo el contador.
               // (Un reintento tras fallarlo cae abajo y no cuenta nada, como
               // cualquier reintento.)
-              if (db) recordPuzzleResult(db, currentPuzzle.id, true).catch(() => {});
+              if (db) recordPuzzleResult(db, currentPuzzle.id, true).then(markProgressDirty).catch(() => {});
 
             } else if (!isHistoryMode && !isRetryMode) {
               const temasArray = currentPuzzle.themes;
@@ -1370,6 +1413,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           }
 
           setTimeout(() => { 
+            if (puzzleEpochRef.current !== epoch) return;
             setMessage("✅"); 
             setPuzzleSolved(true); 
             setIsBoardLocked(false);
@@ -1386,20 +1430,27 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
           const resp = currentPuzzle.solution[nextStep];
           
           setTimeout(() => {
+            // El jugador ha pasado de puzle (o se le acabó el tiempo en
+            // supervivencia) mientras la máquina "pensaba": esta respuesta ya
+            // no es de nadie. Antes pintaba la posición vieja sobre la nueva.
+            if (puzzleEpochRef.current !== epoch) return;
             const gameAfterResp = new Chess(gameCopy.fen());
-            const mResp = gameAfterResp.move({ 
-              from: resp.slice(0, 2) as Square, 
-              to: resp.slice(2, 4) as Square, 
-              promotion: promotion
-            });
+            // La coronación de la máquina sale de SU jugada, no de la pieza
+            // que eligió el jugador en la suya (subcoronaciones rotas). Y sin
+            // el catch, una ilegal aquí era un error sin capturar -> cierre.
+            let mResp: Move | null = null;
+            try { mResp = gameAfterResp.move(uciToMove(resp)); } catch { mResp = null; }
             
             if (mResp) {
               // Vibración ligera cuando la máquina te responde (opcional, pero da un gran feedback)
               const machineCaptured = isCaptureMove(mResp);
               deferFeedback(() => hapticImpact(machineCaptured ? 'medium' : 'light'));
 
-              setMoveHistory(prev => [...prev, mResp.san]);
+              const replySan = mResp.san;
+              setMoveHistory(prev => [...prev, replySan]);
               applyMoveIdentity(mResp);
+            } else {
+              console.warn('[PUZLE] respuesta de la máquina ilegal', currentPuzzle.id, resp);
             }
             
             const finalFen = gameAfterResp.fen();
@@ -1431,6 +1482,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
         // así que el tablero debe seguir bloqueado hasta que cargue el siguiente.
         if (!isRunPlaying) {
           setTimeout(() => {
+            if (puzzleEpochRef.current !== epoch) return;
             setMessage("❌");
             setIsBoardLocked(false);
           }, PUZZLE_TIMING.failFeedback);
@@ -1457,7 +1509,7 @@ const executeMove = async (from: string, to: string, promotion: string = 'q') =>
 
           } else if (isReplay && !isRetryMode) {
             // Repetido: tampoco castiga ni va a Repaso. Solo el contador.
-            if (db) recordPuzzleResult(db, currentPuzzle.id, false).catch(() => {});
+            if (db) recordPuzzleResult(db, currentPuzzle.id, false).then(markProgressDirty).catch(() => {});
 
           } else if (!isHistoryMode && !isRetryMode) {
             const temasArray = currentPuzzle.themes;
@@ -2028,7 +2080,7 @@ const slidePuzzle = useCallback((load: () => void, delayMs = 0) => {
 }, [isRunMode, runPhaseRef, responsive.width]);
 
 const swapRunPuzzle = useCallback((nextRange: number[], delayMs: number) => {
-  slidePuzzle(() => loadSinglePuzzle(db, nextRange, [], { fast: true }), delayMs);
+  slidePuzzle(() => loadSinglePuzzleRef.current(db, nextRange, [], { fast: true }), delayMs);
 }, [db, slidePuzzle]);
 
 // =========================================================
@@ -2040,8 +2092,11 @@ const swapRunPuzzle = useCallback((nextRange: number[], delayMs: number) => {
 // loadSinglePuzzle.
 const loadRepasoPuzzle = (puzzle: Puzzle | null) => {
   if (!puzzle) return;
+  // Mismo cerrojo que loadSinglePuzzle: sin él, en repaso se podía encadenar
+  // Siguiente sin esperar a que el puzle fuese jugable.
+  setIsNextDisabled(true);
+  setTimeout(() => setIsNextDisabled(false), PUZZLE_TIMING.nextLock);
   setSolutionRevealed(false);
-  resetLock();
   setIsBoardLocked(false);
   setEloFeedback(null);
   setMoveHistory([]);
@@ -2057,7 +2112,7 @@ const startRepasoSession = useCallback(async (order: RepasoOrder) => {
   // devolvió nada). Volvemos a puzles en vez de dejar el tablero muerto.
   if (!first) {
     setAppMode('puzzles');
-    loadSinglePuzzle(db);
+    loadSinglePuzzleRef.current(db, undefined, undefined, { force: true });
     return;
   }
   slidePuzzle(() => loadRepasoPuzzle(first));
@@ -2066,6 +2121,11 @@ const startRepasoSession = useCallback(async (order: RepasoOrder) => {
 // Avanza al siguiente de la cola. Si no queda ninguno, el hook cierra la sesión
 // y abre el modal de resultado; el tablero se queda con el último puzle detrás.
 const handleNextRepasoPuzzle = useCallback(() => {
+  // El cerrojo ANTES de avanzar la cola. slidePuzzle ya ignoraba el segundo
+  // toque, pero nextPuzzle() había corrido: la cola avanzaba dos (el del medio
+  // quedaba como saltado sin verse) mientras el tablero cargaba solo uno, y el
+  // resultado de ese puzle se descartaba por no ser "el actual".
+  if (isSwappingRef.current) return;
   const next = repaso.nextPuzzle();
   if (next) slidePuzzle(() => loadRepasoPuzzle(next));
 }, [slidePuzzle]);
@@ -2073,13 +2133,16 @@ const handleNextRepasoPuzzle = useCallback(() => {
 const handleExitRepaso = useCallback(() => {
   repaso.abortSession();
   setAppMode('puzzles');
-  loadSinglePuzzle(db);
+  loadSinglePuzzleRef.current(db, undefined, undefined, { force: true });
 }, [db]);
 
 // --- SE ACABÓ EL TIEMPO DE UN PUZLE (solo supervivencia) ---
 // El hook ya ha descontado la vida y anotado el intento. Aquí solo queda el
 // feedback y, si la partida sigue viva, traer el siguiente puzle.
 const handleSurvivalTimeout = useCallback(({ nextRange, gameOver }: { nextRange: [number, number]; gameOver: boolean }) => {
+  // El puzle ha caducado: una respuesta de la máquina todavía pendiente no
+  // debe desbloquear el tablero de un puzle que ya no cuenta.
+  puzzleEpochRef.current++;
   stopTimer(false);
   hapticError();
   playSound('error');
@@ -2156,7 +2219,7 @@ const handleNextPuzzle = useCallback(() => {
     handleNextRepasoPuzzle();
     return;
   }
-  slidePuzzle(() => loadSinglePuzzle(db));
+  slidePuzzle(() => loadSinglePuzzleRef.current(db));
 }, [db, isNextDisabled, isRepasoMode, handleNextRepasoPuzzle, slidePuzzle,
     isRunReview, reviewAttemptIndex, runAttempts.length, stableOpenRunAttempt]);
 
@@ -2353,7 +2416,7 @@ const startRunWithRange = useCallback((range: [number, number]) => {
     setCurrentPuzzle(cached.puzzle);
     resetPuzzleState(cached.puzzle, false, false, false, CLOCK_TIMING.firstMove);
   } else {
-    loadSinglePuzzle(db, range, [], { fast: true });
+    loadSinglePuzzleRef.current(db, range, [], { fast: true });
   }
 }, [db]);
 
@@ -2371,7 +2434,7 @@ const handleExitRun = useCallback(() => {
   clock.abortRun();
   survival.abortRun();
   setAppMode('puzzles');
-  loadSinglePuzzle(db);
+  loadSinglePuzzleRef.current(db, undefined, undefined, { force: true });
 }, [db]);
 
 const handleSelectMode = useCallback((mode: AppMode) => {
@@ -2405,7 +2468,7 @@ const handleSelectMode = useCallback((mode: AppMode) => {
     clock.abortRun();
     survival.abortRun();
     repaso.abortSession();
-    loadSinglePuzzle(db);
+    loadSinglePuzzleRef.current(db, undefined, undefined, { force: true });
   }
 }, [appMode, db, clock.phase, survival.phase]);
 
@@ -2420,6 +2483,8 @@ useEffect(() => {
     let savedRange = eloRange;
     let savedThemes = selectedThemes;
     let savedWeakFocus = false;
+    // undefined = no hay nada guardado: vale el valor por defecto del estado.
+    let savedRecommended: boolean | undefined;
     let restoredPuzzle: Puzzle | null = null;
 
     try {
@@ -2457,7 +2522,8 @@ useEffect(() => {
         savedThemes = parsedThemes;
       }
       if (localRecommended) {
-        setIsRecommendedMode(JSON.parse(localRecommended));
+        savedRecommended = JSON.parse(localRecommended) === true;
+        setIsRecommendedMode(savedRecommended);
       }
       if (localWeakFocus) {
         savedWeakFocus = JSON.parse(localWeakFocus) === true;
@@ -2507,7 +2573,13 @@ useEffect(() => {
       setSolutionRevealed(false);
     } else {
       // Si no tenía ningún puzle guardado de antes, traemos uno nuevo de forma normal
-      loadSinglePuzzle(database, savedRange, savedThemes, { weakFocus: savedWeakFocus });
+      // `recommended` explícito, como los temas y el rango: este efecto cerró
+      // sobre el primer render, donde isRecommendedMode aún es el true por
+      // defecto. Sin esto, con AUTO apagado el primer puzle tras abrir la app
+      // salía de la ventana recomendada y no del rango manual guardado.
+      loadSinglePuzzleRef.current(database, savedRange, savedThemes, {
+        weakFocus: savedWeakFocus, recommended: savedRecommended, force: true,
+      });
     }
   }
 
@@ -2776,7 +2848,7 @@ return (
               }
             ]} />
             <Text style={[styles.turnText, sc.turnText]}>
-              {playerColor === 'w' ? "WHITE TO MOVE" : "BLACK TO MOVE"}
+              {playerColor === 'w' ? t.puzzle.whiteToMove : t.puzzle.blackToMove}
             </Text>
           </View>
 
@@ -2893,7 +2965,7 @@ return (
                     </Text>
                     <Text style={[styles.bulletSeparator, sc.metaBullet]}>·</Text>
                     <Text style={[styles.puzzleMetaText, sc.metaText]}>
-                      PUZZLE ELO {currentPuzzle.rating}
+                      {t.puzzle.puzzleElo} {currentPuzzle.rating}
                     </Text>
                     {showReplayTag && (
                       <View
@@ -2997,7 +3069,7 @@ return (
         setIsWeakFocusMode(newWeakFocus);
         weakFocusRef.current = newWeakFocus;
         setIsFilterModalVisible(false);
-        loadSinglePuzzle(db, newRange, newThemes, { recommended: newRecommendedMode, weakFocus: newWeakFocus });
+        loadSinglePuzzle(db, newRange, newThemes, { recommended: newRecommendedMode, weakFocus: newWeakFocus, force: true });
       }}
     />
 

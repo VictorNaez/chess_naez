@@ -16,9 +16,11 @@ try {
 const FALLBACK = {
   connected: false,
   products: [] as any[],
+  availablePurchases: [] as any[],
   fetchProducts: async (_: any) => {},
   requestPurchase: async (_: any) => {},
   finishTransaction: async (_: any) => {},
+  getAvailablePurchases: async (_?: any) => {},
 };
 
 // Referencia fija en tiempo de módulo: el orden de hooks nunca cambia.
@@ -30,8 +32,19 @@ export const useDonations = () => {
   const [status, setStatus] = useState<DonationStatus>('idle');
   const isAvailable = !!IAP && Platform.OS === 'android';
 
-  const { connected, products, fetchProducts, requestPurchase, finishTransaction } = useIAPImpl({
+  const {
+    connected, products, availablePurchases,
+    fetchProducts, requestPurchase, finishTransaction, getAvailablePurchases,
+  } = useIAPImpl({
     onPurchaseSuccess: async (purchase: any) => {
+      // Pago pendiente (tarjeta lenta, efectivo...): todavía no hay nada que
+      // consumir, y Play rechaza consumir una compra pendiente. Cuando se
+      // complete llegará otra vez por aquí (app abierta) o la recoge la
+      // recuperación de compras sin terminar del siguiente arranque.
+      if (purchase?.purchaseState === 'pending') {
+        setStatus('idle');
+        return;
+      }
       try {
         // OBLIGATORIO: si no finalizas la transacción en 3 días, Google la
         // reembolsa automáticamente. isConsumable: true la "consume" en Play,
@@ -60,7 +73,27 @@ export const useDonations = () => {
     if (!connected) return;
     fetchProducts({ skus: SUPPORT_SKUS, type: 'in-app' })
       .catch((e: any) => console.warn('[IAP] fetchProducts falló', e));
+    // Compras que se quedaron sin terminar: la app se cerró entre pagar y
+    // finishTransaction, o el pago estaba pendiente y se completó con la app
+    // cerrada. Sin consumir, Google las reembolsa a los 3 días y esa cantidad
+    // queda bloqueada ("ya tienes este artículo") para volver a donarla.
+    getAvailablePurchases()
+      .catch((e: any) => console.warn('[IAP] getAvailablePurchases falló', e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
+
+  // Se consumen las de nuestros SKUs ya pagadas. Si alguna ya estaba
+  // consumida (carrera con onPurchaseSuccess), Play devuelve error y no pasa
+  // nada: por eso el catch solo avisa.
+  useEffect(() => {
+    for (const purchase of (availablePurchases ?? []) as any[]) {
+      if (!SUPPORT_SKUS.includes(purchase?.productId)) continue;
+      if (purchase?.purchaseState !== 'purchased') continue;
+      finishTransaction({ purchase, isConsumable: true })
+        .catch((e: any) => console.warn('[IAP] no se pudo consumir una compra pendiente', e));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availablePurchases]);
 
   // Ordenamos por SUPPORT_SKUS: Play devuelve el array sin orden garantizado.
   const sortedProducts = useMemo(() => {

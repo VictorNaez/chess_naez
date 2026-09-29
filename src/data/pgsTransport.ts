@@ -99,9 +99,11 @@ export const pgsTransport: CloudTransport = {
       );
       return decode(meta) ?? { ...EMPTY_REMOTE, ...info };
     } catch (error) {
-      // El tope por partida guardada es de unos pocos MB. Si algún día el
-      // historial lo supera, esto es lo que deja caer la copia a Drive en vez de
-      // dejar al jugador sin nada.
+      // Saved Games garantiza al menos 3 MB por partida. El módulo nativo sube
+      // la base comprimida con gzip (~3 veces menos, medido con VACUUM INTO), lo
+      // que da margen hasta unos 70.000 intentos. Si aun así no cabe, el error
+      // sube como 'tooBig' y se enseña en Ajustes: ya no hay transporte al que
+      // caer (Drive se quitó).
       if (error instanceof Error && error.message.includes('ERR_TOO_BIG')) {
         throw new CloudTooBigError(error.message);
       }

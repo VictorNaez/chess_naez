@@ -27,11 +27,9 @@ export const REPASO_SESSION_LIMIT = 300;
 // =========================================================
 // ORDEN DE LA SESIÓN
 // =========================================================
-export const REPASO_ORDERS: readonly { id: RepasoOrder; label: string }[] = [
-  { id: 'oldest', label: 'ANTIGUOS' },
-  { id: 'random', label: 'ALEATORIO' },
-  { id: 'hardest', label: 'DIFÍCILES' },
-];
+// Solo los ids: el texto lo pone el diccionario del idioma activo
+// (t.repaso.orderOldest...). Antes eran etiquetas en español a fuego.
+export const REPASO_ORDERS: readonly RepasoOrder[] = ['oldest', 'random', 'hardest'];
 
 export const DEFAULT_REPASO_ORDER: RepasoOrder = 'oldest';
 
@@ -40,13 +38,9 @@ export const DEFAULT_REPASO_ORDER: RepasoOrder = 'oldest';
 // partidas (CLOCK_TIMING.firstMove) porque aquí no corre el reloj.
 export const REPASO_FIRST_MOVE_MS = 650;
 
-// "hace 3 días" para el puzle más antiguo de la cola.
-export const formatRelativeDays = (ts: number | null): string => {
-  if (!ts) return '—';
-  const days = Math.floor((Date.now() - ts) / 86_400_000);
-  if (days <= 0) return 'hoy';
-  if (days === 1) return 'ayer';
-  if (days < 30) return `hace ${days} días`;
-  const months = Math.floor(days / 30);
-  return months === 1 ? 'hace 1 mes' : `hace ${months} meses`;
+// Días completos desde `ts` (null si no hay fecha). El texto ("hace 3 días")
+// lo compone t.repaso.oldest en cada idioma; antes salía en español siempre.
+export const daysSince = (ts: number | null): number | null => {
+  if (!ts) return null;
+  return Math.max(0, Math.floor((Date.now() - ts) / 86_400_000));
 };

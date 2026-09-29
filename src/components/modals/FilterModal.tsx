@@ -201,7 +201,10 @@ export const FilterModal = React.memo(({
     const nextMode = !tempIsRecommendedMode;
     setTempIsRecommendedMode(nextMode);
     if (nextMode) {
-      setTempEloRange(getRecommendedRange(globalElo, limites));
+      // Mismos límites que usa la app al servir el puzle (getRecommendedRange
+      // sin catálogo explícito). Con `limites` (300-3400) el contador de un ELO
+      // bajo hablaba de una ventana distinta de la que luego se servía.
+      setTempEloRange(getRecommendedRange(globalElo));
     }
   };
 
@@ -214,7 +217,7 @@ export const FilterModal = React.memo(({
     setTempSelectedThemes([]);
     setTempIsWeakFocus(false);
     setTempIsRecommendedMode(true);
-    setTempEloRange(getRecommendedRange(globalElo, limites));
+    setTempEloRange(getRecommendedRange(globalElo));
   };
 
   const handleToggleTheme = (themeId: string) => {
@@ -277,7 +280,7 @@ export const FilterModal = React.memo(({
           <View style={styles.filterSection}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, width: '90%' }}>
               <Text style={[styles.filterTitle, { marginBottom: 0 }]}>
-                PUZZLE ELO: {tempEloRange[0]} — {tempEloRange[1]}
+                {t.puzzle.puzzleElo}: {tempEloRange[0]} — {tempEloRange[1]}
               </Text>
 
               <TouchableOpacity

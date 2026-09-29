@@ -9,12 +9,13 @@ export type StatsRange = 'all' | 'year' | 'month' | 'week' | 'today';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export const STATS_RANGE_OPTIONS: { key: StatsRange; label: string }[] = [
-  { key: 'all',   label: 'TODO' },
-  { key: 'year',  label: '1A'   },
-  { key: 'month', label: '30D'  },
-  { key: 'week',  label: '7D'   },
-  { key: 'today', label: 'HOY'  },
+// El texto de cada pestaña sale de t.historyRanges (antes, español a fuego).
+export const STATS_RANGE_OPTIONS: readonly { key: StatsRange }[] = [
+  { key: 'all' },
+  { key: 'year' },
+  { key: 'month' },
+  { key: 'week' },
+  { key: 'today' },
 ];
 
 export const getRangeCutoffMs = (range: StatsRange): number => {

@@ -10,7 +10,8 @@ import {
 import { pgsTransport } from '../data/pgsTransport';
 import {
   applySnapshot, createSnapshot, discardTempFiles, EMPTY_SUMMARY, inspectSnapshot,
-  InvalidSnapshotError, restoreUri, revisionOf, summarizeProgress, type ProgressSummary,
+  InvalidSnapshotError, isEmptyProgress, restoreUri, revisionOf, summarizeProgress,
+  type ProgressSummary,
 } from '../data/progressSnapshot';
 import { openPuzzleDatabase } from '../data/puzzleDatabase';
 import { subscribeProgressDirty } from '../data/syncSignal';
@@ -144,6 +145,13 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   // La decisión del arranque se toma una vez por sesión: si el jugador cierra el
   // aviso, no puede reaparecer porque un refresco cualquiera vuelva a pasar.
   const bootDecisionRef = useRef(false);
+  // Hay una copia por delante Y progreso local sin subir: el único caso que se
+  // pregunta. Mientras el jugador no elija, la copia automática no sube nada:
+  // antes, "Más tarde" (o simplemente mandar la app a segundo plano con el
+  // aviso abierto) subía lo local y pisaba la copia buena de la nube. Se
+  // resuelve restaurando o guardando a mano; si no, el siguiente arranque
+  // vuelve a preguntar.
+  const conflictRef = useRef(false);
 
   const markAppReady = useCallback(() => { setAppReady(true); }, []);
 
@@ -226,6 +234,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       lastRevision: revisionOf(snapshot.summary),
     });
     pendingRef.current = 0;
+    conflictRef.current = false;
     await discardTempFiles();
     return true;
   }, [savePersisted]);
@@ -270,6 +279,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     setLocalSummary(summary);
     savePersisted({ ...persistedRef.current, lastRevision: revisionOf(summary) });
     pendingRef.current = 0;
+    conflictRef.current = false;
     await discardTempFiles();
     setRestoreToken(value => value + 1);
     return true;
@@ -362,12 +372,13 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
 
       // Cuenta sin copia todavía: la primera la ponemos nosotros.
       if (!found) {
-        if (local.attempts > 0) await runGuarded(runBackup);
+        if (!isEmptyProgress(local)) await runGuarded(runBackup);
         return;
       }
 
-      // Dispositivo vacío: reinstalación o móvil nuevo.
-      if (local.attempts === 0) {
+      // Dispositivo vacío: reinstalación o móvil nuevo. "Vacío" de verdad: sin
+      // puzles, sin partidas y sin repaso (ver isEmptyProgress).
+      if (isEmptyProgress(local)) {
         await runGuarded(runRestore);
         return;
       }
@@ -382,7 +393,10 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       if (remoteAhead) {
         // Nada pendiente aquí: traerse lo del otro dispositivo no pisa nada.
         if (!localPending) await runGuarded(runRestore);
-        else setPrompt('restore');
+        else {
+          conflictRef.current = true;
+          setPrompt('restore');
+        }
         return;
       }
 
@@ -482,6 +496,8 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   const flush = useCallback(async (): Promise<void> => {
     if (!autoBackupRef.current || !accountRef.current) return;
     if (busyRef.current) return;
+    // Conflicto sin decidir: subir ahora sería decidir por el jugador.
+    if (conflictRef.current) return;
 
     const db = await openPuzzleDatabase().catch(() => null);
     if (!db) return;
@@ -501,7 +517,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     // cuenta, que es justo lo que otro dispositivo podría estar esperando. Para
     // vaciar la copia a propósito están el botón de guardar a mano y el de
     // eliminar la copia.
-    if (summary.attempts === 0) {
+    if (isEmptyProgress(summary)) {
       pendingRef.current = 0;
       clearFlushTimer();
       return;
@@ -521,9 +537,12 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     busyRef.current = true;
     try {
       await runBackup();
-    } catch {
+    } catch (err) {
       // La copia automática es "cuando se pueda": sin red, sin aviso. El error
-      // rojo se reserva para lo que el usuario pide a mano.
+      // rojo se reserva para lo que el usuario pide a mano... salvo el de
+      // tamaño, que no se arregla solo: callado, el jugador creería tener copia
+      // cuando hace tiempo que no se sube nada.
+      if (err instanceof CloudTooBigError) setError('tooBig');
     } finally {
       busyRef.current = false;
     }

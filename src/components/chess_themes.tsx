@@ -103,9 +103,10 @@ export const RADAR_CATEGORY_IDS: ThemeCategoryId[] = [
 
 /** Nombre visible de un tema. Devuelve la clave si el diccionario no la cubre. */
 export function themeName(t: Dictionary, key: string): string {
-  // El respaldo en inglés existe para que los 36 temas nuevos se vean con su
-  // nombre real mientras no estén traducidos a los seis idiomas, en vez de
-  // enseñar la clave cruda ("smotheredMate") en pantalla.
+  // Los 64 temas expuestos están traducidos en los seis diccionarios (con la
+  // clave de Lichess). El respaldo en inglés queda para cualquier clave que se
+  // exponga en el futuro sin traducir, en vez de enseñar la clave cruda
+  // ("smotheredMate") en pantalla.
   return (t.themes as Record<string, string>)[key] ?? THEME_LABEL_EN[key] ?? key;
 }
 

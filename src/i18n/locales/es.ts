@@ -213,6 +213,9 @@ export const es = {
     replayA11y: 'Puzle repetido: no suma ni resta ELO',
     noMatchTitle: 'Ningún puzle encontrado',
     noMatchBody: 'Ningún puzle cumple estos filtros. Prueba a cambiarlos.',
+    whiteToMove: 'JUEGAN BLANCAS',
+    blackToMove: 'JUEGAN NEGRAS',
+    puzzleElo: 'ELO DEL PUZLE',
   },
 
   // Pestañas de rango temporal de la gráfica del historial.
@@ -255,6 +258,8 @@ export const es = {
     clockSubtitle: 'Resuelve tantos puzles como puedas.',
     survivalTitle: 'MODO SUPERVIVENCIA',
     survivalSubtitle: 'Resuelve tantos puzles como puedas. Cada fallo te quita una vida.',
+    outOfLives: 'TE QUEDASTE SIN VIDAS',
+    timeUp: 'SE ACABÓ EL TIEMPO',
   },
 
   repaso: {
@@ -272,6 +277,25 @@ export const es = {
     backToPuzzles: 'VOLVER A PUZLES',
     reasonSolution: 'SOLUCIÓN',
     reasonHint: 'PISTA',
+    intro: 'Los puzles que fallaste o resolviste con ayuda. Si lo aciertas sale de la lista; si no, se queda.',
+    introEmpty: 'Aquí se guardan solos los puzles que falles o en los que pidas ayuda. Todavía no hay ninguno.',
+    orderOldest: 'ANTIGUOS',
+    orderRandom: 'ALEATORIO',
+    orderHardest: 'DIFÍCILES',
+    loading: 'CARGANDO…',
+    footClean: 'No te queda nada pendiente. Los próximos fallos volverán a llenar la cola.',
+    footPending: 'Los que fallaste siguen ahí y saldrán los últimos la próxima vez.',
+    pending: (n: number): string => (n === 1 ? 'PUZLE PENDIENTE' : 'PUZLES PENDIENTES'),
+    cleared: (n: number): string => (n === 1 ? 'PUZLE SUPERADO' : 'PUZLES SUPERADOS'),
+    // Antigüedad del puzle más viejo de la cola (null = cola vacía).
+    oldest: (days: number | null) => {
+      if (days === null) return '';
+      if (days <= 0) return 'El más antiguo entró hoy';
+      if (days === 1) return 'El más antiguo entró ayer';
+      if (days < 30) return `El más antiguo entró hace ${days} días`;
+      const months = Math.floor(days / 30);
+      return months === 1 ? 'El más antiguo entró hace 1 mes' : `El más antiguo entró hace ${months} meses`;
+    },
   },
 
   support: {
@@ -283,38 +307,77 @@ export const es = {
     notNow: 'AHORA NO',
   },
 
-  // Nombres de temas tácticos, indexados por el MISMO id numérico que guarda
-  // la columna `themes` de la base de datos. Nunca traduzcas la clave, solo el
-  // valor: el id es lo que persiste en SQLite.
+  // Nombres de temas tácticos, indexados por la clave OFICIAL de Lichess
+  // (THEME_VOCAB en data/themeBits.ts), que es lo que persiste en
+  // elo_history.theme / user_progress.theme_id. Nunca traduzcas la clave, solo
+  // el valor. Antes seguían indexados por los ids numéricos del catálogo v2 y
+  // ninguna clave coincidía: todos los temas salían en inglés (THEME_LABEL_EN)
+  // en los seis idiomas. Están los 64 que expone CHESS_THEMES.
   themes: {
-    '1': 'Ataque doble',
-    '8': 'Mate',
-    '9': 'Desviación',
-    '10': 'Peón Avanzado',
-    '11': 'Sacrificio',
-    '12': 'Atracción',
-    '13': 'Medio Juego',
-    '14': 'Final',
-    '15': 'Ataque Descubierto',
-    '16': 'Jugada Defensiva',
-    '17': 'Rey Expuesto',
-    '18': 'Skewer',
-    '21': 'Jaque Descubierto',
-    '22': 'Pin',
-    '23': 'Zugzwang',
-    '24': 'Apertura',
-    '25': 'Pieza Colgante',
-    '32': 'Final de Peones',
-    '33': 'Final de Alfiles',
-    '34': 'Final de Caballos',
-    '35': 'Final de Torres',
-    '36': 'Interferencia',
-    '37': 'Promoción',
-    '38': 'Intermezzo',
-    '39': 'Doble Jaque',
-    '40': 'Final de Damas',
-    '45': 'Eliminar Defensor',
-    '47': 'Rayos X',
+    opening: 'Apertura',
+    middlegame: 'Medio Juego',
+    endgame: 'Final',
+    oneMove: 'Una Jugada',
+    short: 'Puzle Corto',
+    long: 'Puzle Largo',
+    veryLong: 'Puzle Muy Largo',
+    mate: 'Mate',
+    crushing: 'Aplastante',
+    advantage: 'Ventaja',
+    equality: 'Igualdad',
+    fork: 'Ataque doble',
+    pin: 'Pin',
+    skewer: 'Skewer',
+    hangingPiece: 'Pieza Colgante',
+    discoveredAttack: 'Ataque Descubierto',
+    discoveredCheck: 'Jaque Descubierto',
+    doubleCheck: 'Doble Jaque',
+    capturingDefender: 'Eliminar Defensor',
+    xRayAttack: 'Rayos X',
+    trappedPiece: 'Pieza Atrapada',
+    deflection: 'Desviación',
+    attraction: 'Atracción',
+    interference: 'Interferencia',
+    clearance: 'Despeje',
+    intermezzo: 'Intermezzo',
+    defensiveMove: 'Jugada Defensiva',
+    quietMove: 'Jugada Tranquila',
+    sacrifice: 'Sacrificio',
+    zugzwang: 'Zugzwang',
+    exposedKing: 'Rey Expuesto',
+    kingsideAttack: 'Ataque en el Flanco de Rey',
+    queensideAttack: 'Ataque en el Flanco de Dama',
+    attackingF2F7: 'Ataque a f2 o f7',
+    advancedPawn: 'Peón Avanzado',
+    promotion: 'Promoción',
+    underPromotion: 'Subpromoción',
+    enPassant: 'Captura al Paso',
+    castling: 'Enroque',
+    pawnEndgame: 'Final de Peones',
+    knightEndgame: 'Final de Caballos',
+    bishopEndgame: 'Final de Alfiles',
+    rookEndgame: 'Final de Torres',
+    queenEndgame: 'Final de Damas',
+    queenRookEndgame: 'Final de Dama y Torre',
+    backRankMate: 'Mate en la Última Fila',
+    smotheredMate: 'Mate Ahogado',
+    anastasiaMate: 'Mate de Anastasia',
+    arabianMate: 'Mate Árabe',
+    bodenMate: 'Mate de Boden',
+    operaMate: 'Mate de la Ópera',
+    epauletteMate: 'Mate de las Charreteras',
+    dovetailMate: 'Mate Cola de Milano',
+    hookMate: 'Mate del Gancho',
+    killBoxMate: 'Mate de la Caja',
+    cornerMate: 'Mate en la Esquina',
+    doubleBishopMate: 'Mate de los Dos Alfiles',
+    blindSwineMate: 'Mate de los Cerdos Ciegos',
+    morphysMate: 'Mate de Morphy',
+    pillsburysMate: 'Mate de Pillsbury',
+    swallowstailMate: 'Mate Cola de Golondrina',
+    triangleMate: 'Mate del Triángulo',
+    vukovicMate: 'Mate de Vuković',
+    balestraMate: 'Mate Balestra',
   },
 
   // Categorías del radar. La clave es un id ESTABLE en inglés; antes el

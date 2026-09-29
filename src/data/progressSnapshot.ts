@@ -26,16 +26,32 @@ export const snapshotUri = (): string => `${FileSystem.cacheDirectory}${SNAPSHOT
 export const restoreUri = (): string => `${FileSystem.cacheDirectory}${RESTORE_FILE}`;
 
 export interface ProgressSummary {
-  attempts: number;      // filas de elo_history (incluye la semilla del gráfico)
+  attempts: number;      // intentos puntuados en elo_history (sin la semilla del gráfico)
   solved: number;
   puzzles: number;       // puzles distintos jugados
   globalElo: number;
   lastPlayedAt: number;  // epoch ms, 0 si no hay nada
+  // Lo que NO pasa por elo_history y también es progreso. Antes quedaba fuera
+  // de la revisión: una partida de contrarreloj, un repaso o un repetido no
+  // cambiaban nada y la copia automática no los subía nunca por sí solos.
+  plays: number;         // resueltos + fallados en puzzle_stats (cuenta los repetidos)
+  runs: number;          // partidas de contrarreloj + supervivencia
+  reviewCount: number;   // puzles en la cola de repaso
+  reviewSig: string;     // huella de la cola: cambia al añadir, fallar o saltar
 }
 
 export const EMPTY_SUMMARY: ProgressSummary = {
   attempts: 0, solved: 0, puzzles: 0, globalElo: 0, lastPlayedAt: 0,
+  plays: 0, runs: 0, reviewCount: 0, reviewSig: '',
 };
+
+/**
+ * ¿No hay NADA que perder en este lado? Antes se miraba solo `attempts`: un
+ * dispositivo con partidas o repaso pero sin puzles puntuados pasaba por vacío
+ * y el arranque restauraba encima, llevándose sus récords.
+ */
+export const isEmptyProgress = (s: ProgressSummary): boolean =>
+  s.attempts === 0 && s.plays === 0 && s.runs === 0 && s.reviewCount === 0;
 
 /**
  * Resumen barato del progreso. Sirve para dos cosas: enseñar al usuario qué hay
@@ -68,19 +84,45 @@ export const summarizeProgress = async (
   } catch { /* idem */ }
 
   try {
-    const row = await db.getFirstAsync<{ n: number; last: number | null }>(
-      `SELECT COUNT(*) AS n, MAX(last_at) AS last FROM puzzle_stats`,
+    const row = await db.getFirstAsync<{ n: number; last: number | null; plays: number }>(
+      `SELECT COUNT(*) AS n, MAX(last_at) AS last,
+              COALESCE(SUM(solved + failed), 0) AS plays
+       FROM puzzle_stats`,
     );
     summary.puzzles = row?.n ?? 0;
     summary.lastPlayedAt = row?.last ?? 0;
+    summary.plays = row?.plays ?? 0;
+  } catch { /* idem */ }
+
+  // Cada tabla en su try: las crean los hooks de cada modo al montar, así que
+  // en una base recién restaurada puede faltar alguna.
+  for (const table of ['clock_runs', 'survival_runs']) {
+    try {
+      const row = await db.getFirstAsync<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`);
+      summary.runs += row?.n ?? 0;
+    } catch { /* idem */ }
+  }
+
+  try {
+    const row = await db.getFirstAsync<{ n: number; touches: number; last: number }>(
+      `SELECT COUNT(*) AS n,
+              COALESCE(SUM(fail_count + review_count), 0) AS touches,
+              COALESCE(MAX(MAX(last_review_at, added_at)), 0) AS last
+       FROM review_queue`,
+    );
+    summary.reviewCount = row?.n ?? 0;
+    summary.reviewSig = `${row?.n ?? 0}.${row?.touches ?? 0}.${row?.last ?? 0}`;
   } catch { /* idem */ }
 
   return summary;
 };
 
-/** Número de revisión de la copia: cambia en cuanto el jugador puntúa un puzle. */
+/**
+ * Número de revisión de la copia: cambia con cualquier progreso, no solo al
+ * puntuar un puzle (partidas, repaso y repetidos incluidos).
+ */
 export const revisionOf = (s: ProgressSummary): string =>
-  `${s.attempts}:${s.solved}:${s.puzzles}:${s.globalElo}`;
+  `${s.attempts}:${s.solved}:${s.puzzles}:${s.globalElo}:${s.plays}:${s.runs}:${s.reviewSig}`;
 
 export interface Snapshot {
   uri: string;

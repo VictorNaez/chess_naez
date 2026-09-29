@@ -63,7 +63,7 @@ export const RunResultModal = React.memo(({
           )}
 
           <Text style={styles.title}>
-            {isSurvival ? 'TE QUEDASTE SIN VIDAS' : 'SE ACABÓ EL TIEMPO'}
+            {isSurvival ? t.run.outOfLives : t.run.timeUp}
           </Text>
 
           <Text style={styles.bigNumber}>{summary.solved}</Text>

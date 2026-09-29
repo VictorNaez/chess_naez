@@ -41,11 +41,8 @@ interface StatsModalProps {
 
 type ThemeSort = 'accuracy' | 'volume' | 'elo';
 
-const SORT_OPTIONS: { key: ThemeSort; label: string }[] = [
-  { key: 'accuracy', label: 'PRECISIÓN' },
-  { key: 'volume',   label: 'INTENTOS'  },
-  { key: 'elo',      label: 'ELO'       },
-];
+// Las etiquetas salen del diccionario en el render (antes, español a fuego).
+const SORT_OPTIONS: readonly ThemeSort[] = ['accuracy', 'volume', 'elo'];
 
 // Duraciones cortas: "7.4s", "43s", "2:05". formatDuration siempre imprime
 // mm:ss y para tiempos de puzle resulta menos legible que los segundos sueltos.
@@ -85,6 +82,7 @@ const formatPace = (timedAttempts: number, totalMs: number): string => {
 const buildRunRows = (
   stat: RunModeStat,
   presets: readonly { label: string; ms: number }[],
+  othersLabel: string,
 ): RunTableRow[] => {
   const rows: RunTableRow[] = presets.map(p => {
     const found = stat.byDuration.find(d => d.durationMs === p.ms);
@@ -100,7 +98,7 @@ const buildRunRows = (
   const others = stat.byDuration.filter(d => !known.has(d.durationMs));
   if (others.length > 0) {
     rows.push({
-      label: 'OTROS',
+      label: othersLabel,
       runs: others.reduce((n, d) => n + d.runs, 0),
       bestSolved: others.reduce((n, d) => Math.max(n, d.bestSolved), 0),
       totalSolved: others.reduce((n, d) => n + d.totalSolved, 0),
@@ -150,8 +148,9 @@ export const StatsModal = React.memo(({
     return { strongest: byAccuracy[0], weakest: byAccuracy[byAccuracy.length - 1] };
   }, [stats.themes]);
 
-  const clockRows = useMemo(() => buildRunRows(stats.clock, CLOCK_DURATIONS), [stats.clock]);
-  const survivalRows = useMemo(() => buildRunRows(stats.survival, SURVIVAL_SPEEDS), [stats.survival]);
+  const clockRows = useMemo(() => buildRunRows(stats.clock, CLOCK_DURATIONS, t.menu.other), [stats.clock, t]);
+  const survivalRows = useMemo(() => buildRunRows(stats.survival, SURVIVAL_SPEEDS, t.menu.other), [stats.survival, t]);
+  const sortLabel: Record<ThemeSort, string> = { accuracy: t.stats.accuracy, volume: t.stats.attempts, elo: 'ELO' };
 
   const showModeSplit = stats.auto.attempts + stats.manual.attempts + stats.untracked.attempts > 0;
   const hasRuns = stats.clock.runs > 0 || stats.survival.runs > 0;
@@ -188,7 +187,7 @@ export const StatsModal = React.memo(({
                   style={[styles.rangeTab, isActive && styles.rangeTabActive]}
                 >
                   <Text style={[styles.rangeTabText, isActive && styles.rangeTabTextActive]}>
-                    {opt.label}
+                    {t.historyRanges[opt.key]}
                   </Text>
                 </TouchableOpacity>
               );
@@ -343,17 +342,17 @@ export const StatsModal = React.memo(({
               )}
 
               <View style={styles.sortRow}>
-                {SORT_OPTIONS.map(opt => {
-                  const isActive = themeSort === opt.key;
+                {SORT_OPTIONS.map(key => {
+                  const isActive = themeSort === key;
                   return (
                     <TouchableOpacity
-                      key={opt.key}
+                      key={key}
                       activeOpacity={0.7}
-                      onPress={() => setThemeSort(opt.key)}
+                      onPress={() => setThemeSort(key)}
                       style={[styles.sortChip, isActive && styles.sortChipActive]}
                     >
                       <Text style={[styles.sortChipText, isActive && styles.sortChipTextActive]}>
-                        {opt.label}
+                        {sortLabel[key]}
                       </Text>
                     </TouchableOpacity>
                   );

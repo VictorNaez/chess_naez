@@ -48,7 +48,7 @@ export const RepasoResultModal = React.memo(({
 
           <Text style={styles.bigNumber}>{summary.solved}</Text>
           <Text style={styles.bigLabel}>
-            {summary.solved === 1 ? 'PUZLE SUPERADO' : 'PUZLES SUPERADOS'}
+            {t.repaso.cleared(summary.solved)}
           </Text>
 
           <View style={styles.statsGrid}>
@@ -64,9 +64,7 @@ export const RepasoResultModal = React.memo(({
           </View>
 
           <Text style={styles.footNote}>
-            {isClean
-              ? 'No te queda nada pendiente. Los próximos fallos volverán a llenar la cola.'
-              : `Los que fallaste siguen ahí y saldrán los últimos la próxima vez.`}
+            {isClean ? t.repaso.footClean : t.repaso.footPending}
           </Text>
 
           {!isClean && (

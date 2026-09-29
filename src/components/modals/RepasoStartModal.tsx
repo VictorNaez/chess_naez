@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { hapticImpact } from '../../lib/haptics';
-import { DEFAULT_REPASO_ORDER, REPASO_ORDERS, formatRelativeDays } from '../../lib/repaso';
+import { DEFAULT_REPASO_ORDER, REPASO_ORDERS, daysSince } from '../../lib/repaso';
 import type { RepasoOrder, RepasoStats } from '../../types/repaso';
 import { PALETTE } from '../colors';
 import { useT } from '../../i18n/I18nProvider';
@@ -56,6 +56,11 @@ export const RepasoStartModal = React.memo(({
   const t = useT();
   const [order, setOrder] = useState<RepasoOrder>(DEFAULT_REPASO_ORDER);
   const isEmpty = stats.count === 0;
+  const orderLabel: Record<RepasoOrder, string> = {
+    oldest: t.repaso.orderOldest,
+    random: t.repaso.orderRandom,
+    hardest: t.repaso.orderHardest,
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -66,14 +71,12 @@ export const RepasoStartModal = React.memo(({
           <Ionicons name="repeat" size={34} color={PALETTE.secondary} />
           <Text style={styles.title}>{t.repaso.title}</Text>
           <Text style={styles.subtitle}>
-            {isEmpty
-              ? 'Aquí se guardan solos los puzles que falles o en los que pidas ayuda. Todavía no hay ninguno.'
-              : 'Los puzles que fallaste o resolviste con ayuda. Si lo aciertas sale de la lista; si no, se queda.'}
+            {isEmpty ? t.repaso.introEmpty : t.repaso.intro}
           </Text>
 
           <Text style={styles.bigNumber}>{stats.count}</Text>
           <Text style={styles.bigLabel}>
-            {stats.count === 1 ? 'PUZLE PENDIENTE' : 'PUZLES PENDIENTES'}
+            {t.repaso.pending(stats.count)}
           </Text>
 
           {!isEmpty && (
@@ -91,19 +94,19 @@ export const RepasoStartModal = React.memo(({
               </View>
 
               <Text style={styles.oldestText}>
-                El más antiguo entró {formatRelativeDays(stats.oldestAt)}
+                {t.repaso.oldest(daysSince(stats.oldestAt))}
               </Text>
 
               <Text style={styles.optionsLabel}>{t.repaso.order}</Text>
               <View style={styles.orderRow}>
-                {REPASO_ORDERS.map(o => (
+                {REPASO_ORDERS.map(id => (
                   <TouchableOpacity
-                    key={o.id}
-                    style={[styles.orderChip, order === o.id && styles.orderChipActive]}
-                    onPress={() => { hapticImpact('light'); setOrder(o.id); }}
+                    key={id}
+                    style={[styles.orderChip, order === id && styles.orderChipActive]}
+                    onPress={() => { hapticImpact('light'); setOrder(id); }}
                   >
-                    <Text style={[styles.orderText, order === o.id && styles.orderTextActive]}>
-                      {o.label}
+                    <Text style={[styles.orderText, order === id && styles.orderTextActive]}>
+                      {orderLabel[id]}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -117,7 +120,7 @@ export const RepasoStartModal = React.memo(({
             onPress={() => { hapticImpact('medium'); onStart(order); }}
           >
             <Ionicons name="play" size={20} color="#ffffff" />
-            <Text style={styles.startText}>{isPreparing ? 'CARGANDO…' : 'EMPEZAR'}</Text>
+            <Text style={styles.startText}>{isPreparing ? t.repaso.loading : t.run.start}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>

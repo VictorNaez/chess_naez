@@ -12,7 +12,13 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 // =========================================================
 // SAVED GAMES (SNAPSHOTS) DE PLAY GAMES SERVICES
@@ -28,6 +34,27 @@ import java.io.File
 // Con eso, saber qué hay en la nube no obliga a descargar la partida entera.
 
 private const val CONFLICT_POLICY = SnapshotsClient.RESOLUTION_POLICY_MOST_RECENTLY_MODIFIED
+
+// Los listeners de Tasks corren por defecto en el hilo principal. Leer, comprimir
+// y escribir unos MB ahí es un tirón de UI: todo el I/O va a este hilo.
+private val io: Executor = Executors.newSingleThreadExecutor()
+
+// La copia viaja comprimida: una base SQLite se queda en ~1/3 con gzip, y
+// Saved Games solo garantiza 3 MB por partida. Sin comprimir, ~25.000 intentos
+// ya no cabían y la copia automática fallaba sin avisar.
+private fun gzip(bytes: ByteArray): ByteArray {
+  val out = ByteArrayOutputStream(bytes.size / 3 + 64)
+  GZIPOutputStream(out).use { it.write(bytes) }
+  return out.toByteArray()
+}
+
+// Las copias anteriores a la compresión son el .db tal cual. Un SQLite empieza
+// por "SQLite format 3" y un gzip por 1f 8b: se distinguen sin ambigüedad.
+private fun maybeGunzip(bytes: ByteArray): ByteArray {
+  val isGzip = bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
+  if (!isGzip) return bytes
+  return GZIPInputStream(ByteArrayInputStream(bytes)).use { it.readBytes() }
+}
 
 class PgsSavedGamesModule : Module() {
 
@@ -89,8 +116,11 @@ class PgsSavedGamesModule : Module() {
     }
 
     // Metadatos sin descargar la partida: load() lista, open() bajaría el fichero.
+    // forceReload = true: con false devuelve la caché local de Play Games y, al
+    // arrancar, podía no verse la copia que otro móvil acaba de subir. Solo se
+    // llama al arrancar y al refrescar Ajustes, así que la consulta extra no pesa.
     AsyncFunction("describe") { name: String, promise: Promise ->
-      PlayGames.getSnapshotsClient(activity).load(false)
+      PlayGames.getSnapshotsClient(activity).load(true)
         .addOnSuccessListener { annotated ->
           val buffer = annotated.get()
           var found: Map<String, Any?>? = null
@@ -123,27 +153,36 @@ class PgsSavedGamesModule : Module() {
         return@AsyncFunction
       }
 
+      // Se comprime aquí, fuera del hilo principal (el cuerpo de un
+      // AsyncFunction no corre en él), y el tope se compara con lo que de
+      // verdad se sube.
+      val data = try {
+        gzip(file.readBytes())
+      } catch (error: Exception) {
+        promise.reject(CodedException("ERR_PGS_WRITE", error.message ?: "", error))
+        return@AsyncFunction
+      }
+
       client.maxDataSize
-        .addOnSuccessListener { maxSize ->
-          if (file.length() > maxSize) {
-            // Saved Games tiene un tope por partida guardada. Se avisa con un
-            // código propio para que la capa de JS pueda caer a otro transporte
-            // en vez de dejar al jugador sin copia.
+        .addOnSuccessListener(io) { maxSize ->
+          if (data.size > maxSize) {
+            // Saved Games tiene un tope por partida guardada. Código propio
+            // para que JS lo distinga ('tooBig') de un fallo de red.
             promise.reject(
-              CodedException("ERR_TOO_BIG", "El progreso supera el máximo de $maxSize bytes", null)
+              CodedException("ERR_TOO_BIG", "El progreso (${data.size} B comprimido) supera el máximo de $maxSize bytes", null)
             )
             return@addOnSuccessListener
           }
 
           client.open(name, true, CONFLICT_POLICY)
-            .addOnSuccessListener { result ->
+            .addOnSuccessListener(io) { result ->
               val snapshot = result.data
               if (snapshot == null) {
                 promise.reject(CodedException("ERR_CONFLICT", "Conflicto sin resolver", null))
                 return@addOnSuccessListener
               }
               try {
-                snapshot.snapshotContents.writeBytes(file.readBytes())
+                snapshot.snapshotContents.writeBytes(data)
                 val change = SnapshotMetadataChange.Builder()
                   .setDescription(description)
                   .setProgressValue(progress.toLong())
@@ -154,6 +193,9 @@ class PgsSavedGamesModule : Module() {
                     promise.reject(CodedException("ERR_PGS_COMMIT", error.message ?: "", error))
                   }
               } catch (error: Exception) {
+                // Sin esto la partida se quedaba abierta y el siguiente open()
+                // podía fallar por tenerla ya abierta.
+                client.discardAndClose(snapshot)
                 promise.reject(CodedException("ERR_PGS_WRITE", error.message ?: "", error))
               }
             }
@@ -172,20 +214,23 @@ class PgsSavedGamesModule : Module() {
     AsyncFunction("load") { name: String, path: String, promise: Promise ->
       val client = PlayGames.getSnapshotsClient(activity)
       client.open(name, false, CONFLICT_POLICY)
-        .addOnSuccessListener { result ->
+        .addOnSuccessListener(io) { result ->
           val snapshot = result.data
           if (snapshot == null) {
             promise.resolve(null)
             return@addOnSuccessListener
           }
           try {
-            val bytes = snapshot.snapshotContents.readFully()
+            val bytes = maybeGunzip(snapshot.snapshotContents.readFully())
             val meta = metaToMap(snapshot.metadata)
             File(path).writeBytes(bytes)
-            client.discardAndClose(snapshot)
             promise.resolve(meta)
           } catch (error: Exception) {
             promise.reject(CodedException("ERR_PGS_READ", error.message ?: "", error))
+          } finally {
+            // También si la lectura falla: una partida abierta bloquea el
+            // siguiente open().
+            client.discardAndClose(snapshot)
           }
         }
         .addOnFailureListener { error ->

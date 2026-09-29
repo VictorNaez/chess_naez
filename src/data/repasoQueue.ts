@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import { themeKeysFromRow } from '../components/chess_themes';
 import type { Puzzle } from '../types/puzzle';
+import { markProgressDirty } from './syncSignal';
 import {
   EMPTY_REPASO_STATS,
   REPASO_REASON,
@@ -10,6 +11,15 @@ import {
 } from '../types/repaso';
 
 const TABLE = 'review_queue';
+
+// La cola también es progreso del jugador: cada escritura avisa a la copia en la
+// nube (antes no lo hacía ninguna, y solo viajaba si además se puntuaba un
+// puzle normal). Marcar es síncrono y barato; quien decide si sube es el flush.
+const thenDirty = async <T>(write: Promise<T>): Promise<T> => {
+  const result = await write;
+  markProgressDirty();
+  return result;
+};
 
 // Guardamos epoch ms en INTEGER, NO CURRENT_TIMESTAMP: SQLite escribe UTC sin
 // 'Z' y `new Date()` lo interpreta como local, lo que rompe cualquier filtro
@@ -60,7 +70,7 @@ export const enqueueRepaso = async (
   const now = Date.now();
   const rank = REPASO_REASON[reason];
 
-  await db.runAsync(
+  await thenDirty(db.runAsync(
     `INSERT INTO ${TABLE}
        (puzzle_id, rating, themes, reason, fail_count, review_count, added_at, last_review_at, due_at)
      VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?)
@@ -78,7 +88,7 @@ export const enqueueRepaso = async (
       now,
       now,
     ]
-  );
+  ));
 };
 
 // =========================================================
@@ -86,13 +96,13 @@ export const enqueueRepaso = async (
 // =========================================================
 // Acierto: fuera de la cola. Es la única forma de sacar un puzle de aquí.
 export const clearFromRepaso = (db: SQLite.SQLiteDatabase, puzzleId: string) =>
-  db.runAsync(`DELETE FROM ${TABLE} WHERE puzzle_id = ?`, [String(puzzleId)]);
+  thenDirty(db.runAsync(`DELETE FROM ${TABLE} WHERE puzzle_id = ?`, [String(puzzleId)]));
 
 // Fallo (o resuelto con pista/solución): se queda. `due_at = now` lo manda al
 // final de la cola, así que en la próxima sesión no te sale el primero.
 export const markRepasoFailed = (db: SQLite.SQLiteDatabase, puzzleId: string) => {
   const now = Date.now();
-  return db.runAsync(
+  return thenDirty(db.runAsync(
     `UPDATE ${TABLE}
         SET fail_count     = fail_count + 1,
             review_count   = review_count + 1,
@@ -100,20 +110,20 @@ export const markRepasoFailed = (db: SQLite.SQLiteDatabase, puzzleId: string) =>
             due_at         = ?
       WHERE puzzle_id = ?`,
     [now, now, String(puzzleId)]
-  );
+  ));
 };
 
 // Saltado sin contestar: no cuenta como fallo (no sube fail_count), pero sí
 // pasa al final para no bloquear la cola con el mismo puzle.
 export const markRepasoSkipped = (db: SQLite.SQLiteDatabase, puzzleId: string) => {
   const now = Date.now();
-  return db.runAsync(
+  return thenDirty(db.runAsync(
     `UPDATE ${TABLE}
         SET last_review_at = ?,
             due_at         = ?
       WHERE puzzle_id = ?`,
     [now, now, String(puzzleId)]
-  );
+  ));
 };
 
 // =========================================================
@@ -197,4 +207,4 @@ export const getRepasoBatch = async (
 
 // Para un botón de "vaciar repaso" en ajustes, si algún día lo quieres.
 export const clearRepasoQueue = (db: SQLite.SQLiteDatabase) =>
-  db.runAsync(`DELETE FROM ${TABLE}`);
+  thenDirty(db.runAsync(`DELETE FROM ${TABLE}`));
