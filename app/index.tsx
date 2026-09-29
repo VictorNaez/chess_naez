@@ -58,7 +58,7 @@ import { I18nProvider, useI18n, useT } from '../src/i18n/I18nProvider';
 import { DEFAULT_ELO } from '../src/lib/elo';
 import { hapticError, hapticImpact, hapticSuccess } from '../src/lib/haptics';
 import { getLegalDestinations } from '../src/lib/legalMoves';
-import { isCaptureMove, moveSoundFor } from '../src/lib/moveSound';
+import { isCaptureMove, moveBetweenFens, moveSoundFor, undoSoundFor } from '../src/lib/moveSound';
 import { applyMoveIdentity, buildPieceItems, getIdentityAt, getMoveBetweenFens, moveIdentity, seedIdentityMap, stepIdentityBetweenFens } from '../src/lib/pieceIdentity';
 import { getRecommendedRange, hasPuzzleBeenScored, readGlobalElo, themeFilter } from '../src/lib/puzzleQueries';
 import { ALREADY_SOLVED_COLUMN, recordPuzzleResult, UNSOLVED_FILTER } from '../src/data/puzzleStats';
@@ -1629,6 +1629,15 @@ const goToViewIndex = (targetIndex: number) => {
   setIsReviewMode(targetIndex !== fenHistory.length - 1);
   setGame(targetGame);
   syncPiecesFromGame(targetGame);
+
+  // Sonido de lo que se ve moverse. Hacia delante, la jugada que lleva a la
+  // posición destino, con su sonido de siempre. Hacia atrás, la que se deshace,
+  // pero como movimiento a casilla libre (ver undoSoundFor). En un salto largo
+  // desde la lista suena solo la última, no una ráfaga.
+  const soundFrom = step > 0 ? targetIndex - 1 : targetIndex;
+  const navMove = moveBetweenFens(fenHistory[soundFrom], fenHistory[soundFrom + 1]);
+  const navSound = !navMove ? 'move' : step > 0 ? moveSoundFor(navMove) : undoSoundFor(navMove);
+  deferFeedback(() => playSound(navSound));
 };
 
 const navigateHistory = (direction: 'prev' | 'next') => {

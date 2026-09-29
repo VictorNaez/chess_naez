@@ -19,7 +19,7 @@ import { useSettings } from './useSettings';
 const SOUND_ASSETS = {
   // Jugadas (el que suena lo elige moveSoundFor en src/lib/moveSound.ts)
   move:     require('../../assets/sounds/move.mp3'),
-  capture:  require('../../assets/sounds/capture.mp3'),
+  capture:  require('../../assets/sounds/capture_secondSoundOnly.mp3'),
   check:    require('../../assets/sounds/check.mp3'),
   castle:   require('../../assets/sounds/castle.mp3'),
   promote:  require('../../assets/sounds/promote.mp3'),

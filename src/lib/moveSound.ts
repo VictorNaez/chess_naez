@@ -1,4 +1,4 @@
-import type { Move } from 'chess.js';
+import { Chess, type Move } from 'chess.js';
 
 export type MoveSoundKey = 'move' | 'capture' | 'check' | 'castle' | 'promote';
 
@@ -26,4 +26,31 @@ export const moveSoundFor = (move: Move): MoveSoundKey => {
   if (move.isKingsideCastle() || move.isQueensideCastle()) return 'castle';
   if (isCaptureMove(move)) return 'capture';
   return 'move';
+};
+
+// Sonido al DESHACER una jugada (flecha atrás). Lo que se ve es la pieza
+// volviendo a su casilla de origen, que siempre estaba vacía: deshacer una
+// captura no suena a captura (la pieza comida reaparece, no se come nada), ni
+// deshacer un jaque o una promoción suena como tal. Solo el enroque se oye como
+// enroque, porque se siguen moviendo dos piezas.
+export const undoSoundFor = (move: Move): MoveSoundKey =>
+  move.isKingsideCastle() || move.isQueensideCastle() ? 'castle' : 'move';
+
+// Colocación + turno: basta para distinguir la jugada (una promoción a dama y a
+// caballo dejan colocaciones distintas) y no depende de cómo cada FEN escriba
+// enroques, al paso o relojes.
+const placementAndTurn = (fen: string) => fen.split(' ').slice(0, 2).join(' ');
+
+// Jugada legal que lleva de una FEN a la siguiente, para saber cómo suena al
+// navegar por el historial. null si no están a una jugada de distancia o si
+// alguna FEN no es válida (chess.js 1.x lanza en vez de devolver null).
+export const moveBetweenFens = (fromFen: string, toFen: string): Move | null => {
+  if (!fromFen || !toFen) return null;
+  try {
+    const target = placementAndTurn(toFen);
+    return new Chess(fromFen).moves({ verbose: true })
+      .find(m => placementAndTurn(m.after) === target) ?? null;
+  } catch {
+    return null;
+  }
 };
