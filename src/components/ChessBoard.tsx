@@ -71,6 +71,18 @@ export const EVAL_BAR_BLOCK_HEIGHT = 30;
 const LAYER_FADE_IN = 180;
 const LAYER_SWAP_SCALE = 0.96;
 
+// --- PARPADEO DEL REY EN JAQUE ---
+// Dos destellos rojos sobre la casilla del rey y luego un tinte suave que se
+// mantiene mientras dure el jaque (en el mate manda `hasKingInMate`). El
+// retardo lo pone `moveDurationMs`: así el destello llega cuando la pieza que
+// da jaque termina de moverse, igual que el rebote del rey.
+const CHECK_FLASH_PEAK = 0.85;
+const CHECK_FLASH_DIP = 0.15;
+const CHECK_FLASH_ON = 110;
+const CHECK_FLASH_OFF = 150;
+// Opacidad que queda tras el parpadeo. A 0 el aviso es solo el destello.
+const CHECK_REST_OPACITY = 0.35;
+
 // Una sola instancia por tipo de animación, compartida por las 32 piezas. Con
 // un `FadeOut.duration(300)` inline cada re-render de una pieza llegaba con un
 // objeto nuevo y Reanimated, en componentDidUpdate, reconstruía y volvía a
@@ -651,6 +663,10 @@ interface BoardSquareProps {
   isCapture: boolean;
   isLastMove: boolean;
   hasKingInMate: boolean;
+  /** Rey del bando que mueve en jaque (no mate): parpadeo rojo. */
+  hasKingInCheck: boolean;
+  /** Retardo del parpadeo: lo que tarda en llegar la pieza que da jaque. */
+  moveDurationMs: number;
   onSquarePress: (sq: string | null, isDragging?: boolean) => void;
   isInvalidTarget: boolean;
   invalidFlashSquare: SharedValue<string | null>;
@@ -662,7 +678,7 @@ interface BoardSquareProps {
 const BoardSquare = React.memo(({
   square, vRow, vCol, isDark,
   isSelected, isHint, isLegal, isLegalTarget, isCapture,
-  isLastMove, hasKingInMate,
+  isLastMove, hasKingInMate, hasKingInCheck, moveDurationMs,
   onSquarePress, 
   isInvalidTarget, invalidFlashSquare, invalidFlashNonce, onInvalidTarget,
   squareSize,
@@ -686,6 +702,29 @@ const BoardSquare = React.memo(({
 
   const animatedSquareStyle = useAnimatedStyle(() => ({
     backgroundColor: bgSharedColor.value,
+  }));
+
+  // --- PARPADEO ROJO DEL REY EN JAQUE ---
+  const checkOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (hasKingInCheck) {
+      checkOpacity.value = withDelay(
+        moveDurationMs,
+        withSequence(
+          withTiming(CHECK_FLASH_PEAK, { duration: CHECK_FLASH_ON }),
+          withTiming(CHECK_FLASH_DIP, { duration: CHECK_FLASH_OFF }),
+          withTiming(CHECK_FLASH_PEAK, { duration: CHECK_FLASH_ON }),
+          withTiming(CHECK_REST_OPACITY, { duration: 260 })
+        )
+      );
+    } else {
+      checkOpacity.value = withTiming(0, { duration: CHECK_FLASH_OFF });
+    }
+  }, [hasKingInCheck, moveDurationMs, checkOpacity]);
+
+  const checkFlashStyle = useAnimatedStyle(() => ({
+    opacity: checkOpacity.value,
   }));
 
     // --- FLASH ROJO EN CLICK INVÁLIDO ---
@@ -751,6 +790,10 @@ const BoardSquare = React.memo(({
       {isLastMove && !isSelected && !isHint && (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: PALETTE.boardLastMove }]} />
       )}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { backgroundColor: PALETTE.error }, checkFlashStyle]}
+      />
       <Animated.View
         pointerEvents="none"
         style={[StyleSheet.absoluteFill, { backgroundColor: PALETTE.error }, invalidFlashStyle]}
@@ -1018,6 +1061,12 @@ function ChessBoard({
     const king = rendered.pieces.find(p => p.type.toLowerCase() === 'k' && p.color === turn);
     return king?.square ?? null;
   }, [isMate, rendered.pieces, turn]);
+  // Misma lógica que el mate pero solo en jaque: el mate ya tiene su rojo fijo.
+  const checkKingSquare = useMemo(() => {
+    if (!inCheck || isMate) return null;
+    const king = rendered.pieces.find(p => p.type.toLowerCase() === 'k' && p.color === turn);
+    return king?.square ?? null;
+  }, [inCheck, isMate, rendered.pieces, turn]);
 
   return (
       <View style={styles.container}>
@@ -1064,6 +1113,8 @@ function ChessBoard({
               isCapture={showDot && occupiedSquares.has(square)}
               isLastMove={square === lastMoveFrom || square === lastMoveTo}
               hasKingInMate={mateKingSquare === square}
+              hasKingInCheck={checkKingSquare === square}
+              moveDurationMs={moveDurationMs}
               onSquarePress={onSquarePress}
               isInvalidTarget={isInvalidTarget}
               invalidFlashSquare={invalidFlashSquare}

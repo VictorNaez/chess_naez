@@ -19,8 +19,8 @@ import { useSettings } from './useSettings';
 const SOUND_ASSETS = {
   // Jugadas (el que suena lo elige moveSoundFor en src/lib/moveSound.ts)
   move:     require('../../assets/sounds/move.mp3'),
-  capture:  require('../../assets/sounds/capture_4_grave.mp3'),
-  check:    require('../../assets/sounds/check_5_tic_toc.mp3'),
+  capture:  require('../../assets/sounds/capture.mp3'),
+  check:    require('../../assets/sounds/check.mp3'),
   castle:   require('../../assets/sounds/castle.mp3'),
   promote:  require('../../assets/sounds/promote.mp3'),
   // Resultado del puzle
@@ -35,6 +35,12 @@ const SOUND_ASSETS = {
 } as const;
 
 export type SoundKey = keyof typeof SOUND_ASSETS;
+
+// Todos los archivos están igualados al mismo volumen percibido (ponderación K,
+// ventana de 100 ms), así que el reparto entre sonidos lo decide solo el audio.
+// Este factor baja el conjunto: el volumen del ajuste (0..1) se multiplica por
+// él. 0.3 = 30 % de la amplitud que había antes (unos -10,5 dB).
+const MASTER_VOLUME = 0.3;
 
 // ---------------------------------------------------------------------------
 // CANAL DEL TABLERO
@@ -73,7 +79,7 @@ export function useSounds() {
     for (const key of Object.keys(SOUND_ASSETS) as SoundKey[]) {
       try {
         const player = createAudioPlayer(SOUND_ASSETS[key]);
-        player.volume = volume;
+        player.volume = volume * MASTER_VOLUME;
         playersRef.current[key] = player;
       } catch (e) {
         console.log('[useSounds] Error precargando', key, e);
@@ -98,7 +104,7 @@ export function useSounds() {
   // El usuario mueve el slider con los sonidos ya cargados.
   useEffect(() => {
     Object.values(playersRef.current).forEach(p => {
-      try { if (p) p.volume = volume; } catch { /* noop */ }
+      try { if (p) p.volume = volume * MASTER_VOLUME; } catch { /* noop */ }
     });
   }, [volume]);
 
