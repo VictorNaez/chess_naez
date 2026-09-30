@@ -72,16 +72,13 @@ const LAYER_FADE_IN = 180;
 const LAYER_SWAP_SCALE = 0.96;
 
 // --- PARPADEO DEL REY EN JAQUE ---
-// Dos destellos rojos sobre la casilla del rey y luego un tinte suave que se
-// mantiene mientras dure el jaque (en el mate manda `hasKingInMate`). El
-// retardo lo pone `moveDurationMs`: así el destello llega cuando la pieza que
-// da jaque termina de moverse, igual que el rebote del rey.
+// Un solo destello rojo sobre la casilla del rey: sube y vuelve a la casilla
+// normal (en el mate manda `hasKingInMate`). El retardo lo pone
+// `moveDurationMs`: así el destello llega cuando la pieza que da jaque termina
+// de moverse, igual que el rebote del rey.
 const CHECK_FLASH_PEAK = 0.85;
-const CHECK_FLASH_DIP = 0.15;
-const CHECK_FLASH_ON = 110;
-const CHECK_FLASH_OFF = 150;
-// Opacidad que queda tras el parpadeo. A 0 el aviso es solo el destello.
-const CHECK_REST_OPACITY = 0.35;
+const CHECK_FLASH_ON = 120;
+const CHECK_FLASH_OFF = 380;
 
 // Una sola instancia por tipo de animación, compartida por las 32 piezas. Con
 // un `FadeOut.duration(300)` inline cada re-render de una pieza llegaba con un
@@ -713,13 +710,12 @@ const BoardSquare = React.memo(({
         moveDurationMs,
         withSequence(
           withTiming(CHECK_FLASH_PEAK, { duration: CHECK_FLASH_ON }),
-          withTiming(CHECK_FLASH_DIP, { duration: CHECK_FLASH_OFF }),
-          withTiming(CHECK_FLASH_PEAK, { duration: CHECK_FLASH_ON }),
-          withTiming(CHECK_REST_OPACITY, { duration: 260 })
+          withTiming(0, { duration: CHECK_FLASH_OFF })
         )
       );
     } else {
-      checkOpacity.value = withTiming(0, { duration: CHECK_FLASH_OFF });
+      // Si el jaque se resuelve a mitad del destello, se apaga rápido.
+      checkOpacity.value = withTiming(0, { duration: 150 });
     }
   }, [hasKingInCheck, moveDurationMs, checkOpacity]);
 
