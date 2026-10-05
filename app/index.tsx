@@ -13,7 +13,7 @@ import * as SQLite from 'expo-sqlite';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { GestureHandlerRootView, Pressable } from 'react-native-gesture-handler';
-import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { AnalysisLines } from '../src/components/analysis/AnalysisLines';
 import { themeKeysFromRow } from '../src/components/chess_themes';
 import ChessBoard, { EVAL_BAR_BLOCK_HEIGHT, PieceItem, pieceImages } from "../src/components/ChessBoard";
@@ -91,12 +91,18 @@ const deferFeedback = (fn: () => void) => { setTimeout(fn, 0); };
 // Viven aquí y no dentro de App porque las leen tanto los estilos animados como
 // el cálculo del tamaño del tablero (useBoardFit): tienen que ser las mismas.
 const MOVE_LIST_HEIGHT = 40;   // altura en modo puzzle (historial SAN)
-const ELO_ROW_HEIGHT = 76; // altura fija de la fila (badge + sparkline); ajusta si no encaja
-const STREAK_SLOT_HEIGHT = 42; // 8 margin + 12 padding + ~18 texto + 2 borde
+const ELO_ROW_HEIGHT = 76; // altura fija de la fila (badge + sparkline); ajusta si no encaja.
+// La racha va DENTRO de esta fila, debajo del badge de ELO (columna izquierda):
+// antes tenía su propio hueco de 42 dp debajo de la fila, reservado aunque no
+// hubiera racha, y ese alto se le quitaba al tablero en pantallas cortas.
 const CLOCK_ROW_HEIGHT = 136;// 3 filas de 34 + 2 gaps de 6 + 16 de padding + 2 de borde = 132; 136 deja holgura
 const ELO_ROW_MARGIN_BOTTOM = 12;
+const ELO_COLUMN_WIDTH = 90; // = minWidth que ya tenía el badge de ELO
 const CLOCK_ROW_MARGIN_BOTTOM = 6;
-const MAIN_CONTENT_MARGIN_TOP = 60;
+// Antes 60. Con el tablero limitado por alto el contenido desborda 30 dp hacia
+// cada margen (ver overflowAllowanceFor), así que de 60 solo se veían 30: con
+// 40 queda un hueco visible de 10 (+12 del margen de la fila de ELO).
+const MAIN_CONTENT_MARGIN_TOP = 40;
 // En contrarreloj/supervivencia el recuadro de puzles resueltos mide 136px
 // frente a los 118 de la fila de ELO. Con los mismos 60px de margen el tablero
 // bajaba y el footer se quedaba sin sitio: aquí se recorta ese hueco.
@@ -106,6 +112,10 @@ const MAIN_CONTENT_MARGIN_BOTTOM = 30;
 // tiene su propio marginTop y el footer (BoardControls / clockFooterSpacer) su
 // marginBottom de 20. Los insets solo añaden padding cuando superan ese aire.
 const HEADER_MARGIN_TOP = Platform.OS === 'ios' ? 10 : 20;
+// Aire entre el borde inferior de la barra de estado y el header. Antes el
+// wrapper tenía un paddingTop mínimo de 40 (60 dp en total sobre el botón de
+// menú con una barra de estado de 24-32): esos 30 dp de más eran tablero.
+const HEADER_TOP_GAP = 8;
 const FOOTER_MARGIN_BOTTOM = 20;
 
 // --- PUZLE PRECARGADO ---
@@ -1920,7 +1930,7 @@ useEffect(() => {
 
 
 const eloRowAnimatedStyle = useAnimatedStyle(() => ({
-  height: (isRunMode ? CLOCK_ROW_HEIGHT : ELO_ROW_HEIGHT + STREAK_SLOT_HEIGHT) * eloRowProgress.value,
+  height: (isRunMode ? CLOCK_ROW_HEIGHT : ELO_ROW_HEIGHT) * eloRowProgress.value,
   opacity: eloRowProgress.value,
   // El recuadro de la partida ya es más alto que la fila de ELO: el aire de
   // debajo se recorta para no empujar el tablero (y con él el footer).
@@ -1936,7 +1946,7 @@ const variableHeightFor = (run: boolean, analysis: boolean) => {
     ? 0
     : run
       ? CLOCK_ROW_HEIGHT + CLOCK_ROW_MARGIN_BOTTOM
-      : ELO_ROW_HEIGHT + STREAK_SLOT_HEIGHT + ELO_ROW_MARGIN_BOTTOM;
+      : ELO_ROW_HEIGHT + ELO_ROW_MARGIN_BOTTOM;
   const mainMarginTop = run ? MAIN_CONTENT_MARGIN_TOP_RUN : MAIN_CONTENT_MARGIN_TOP;
   const evalBar = analysis ? EVAL_BAR_BLOCK_HEIGHT : 0;
   const moveZone = analysis ? MULTI_PV_HEIGHT : MOVE_LIST_HEIGHT;
@@ -1959,11 +1969,14 @@ const boardFit = useBoardFit({
   windowWidth: responsive.width,
   windowHeight: responsive.height,
   currentVariableHeight: variableHeightFor(isRunMode, analysisEngine.isAnalysisMode),
+  // Peor caso SOLO dentro del modo actual: entrar o salir de análisis no cambia
+  // el tablero, pero pasar de puzles a contrarreloj/supervivencia sí puede
+  // (el recuadro de partidas mide 142 dp frente a los 88 de la fila de ELO).
+  // Si se reservara el peor de todos los modos, la contrarreloj le quitaría
+  // ~40 dp al tablero del modo puzle, que es donde se pasa casi todo el tiempo.
   worstEffectiveHeight: Math.max(
-    effectiveHeightFor(false, false),
-    effectiveHeightFor(false, true),
-    effectiveHeightFor(true, false),
-    effectiveHeightFor(true, true),
+    effectiveHeightFor(isRunMode, false),
+    effectiveHeightFor(isRunMode, true),
   ),
 });
 const { contentWidth } = boardFit;
@@ -1988,9 +2001,9 @@ const sc = useMemo(() => ({
   turnFrame: { paddingVertical: s(6), paddingHorizontal: s(20), borderRadius: s(25) },
   turnDot: { width: s(14), height: s(14), borderRadius: s(7), marginRight: s(12) },
   turnText: { fontSize: s(13) },
-  metaRow: { height: s(40) },
+  metaRow: { height: s(26) },
   metaText: { fontSize: s(13) },
-  metaBullet: { fontSize: s(34) },
+  metaBullet: { width: s(4), height: s(4), borderRadius: s(2), marginHorizontal: s(10) },
 // eslint-disable-next-line react-hooks/exhaustive-deps
 }), [uiScale]);
 
@@ -2231,11 +2244,6 @@ const handleNextPuzzle = useCallback(() => {
   slidePuzzle(() => loadSinglePuzzleRef.current(db));
 }, [db, isNextDisabled, isRepasoMode, handleNextRepasoPuzzle, slidePuzzle,
     isRunReview, reviewAttemptIndex, runAttempts.length, stableOpenRunAttempt]);
-
-const streakSlotAnimatedStyle = useAnimatedStyle(() => ({
-  height: STREAK_SLOT_HEIGHT * eloRowProgress.value,
-  opacity: eloRowProgress.value,
-}));
 
 const handleEngineSequencePress = async (moves: string[]) => {
   if (!moves || moves.length === 0) return;
@@ -2679,11 +2687,12 @@ return (
 
       <View style={[
         styles.mainWrapper,
-        // Nunca menos que los paddings de siempre; más solo si la barra de estado
-        // o la de navegación (3 botones, habitual en tablets) no caben en el aire
-        // que ya dejan el header y el footer.
+        // Arriba: el header empieza HEADER_TOP_GAP por debajo de la barra de
+        // estado (su marginTop ya cuenta como parte de ese aire). Abajo: nunca
+        // menos que el padding de siempre; más solo si la barra de navegación
+        // (3 botones, habitual en tablets) no cabe en el aire del footer.
         {
-          paddingTop: Math.max(40, responsive.insets.top - HEADER_MARGIN_TOP),
+          paddingTop: Math.max(0, responsive.insets.top + HEADER_TOP_GAP - HEADER_MARGIN_TOP),
           paddingBottom: Math.max(10, responsive.insets.bottom - FOOTER_MARGIN_BOTTOM),
         },
       ]}>
@@ -2778,22 +2787,29 @@ return (
         ) : (
           <>
             <View style={styles.eloSessionRow}>
+              {/* Columna izquierda de ancho fijo: ELO arriba y racha debajo, que
+                  juntos ocupan el alto de la sparkline. Ancho fijo para que
+                  aparecer/desaparecer la racha no cambie el ancho de la sparkline
+                  (se redibujaría). Sin racha, el ELO queda centrado y sube con
+                  LinearTransition cuando aparece. */}
+              <View style={styles.eloColumn}>
+                {hasBooted ? (
+                  <>
+                    <Animated.View layout={LinearTransition.duration(200)}>
+                      <EloBadge target={userRatings['global']} feedback={eloFeedback} jumpToken={restoreToken} />
+                    </Animated.View>
+                    {currentStreak >= 2 && <StreakBadge streak={currentStreak} />}
+                  </>
+                ) : (
+                  <Skeleton width={ELO_COLUMN_WIDTH} height={50} radius={14} />
+                )}
+              </View>
               {hasBooted ? (
-                <>
-                  <EloBadge target={userRatings['global']} feedback={eloFeedback} jumpToken={restoreToken} />
-                  <SessionEloSparkline data={sessionEloHistory} globalElo={userRatings['global'] || DEFAULT_ELO} />
-                </>
+                <SessionEloSparkline data={sessionEloHistory} globalElo={userRatings['global'] || DEFAULT_ELO} />
               ) : (
-                <>
-                  <Skeleton width={90} height={50} radius={14} />
-                  <Skeleton height={70} radius={14} style={{ flex: 1 }} />
-                </>
+                <Skeleton height={70} radius={14} style={{ flex: 1 }} />
               )}
             </View>
-
-            <Animated.View style={[styles.streakSlot, streakSlotAnimatedStyle]}>
-              {currentStreak >= 2 && <StreakBadge streak={currentStreak} />}
-            </Animated.View>
           </>
         )}
       </Animated.View>
@@ -2972,7 +2988,7 @@ return (
                     <Text style={[styles.puzzleMetaText, sc.metaText]}>
                       #{String(currentPuzzle.id).toUpperCase()}
                     </Text>
-                    <Text style={[styles.bulletSeparator, sc.metaBullet]}>·</Text>
+                    <View style={[styles.bulletSeparator, sc.metaBullet]} />
                     <Text style={[styles.puzzleMetaText, sc.metaText]}>
                       {t.puzzle.puzzleElo} {currentPuzzle.rating}
                     </Text>
@@ -3253,9 +3269,11 @@ openFiltersText: { color: PALETTE.primary, fontWeight: '800', fontSize: 12, lett
 filterBadgeCount: { backgroundColor: PALETTE.primary, minWidth: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center', marginLeft: 10, paddingHorizontal: 3 },
 filterBadgeText: { color: PALETTE.surface, fontSize: 10, fontWeight: 'bold' },
 puzzleMetaContainer: { marginTop: 1, marginBottom: 1, alignItems: 'center' },
-puzzleMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 40 },
+puzzleMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 26 },
 puzzleMetaText: { color: PALETTE.primary, fontSize: 13, fontWeight: '700', letterSpacing: 1.5, alignSelf: 'center', textAlign: 'center' },
-bulletSeparator: { color: PALETTE.primary, fontSize: 34, paddingHorizontal: 8 },
+// Punto dibujado, no un "·" a 34 pt: ese glifo era lo que obligaba a la fila
+// a medir 40 dp de alto.
+bulletSeparator: { backgroundColor: PALETTE.primary },
 minimalTag: { backgroundColor: PALETTE.tagBg, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: PALETTE.tagBorder },
 headerSpacer: { flex: 1 },
 
@@ -3280,12 +3298,13 @@ boardWrapper: { borderWidth: 0, borderColor: PALETTE.surface, borderRadius: 4, e
 // --- CONTROLES DE NAVEGACIÓN Y ACCIÓN ---
 multiPvWrapper: { paddingVertical: 10, justifyContent: 'flex-start', backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0, },
 analysisLinesContainer: { width: '100%', alignItems: 'center', gap: 1, justifyContent: 'flex-start', },
-streakSlot: { width: '100%', alignItems: 'center', justifyContent: 'flex-start', overflow: 'hidden' },
 
 // --- MODAL DE FILTROS ---
 moveListWrapper: { height: 40, backgroundColor: PALETTE.surface, borderRadius: 8, marginTop: 1, marginBottom: 2, justifyContent: 'center', borderWidth: 1, borderColor: PALETTE.surfaceLight },
 eloSessionRowOuter: { alignSelf: 'center', overflow: 'hidden' },
 eloSessionRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+// Badge (~49) + gap (3) + racha (~20) = ~72 de los 76 de la fila.
+eloColumn: { width: ELO_COLUMN_WIDTH, height: ELO_ROW_HEIGHT, justifyContent: 'center', gap: 3 },
 
 // --- MODO CONTRARELOJ ---
 clockFooterSpacer: { height: 69, marginTop: 'auto', marginBottom: FOOTER_MARGIN_BOTTOM },

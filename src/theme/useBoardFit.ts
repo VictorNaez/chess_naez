@@ -56,7 +56,9 @@ interface BoardFitParams {
  * arriba y abajo, que están vacíos (en un Pixel 7 eso ya pasaba antes con ~60 dp).
  *
  * Restar el peor caso hace que el tablero NO cambie de tamaño al entrar en
- * análisis o cambiar de modo: siempre queda sitio para el estado más alto. La
+ * análisis: siempre queda sitio para el estado más alto. Qué estados entran en
+ * ese peor caso lo decide quien llama (hoy: los del modo actual, así que
+ * cambiar entre puzles y contrarreloj sí puede redimensionar). La
  * fórmula es un punto fijo: tras redimensionar, la holgura absorbe exactamente
  * la diferencia y el siguiente cálculo devuelve el mismo tamaño.
  *

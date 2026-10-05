@@ -90,40 +90,56 @@ interface EloBadgeProps {
   jumpToken?: number;
 }
 
+// El ±ELO sustituye a la etiqueta "ELO" en su misma línea, en lugar de añadir
+// una fila debajo: el badge mide siempre lo mismo y la racha cabe debajo de él
+// dentro de la fila de ELO. Los dos van en absoluto dentro de un hueco de alto
+// fijo para que el fundido cruzado no los apile.
 export const EloBadge = React.memo(({ target, feedback, jumpToken }: EloBadgeProps) => (
   <View style={styles.eloBadge}>
-    <Text style={styles.eloLabel}>ELO</Text>
+    <View style={styles.eloLabelSlot}>
+      {feedback ? (
+        <Animated.View
+          key="feedback"
+          entering={FadeIn.duration(150)}
+          exiting={FadeOut.duration(100)}
+          style={styles.eloLabelLayer}
+        >
+          <Ionicons
+            name={feedback.value >= 0 ? "arrow-up" : "arrow-down"}
+            size={11}
+            color={feedback.value >= 0 ? PALETTE.success : PALETTE.error}
+          />
+          <Text style={[
+            styles.eloFeedbackText,
+            { color: feedback.value >= 0 ? PALETTE.success : PALETTE.error }
+          ]}>
+            {Math.abs(feedback.value)}
+          </Text>
+        </Animated.View>
+      ) : (
+        <Animated.View
+          key="label"
+          entering={FadeIn.duration(150)}
+          exiting={FadeOut.duration(100)}
+          style={styles.eloLabelLayer}
+        >
+          <Text style={styles.eloLabel}>ELO</Text>
+        </Animated.View>
+      )}
+    </View>
     <View style={styles.eloValueContainer}>
       <AnimatedEloValue target={target} jumpToken={jumpToken} />
     </View>
-
-    {feedback && (
-      <Animated.View
-        entering={FadeIn.duration(150)}
-        exiting={FadeOut.duration(100)}
-        style={styles.eloFeedbackRow}
-      >
-        <Ionicons
-          name={feedback.value >= 0 ? "arrow-up" : "arrow-down"}
-          size={12}
-          color={feedback.value >= 0 ? PALETTE.success : PALETTE.error}
-        />
-        <Text style={[
-          styles.eloFeedbackText,
-          { color: feedback.value >= 0 ? PALETTE.success : PALETTE.error }
-        ]}>
-          {Math.abs(feedback.value)}
-        </Text>
-      </Animated.View>
-    )}
   </View>
 ));
 
 const styles = StyleSheet.create({
-  eloBadge: { backgroundColor: 'rgba(26, 26, 26, 0.65)', borderRadius: 14, paddingVertical: 6, paddingHorizontal: 14, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.08)',  alignItems: 'center', justifyContent: 'center', minWidth: 90,},
-  eloLabel: { fontSize: 9, fontWeight: '700', color: '#888', letterSpacing: 1.5, marginBottom: -2, textAlign: 'center' },
+  // Alto fijo: 5+5 de padding + 2 de borde + 13 de etiqueta + ~24 del valor = ~49.
+  eloBadge: { backgroundColor: 'rgba(26, 26, 26, 0.65)', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 14, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.08)',  alignItems: 'center', justifyContent: 'center', minWidth: 90,},
+  eloLabelSlot: { height: 13, alignSelf: 'stretch' },
+  eloLabelLayer: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
+  eloLabel: { fontSize: 9, fontWeight: '700', color: '#888', letterSpacing: 1.5, textAlign: 'center' },
   eloValueContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   eloValue: { fontSize: 18, fontWeight: '800', color: PALETTE.primary, fontVariant: ['tabular-nums'], letterSpacing: 0.5, textAlign: 'center' },
-  eloFeedbackRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 2, gap: 2 },
   eloFeedbackText: { fontSize: 10, fontWeight: '800', fontVariant: ['tabular-nums'] },
 });
